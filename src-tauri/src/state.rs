@@ -1,0 +1,201 @@
+use serde::{Deserialize, Serialize};
+use std::sync::Mutex;
+use tauri::{AppHandle, Manager};
+use tauri_plugin_autostart::ManagerExt;
+use tauri_plugin_store::StoreExt;
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Theme {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+impl Theme {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::System => "system",
+            Self::Light => "light",
+            Self::Dark => "dark",
+        }
+    }
+    pub fn native(&self) -> Option<tauri::Theme> {
+        match self {
+            Self::System => None,
+            Self::Light => Some(tauri::Theme::Light),
+            Self::Dark => Some(tauri::Theme::Dark),
+        }
+    }
+}
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum UpdateChannel {
+    #[default]
+    Stable,
+    PreRelease,
+}
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum NotificationPreview {
+    Full,
+    #[default]
+    Sender,
+    Generic,
+}
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Settings {
+    pub server_url: String,
+    pub theme: Theme,
+    pub autostart: bool,
+    pub minimize_to_tray: bool,
+    pub close_to_tray: bool,
+    pub external_links: bool,
+    pub automatic_updates: bool,
+    pub update_channel: UpdateChannel,
+    pub desktop_notifications: bool,
+    pub notification_preview: NotificationPreview,
+    pub notification_sound: bool,
+    pub unread_title: bool,
+    pub unread_tray: bool,
+}
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            server_url: String::new(),
+            theme: Theme::System,
+            autostart: false,
+            minimize_to_tray: false,
+            close_to_tray: true,
+            external_links: true,
+            automatic_updates: false,
+            update_channel: UpdateChannel::Stable,
+            desktop_notifications: false,
+            notification_preview: NotificationPreview::Sender,
+            notification_sound: true,
+            unread_title: true,
+            unread_tray: true,
+        }
+    }
+}
+pub struct AppState(pub Mutex<Settings>);
+#[derive(Default)]
+pub struct Status(pub Mutex<Option<String>>);
+pub fn current(app: &AppHandle) -> Settings {
+    app.state::<AppState>()
+        .0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+}
+pub fn normalize_server(value: &str) -> Result<String, String> {
+    let value = value.trim();
+    if !(value.to_ascii_lowercase().starts_with("https://")
+        || value.to_ascii_lowercase().starts_with("http://"))
+        || value.chars().any(|c| c.is_whitespace() || c == '\\')
+    {
+        return Err("Enter a valid HTTP or HTTPS URL.".into());
+    }
+    let mut url = url::Url::parse(value).map_err(|_| "Invalid server URL.")?;
+    if url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err("Use a server URL without credentials, query parameters or fragments.".into());
+    }
+    let path = format!("{}/", url.path().trim_end_matches('/'));
+    url.set_path(&path);
+    Ok(url.into())
+}
+pub fn load(app: &AppHandle) -> Result<Settings, Box<dyn std::error::Error>> {
+    let store = app.store("settings.json")?;
+    let mut settings: Settings = store
+        .get("settings")
+        .map(serde_json::from_value)
+        .transpose()?
+        .unwrap_or_default();
+    if !settings.server_url.is_empty() {
+        settings.server_url = normalize_server(&settings.server_url).unwrap_or_default();
+    }
+    settings.autostart = app.autolaunch().is_enabled()?;
+    Ok(settings)
+}
+pub fn persist(app: &AppHandle, settings: Settings) -> Result<(), String> {
+    let old = current(app);
+    let store = app
+        .store("settings.json")
+        .map_err(|_| "Could not open settings store.")?;
+    let launch = app.autolaunch();
+    let was_enabled = launch
+        .is_enabled()
+        .map_err(|_| "Could not read start-at-login preference.")?;
+    if settings.autostart != was_enabled {
+        if settings.autostart {
+            launch.enable()
+        } else {
+            launch.disable()
+        }
+        .map_err(|_| "Could not update start-at-login preference.")?;
+    }
+    store.set(
+        "settings",
+        serde_json::to_value(&settings).map_err(|_| "Invalid settings.")?,
+    );
+    if store.save().is_err() {
+        store.set("settings", serde_json::to_value(&old).unwrap());
+        let _ = if was_enabled {
+            launch.enable()
+        } else {
+            launch.disable()
+        };
+        return Err("Could not save settings.".into());
+    }
+    *app.state::<AppState>()
+        .0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = settings;
+    crate::tray::refresh(app);
+    crate::menu::refresh(app);
+    crate::shell::broadcast_settings(app);
+    crate::unread::refresh(app);
+    if old.update_channel != current(app).update_channel {
+        crate::updates::channel_changed(app);
+    }
+    Ok(())
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn existing_settings_gain_safe_update_defaults() {
+        let settings: Settings =
+            serde_json::from_value(serde_json::json!({"theme":"dark"})).unwrap();
+        assert!(!settings.automatic_updates);
+        assert!(matches!(settings.update_channel, UpdateChannel::Stable));
+        assert!(settings.server_url.is_empty());
+    }
+    #[test]
+    fn normalizes_paths() {
+        assert_eq!(
+            normalize_server(" https://nas.example.com/chat ").unwrap(),
+            "https://nas.example.com/chat/"
+        );
+    }
+    #[test]
+    fn rejects_unsafe_configuration() {
+        for s in [
+            "file:///tmp",
+            "https://user:secret@example.com",
+            "https://example.com/?token=x",
+            "https://example.com/#x",
+            "https:example.com",
+            "https://exa mple.com",
+            "https://example.com\\evil",
+        ] {
+            assert!(normalize_server(s).is_err());
+        }
+    }
+}

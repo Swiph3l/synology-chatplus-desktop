@@ -1,0 +1,119 @@
+﻿name: Future signed release (disabled)
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    # Enable only after maintainer review of signing, audits and the checklist.
+    if: ${{ false }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: windows-x86_64
+            bundles: nsis
+          - os: ubuntu-latest
+            target: linux-x86_64
+            bundles: appimage
+          - os: macos-latest
+            target: darwin-aarch64
+            bundles: app
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+          components: rustfmt
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libayatana-appindicator3-dev librsvg2-dev patchelf
+      - run: npm ci
+      - name: Validate release identity
+        run: node -e "const p=require('./package.json'),c=require('./project.json');if(process.env.GITHUB_REF_NAME!=='v'+p.version||!c.updaterEnabled||!c.updaterPublicKey)process.exit(1)"
+      - run: npm run format:check
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm audit
+      - run: npm run build
+      - run: npm run check:release
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+      - run: cargo test --release --locked --manifest-path src-tauri/Cargo.toml
+      - run: cargo install cargo-audit --version 0.22.2 --locked
+      - run: cargo install cargo-deny --version 0.20.2 --locked
+      - run: cargo audit --file src-tauri/Cargo.lock --deny warnings
+      - run: cargo deny --manifest-path src-tauri/Cargo.toml --config deny.toml --locked check
+      - name: Build and sign updater packages
+        run: npm run tauri build -- --bundles ${{ matrix.bundles }}
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      - name: Check Windows binary privacy
+        if: runner.os == 'Windows'
+        run: node scripts/check-binary-privacy.mjs
+      - run: node scripts/collect-release.mjs ${{ matrix.target }}
+      - run: cargo install cargo-cyclonedx --version 0.5.9 --locked
+      - run: npm run sbom -- security-output
+      - name: Collect dependency evidence
+        shell: pwsh
+        env:
+          RELEASE_TARGET: ${{ matrix.target }}
+        run: |
+          Get-ChildItem security-output | ForEach-Object { Copy-Item $_.FullName "release-artifacts/${env:RELEASE_TARGET}--$($_.Name)" }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: signed-${{ matrix.target }}
+          path: release-artifacts/
+          retention-days: 7
+  draft:
+    if: ${{ false }}
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: signed-*
+          merge-multiple: true
+          path: release-artifacts
+      - name: Generate actual updater metadata
+        run: node scripts/release-metadata.mjs
+      - run: node scripts/checksums.mjs release-artifacts
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: release-artifacts/*
+      - name: Create draft only
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $releaseArgs = @('release','create',$env:RELEASE_TAG,'--draft','--verify-tag','--title',"ChatPlus Desktop $env:RELEASE_TAG",'--notes-file','CHANGELOG.md')
+          if ($env:RELEASE_TAG -match '-') { $releaseArgs += '--prerelease' }
+          gh @releaseArgs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $files = @(Get-ChildItem release-artifacts -File | ForEach-Object FullName)
+          gh release upload $env:RELEASE_TAG @files
+      # Publishing a draft is a separate maintainer action; never automatic.

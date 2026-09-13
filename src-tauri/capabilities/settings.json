@@ -1,0 +1,6 @@
+{
+  "identifier": "settings",
+  "description": "Bundled settings and About pages only. Remote ChatPlus receives no native permissions.",
+  "windows": ["settings", "about", "license", "update"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}

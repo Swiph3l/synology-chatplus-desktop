@@ -1,0 +1,58 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "ChatPlus Desktop",
+  "version": "0.5.0",
+  "identifier": "io.github.swiph3l.chatplus-desktop",
+  "build": {
+    "beforeDevCommand": "node scripts/build-theme.mjs && npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://127.0.0.1:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src ipc: http://ipc.localhost",
+      "capabilities": ["settings"]
+    }
+  },
+  "bundle": {
+    "createUpdaterArtifacts": true,
+    "resources": ["../NOTICE", "../third-party/webpki-root-certs-LICENSE.txt"],
+    "active": true,
+    "targets": ["nsis"],
+    "shortDescription": "Unofficial community desktop client for Synology ChatPlus.",
+    "category": "SocialNetworking",
+    "copyright": "Copyright (c) 2026 Swiph3l",
+    "publisher": "Swiph3l",
+    "licenseFile": "../INSTALLER_LICENSE.txt",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/icon.ico",
+      "icons/icon.icns"
+    ],
+    "windows": {
+      "allowDowngrades": false,
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico"
+      }
+    },
+    "macOS": {
+      "infoPlist": "Info.plist"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "",
+      "endpoints": [],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

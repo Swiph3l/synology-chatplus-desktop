@@ -1,0 +1,59 @@
+name: Dependency and secret audits
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "11 6 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+      - run: npm ci
+      - run: npm audit
+      - name: Install free Rust audit tools
+        if: ${{ !cancelled() }}
+        run: |
+          cargo install cargo-audit --version 0.22.2 --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo install cargo-deny --version 0.20.2 --locked
+      - name: RustSec advisories
+        if: ${{ !cancelled() }}
+        run: cargo audit --file src-tauri/Cargo.lock --deny warnings
+      - name: License, source and advisory policy
+        if: ${{ !cancelled() }}
+        run: cargo deny --manifest-path src-tauri/Cargo.toml --config deny.toml --locked check
+      - name: Gitleaks current tree and history (free CLI)
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP gitleaks.zip
+          $tool = Join-Path $env:RUNNER_TEMP gitleaks
+          Invoke-WebRequest https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_windows_x64.zip -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne 'd29144deff3a68aa93ced33dddf84b7fdc26070add4aa0f4513094c8332afc4e') { throw 'Gitleaks checksum mismatch' }
+          Expand-Archive $archive $tool
+          & "$tool/gitleaks.exe" git . --log-opts='--all --reflog' --redact --no-banner
+          $historyExit = $LASTEXITCODE
+          $tree = Join-Path $env:RUNNER_TEMP scan-tree
+          New-Item -ItemType Directory $tree | Out-Null
+          git ls-files | ForEach-Object {
+            $dest = Join-Path $tree $_
+            New-Item -ItemType Directory (Split-Path $dest) -Force | Out-Null
+            Copy-Item -LiteralPath $_ -Destination $dest
+          }
+          & "$tool/gitleaks.exe" dir $tree --redact --no-banner
+          if ($historyExit -ne 0 -or $LASTEXITCODE -ne 0) { exit 1 }
