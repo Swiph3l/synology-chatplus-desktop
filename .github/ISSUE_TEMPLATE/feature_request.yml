@@ -1,0 +1,56 @@
+name: Feature Request
+description: Suggest a new feature or improvement for ChatPlus Desktop.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting a feature! Please describe your idea clearly.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or motivation
+      description: What problem does this feature solve? What is the current limitation?
+      placeholder: "I find it frustrating that..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe the feature you would like to see.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Have you considered any alternative solutions or workarounds?
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Feature area
+      options:
+        - Theming (Light/Dark/System)
+        - System tray
+        - Notifications
+        - Auto-start
+        - Window management
+        - Server configuration
+        - File upload/download
+        - Automatic updates
+        - Multi-server support
+        - Accessibility
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Any other context, mockups, or references.

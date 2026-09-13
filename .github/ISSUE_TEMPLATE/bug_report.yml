@@ -1,0 +1,82 @@
+name: Bug Report
+description: Report a bug or unexpected behavior in ChatPlus Desktop.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for taking the time to report a bug!
+
+        > ⚠️ **Security reminder:** Never include your Synology credentials, SynoToken, passwords, or private NAS URLs in this report.
+
+  - type: input
+    id: version
+    attributes:
+      label: ChatPlus Desktop version
+      placeholder: "e.g. 0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Windows version
+      placeholder: "e.g. Windows 11 24H2"
+    validations:
+      required: true
+
+  - type: input
+    id: webview2
+    attributes:
+      label: WebView2 Runtime version
+      description: Found in Windows Settings > Apps > Microsoft Edge WebView2 Runtime
+      placeholder: "e.g. 136.0.3240.92"
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the application
+        2. Navigate to ...
+        3. Click on ...
+        4. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What actually happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Paste any relevant log output here. **Remove any credentials, tokens, or private NAS URLs before pasting.**
+      render: shell
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Any other context about the problem (screenshots, etc.).

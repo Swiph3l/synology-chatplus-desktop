@@ -1,0 +1,27 @@
+/*
+ * ChatPlus Desktop — Light Theme
+ *
+ * This stylesheet overrides Synology ChatPlus EOS CSS variables to apply a
+ * light theme. It is injected into the WebView before the page is revealed
+ * to prevent white flashes on startup.
+ *
+ * Status: Placeholder — values are not yet calibrated.
+ */
+
+:root {
+  --eos-bg-surface-z0: #ffffff;
+  --eos-bg-surface-z1: #f7f7f7;
+  --eos-bg-surface-z2: #f0f0f0;
+  --eos-bg-surface-z3: #e8e8e8;
+
+  --eos-bg-surface-primary: #ffffff;
+  --eos-bg-surface-secondary: #f5f5f5;
+  --eos-bg-surface-tertiary: #eeeeee;
+
+  --eos-fg-primary: #1a1a1a;
+  --eos-fg-secondary: #555555;
+  --eos-fg-tertiary: #888888;
+
+  --eos-border-secondary: #d4d4d4;
+  --eos-border-tertiary: #e4e4e4;
+}
