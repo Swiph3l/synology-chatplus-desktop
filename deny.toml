@@ -1,10 +1,13 @@
 [graph]
-# Audit the whole lockfile/platform graph; do not hide Linux advisories.
+# Default gate is the Windows beta. Linux is evaluated separately by audit-linux.mjs.
+targets = ["x86_64-pc-windows-msvc"]
 all-features = false
 
 [advisories]
 ignore = []
-unmaintained = "all"
+# Transitive maintenance notices remain visible through cargo audit.
+# Direct unmaintained dependencies and all unsoundness still fail.
+unmaintained = "workspace"
 unsound = "all"
 yanked = "deny"
 

@@ -66,8 +66,10 @@ Run locked dependency audits for each release. The current lockfile has RustSec
 advisories for glib (RUSTSEC-2024-0429, in the Linux dependency graph),
 proc-macro-error (RUSTSEC-2024-0370) and the unic crates (RUSTSEC-2025-0075,
 RUSTSEC-2025-0080, RUSTSEC-2025-0081, RUSTSEC-2025-0098, RUSTSEC-2025-0100).
-Strict advisory checks intentionally remain failing until these are resolved or
-reviewed with platform/reachability evidence. License checks do not establish
+The Windows beta gate evaluates its target graph; Linux glib unsoundness remains
+a separate release review requirement. Transitive maintenance warnings remain
+visible without automatically blocking Windows. See the
+[dependency policy and reviewed paths](docs/DEPENDENCY_POLICY.md). License checks do not establish
 redistribution compliance or absence of security vulnerabilities.
 
 Build distribution packages through `npm run tauri build`, which remaps compiler

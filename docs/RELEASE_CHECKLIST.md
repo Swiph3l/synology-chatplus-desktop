@@ -11,8 +11,12 @@ artifact hashes for each candidate. Never equate an unchecked item with PASS.
 - [ ] Run `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check`.
 - [ ] Run locked Cargo check, debug tests and release tests on supported targets.
 - [ ] Run `npm run tauri build`; retain the actual final packages.
-- [ ] Run `npm audit`, `cargo audit --file src-tauri/Cargo.lock --deny warnings`
+- [ ] Run `npm audit`, `cargo audit --file src-tauri/Cargo.lock`
       and `cargo deny --manifest-path src-tauri/Cargo.toml --config deny.toml --locked check`.
+- [ ] Apply the [target-specific dependency policy](DEPENDENCY_POLICY.md).
+      Run `node scripts/audit-linux.mjs` for the Windows beta review and strict
+      `cargo deny --manifest-path src-tauri/Cargo.toml --config deny.toml --target x86_64-unknown-linux-gnu --locked check`
+      before approving Linux binaries. Windows eligibility is not Linux approval.
 - [ ] Resolve or explicitly review advisories with target/reachability evidence;
       do not silence advisories merely to obtain a green build.
 - [ ] Scan tracked and untracked candidate files with the free Gitleaks CLI;

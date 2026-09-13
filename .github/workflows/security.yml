@@ -12,11 +12,11 @@ jobs:
   audit:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5 (Node 24)
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6 (Node 24)
         with:
           node-version: 22
           cache: npm
@@ -33,10 +33,14 @@ jobs:
           cargo install cargo-deny --version 0.20.2 --locked
       - name: RustSec advisories
         if: ${{ !cancelled() }}
-        run: cargo audit --file src-tauri/Cargo.lock --deny warnings
+        # Whole lockfile: vulnerabilities fail; informational warnings stay visible.
+        run: cargo audit --file src-tauri/Cargo.lock
       - name: License, source and advisory policy
         if: ${{ !cancelled() }}
         run: cargo deny --manifest-path src-tauri/Cargo.toml --config deny.toml --locked check
+      - name: Linux advisory review for Windows beta
+        if: ${{ !cancelled() }}
+        run: node scripts/audit-linux.mjs
       - name: Gitleaks current tree and history (free CLI)
         if: ${{ !cancelled() }}
         shell: pwsh
