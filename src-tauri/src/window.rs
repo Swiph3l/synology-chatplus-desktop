@@ -62,7 +62,10 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
         .disable_drag_drop_handler()
         .on_page_load(move |_, payload| {
             let value = match payload.event() {
-                tauri::webview::PageLoadEvent::Started => crate::connection::Connection::Connecting,
+                tauri::webview::PageLoadEvent::Started => {
+                    crate::desktop_notifications::pause_tracking(&load_app);
+                    crate::connection::Connection::Connecting
+                }
                 // A generic page-finished event does not establish successful transport.
                 tauri::webview::PageLoadEvent::Finished => {
                     if cfg!(windows) {
@@ -95,6 +98,8 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
         .map_err(|_| "Could not create the ChatPlus window. Check WebView installation.")?;
     crate::platform::observe_connection(app, &window)
         .map_err(|_| "Could not observe WebView connection state.")?;
+    crate::notification_bridge::attach(app, &window)
+        .map_err(|_| "Could not attach browser notification events.")?;
     crate::menu::restore_zoom(app, &window).map_err(|_| "Could not restore zoom.")?;
     apply_theme(app)?;
     focus(&window).map_err(|_| "Could not show ChatPlus.")?;

@@ -53,15 +53,159 @@
     [data-testid="message-create-box-text-area"],
     .v-select2-wrapper,
     .v-multiselect-wrapper,
-    .v-multiselect-input,
-    .v-textfield-wrapper,
-    .v-textfield-input-wrapper,
-    .v-textfield-input
+    .v-multiselect-input
   ) {
   background-color: #191d23 !important;
   color: #edf1f7 !important;
   border-color: #282f39 !important;
   caret-color: #edf1f7;
+}
+/* EOS form controls: keep the surface on the wrapper, including native inputs
+   without a Vue class. Limit native textarea fallback to forms and dialogs. */
+:root[data-chatplus-theme="dark"] body.eos-scope {
+  --chatplus-form-surface: #1b2027;
+  --chatplus-form-border: #343c48;
+  --chatplus-form-focus: #4d8ce8;
+  --chatplus-form-caret: #72aaff;
+}
+:root[data-chatplus-theme="dark"]
+  body.eos-scope
+  :is(
+    .v-textfield-wrapper,
+    .v-textfield-input-wrapper,
+    .v-textarea,
+    .v-textarea-wrapper,
+    .v-textfield-wrapper .input-container,
+    .v-textfield-textarea-wrapper,
+    .v-textfield-wrapper .textarea-fake-scrollbar,
+    .v-textfield-wrapper .fake-textarea
+  ) {
+  background: var(--chatplus-form-surface) !important;
+  color: var(--eos-fg-primary) !important;
+  border-color: var(--chatplus-form-border) !important;
+}
+:root[data-chatplus-theme="dark"]
+  body.eos-scope
+  :is(
+    .v-textfield-input,
+    .v-textfield-wrapper input,
+    .v-textarea-input,
+    .v-textfield-textarea,
+    .v-textarea textarea,
+    .v-textarea-wrapper textarea,
+    .v-textfield-wrapper textarea,
+    .v-form-item textarea,
+    .v-form-item-control textarea,
+    [role="dialog"] textarea
+  ) {
+  background: var(--chatplus-form-surface) !important;
+  color: var(--eos-fg-primary) !important;
+  border-color: var(--chatplus-form-border) !important;
+  caret-color: var(--chatplus-form-caret);
+}
+:root[data-chatplus-theme="dark"]
+  body.eos-scope
+  :is(
+    input.v-textfield-input,
+    .v-textfield-wrapper input,
+    .v-textarea textarea,
+    .v-textarea-wrapper textarea,
+    .v-textfield-wrapper textarea
+  ) {
+  background: transparent !important;
+}
+:root[data-chatplus-theme="dark"]
+  body.eos-scope
+  :is(
+    .v-textfield-wrapper,
+    .v-textfield-input-wrapper,
+    .v-textarea,
+    .v-textarea-wrapper,
+    .v-textfield-wrapper .input-container,
+    .v-textfield-textarea-wrapper,
+    .v-textfield-wrapper .textarea-fake-scrollbar,
+    .v-textfield-wrapper .fake-textarea
+  ):focus-within,
+:root[data-chatplus-theme="dark"]
+  body.eos-scope
+  :is(
+    .v-textfield-input,
+    .v-textfield-wrapper input,
+    .v-textarea-input,
+    .v-textfield-textarea,
+    .v-textarea textarea,
+    .v-textarea-wrapper textarea,
+    .v-textfield-wrapper textarea,
+    .v-form-item textarea,
+    .v-form-item-control textarea,
+    [role="dialog"] textarea
+  ):focus {
+  border-color: var(--chatplus-form-focus) !important;
+}
+:root[data-chatplus-theme="dark"]
+  body.eos-scope
+  :is(
+    .v-textfield-input,
+    .v-textfield-wrapper input,
+    .v-textarea-input,
+    .v-textfield-textarea,
+    .v-textarea textarea,
+    .v-textarea-wrapper textarea,
+    .v-textfield-wrapper textarea,
+    .v-form-item textarea,
+    .v-form-item-control textarea,
+    [role="dialog"] textarea
+  ):disabled {
+  background: var(--eos-bg-surface-z1) !important;
+  color: var(--eos-fg-tertiary) !important;
+  opacity: 0.65;
+}
+/* Confirmed EOS checkbox sprite: retain checked/indeterminate artwork and input
+   semantics; replace only the light unchecked surface. */
+:root[data-chatplus-theme="dark"]
+  body.eos-scope
+  .v-checkbox-wrapper:not(.checked):not(.indeterminate)
+  .v-checkbox-icon {
+  background-image: none !important;
+}
+:root[data-chatplus-theme="dark"]
+  body.eos-scope
+  .v-checkbox-wrapper:not(.checked):not(.indeterminate)
+  .v-checkbox-icon::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border: 1px solid #8b96a5;
+  border-radius: 4px;
+  background: #1b2027;
+  pointer-events: none;
+}
+:root[data-chatplus-theme="dark"]
+  body.eos-scope
+  .v-checkbox-wrapper:not(.disabled):hover
+  .v-checkbox-icon::before {
+  background: #20252c;
+}
+:root[data-chatplus-theme="dark"]
+  body.eos-scope
+  .v-checkbox-wrapper:is(.focused, :focus-within)
+  .v-checkbox-icon {
+  outline: 1px solid #4d8ce8;
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+:root[data-chatplus-theme="dark"]
+  body.eos-scope
+  .v-checkbox-wrapper.disabled:not(.checked):not(.indeterminate)
+  .v-checkbox-icon {
+  opacity: 0.4;
+}
+:root[data-chatplus-theme="dark"]
+  body.eos-scope
+  .has-error
+  .v-checkbox-wrapper
+  .v-checkbox-icon::before {
+  border-color: var(--eos-fg-error, #de3535);
 }
 :root[data-chatplus-theme="dark"] .module-item-option {
   color: #aab2bd !important;

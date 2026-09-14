@@ -118,11 +118,13 @@ and mention interfaces still need testing.
 
 ## Notifications
 
-Desktop notification preferences, privacy modes and a centralized unread model
-are in development. They are not yet connected to ChatPlus message/read events;
-native delivery, unread counts and startup restoration are not supported features.
-Notification preferences alone do not enable background delivery. Permissions
-are never granted automatically during setup.
+Settings > Notifications includes **Send test notification**, privacy modes and
+sound controls. A Windows WebView2 browser-notification bridge is implemented;
+real-message delivery still requires validation with the installed ChatPlus version.
+On Windows, sidebar unread indicators drive a boolean title/tray dot; an exact
+total is unavailable. Real-message/read transitions still need end-to-end testing.
+Permissions are requested only through an explicit Notifications action.
+See [notification behavior and safe testing](docs/NOTIFICATIONS.md).
 
 ## Building from source
 

@@ -6,6 +6,7 @@ mod desktop_notifications;
 mod diagnostics;
 mod menu;
 mod navigation;
+mod notification_bridge;
 mod platform;
 mod project;
 mod shell;
@@ -42,6 +43,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::get_settings,
             commands::get_notification_permission,
+            commands::open_notification_settings,
+            commands::send_test_notification,
             commands::request_notification_permission,
             commands::get_status,
             commands::save_settings,

@@ -27,6 +27,7 @@ pub fn label(value: &Unread) -> String {
         Some(n) if n > 99 => "99+ unread messages".into(),
         Some(n) => format!("{n} unread messages"),
         None if value.has_unread => "Unread messages".into(),
+        None if value.last_update.is_some() => "No unread messages".into(),
         None => "Unread status unavailable".into(),
     }
 }
@@ -44,7 +45,10 @@ pub fn publish(app: &AppHandle, count: Option<u32>, has_unread: bool) {
     let mut unread = service.0.lock().unwrap_or_else(|e| e.into_inner());
     let count = count.map(|n| n.min(1_000_000));
     let has_unread = count.map(|n| n > 0).unwrap_or(has_unread);
-    if unread.total_unread_count == count && unread.has_unread == has_unread {
+    if unread.last_update.is_some()
+        && unread.total_unread_count == count
+        && unread.has_unread == has_unread
+    {
         return;
     }
     *unread = Unread {

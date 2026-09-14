@@ -30,9 +30,16 @@ HTTPS, enforce version/channel policy and require valid signatures before instal
 Only local application windows can invoke these operations. The future release
 workflow is disabled; it has not uploaded installers or published releases.
 
-Camera, microphone and web notifications use the webview/OS permission behavior;
-the application does not automatically grant them. There is no native message
-notification bridge. No analytics or reporting integration was found in the
+Camera and microphone use the webview/OS permission behavior. Windows browser
+notifications are bridged only from the exact configured server origin, with
+delivery controlled by the explicit desktop-notification preference and OS status.
+Only that origin's notification permission may be allowed by the saved preference
+or the explicit local Enable notifications action; other permissions are unchanged.
+The unread bridge accepts only a bounded boolean observation from the configured
+origin, with no command execution or message-content payload. The local Windows
+settings command opens a fixed notification-settings URI and accepts no target URL.
+The Settings test command sends fixed text and
+is unavailable to remote pages. No analytics or reporting integration was found in the
 desktop shell source. This is not a verified absence of all network reporting:
 the configured site, OS and Microsoft WebView2 have independent behavior.
 

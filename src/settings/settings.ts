@@ -49,7 +49,9 @@ export async function renderSettings() {
       <div data-panel="notifications" hidden>
         <fieldset><legend>Notifications</legend>
           <label class="toggle"><input id="desktop-notifications" type="checkbox">Desktop notifications</label>
-          <small id="notification-permission">Enable browser notifications in ChatPlus as well.</small>
+          <small id="notification-permission" role="status">Checking notification permission?</small>
+          <button id="enable-notifications" type="button" class="secondary">Enable notifications</button>
+          <button id="notification-settings" type="button" class="secondary" hidden>Open Windows notification settings</button>
           <label for="notification-preview">Notification preview</label>
           <select id="notification-preview"><option value="full">Full preview</option><option value="sender">Sender/chat only</option><option value="generic">Generic notification</option></select>
           <small>Previews may reveal private information on your lock screen. Sender/chat uses the title supplied by ChatPlus.</small>
@@ -59,6 +61,7 @@ export async function renderSettings() {
           <label class="toggle"><input id="unread-tray" type="checkbox">Show unread status in tray</label>
           <label class="toggle"><input id="notification-sound" type="checkbox">Play notification sound</label>
         </fieldset>
+        <button id="test-notification" type="button" class="secondary">Send test notification</button>
       </div>
       <div data-panel="updates" hidden>
         <fieldset><legend>Updates</legend>
@@ -112,22 +115,90 @@ export async function renderSettings() {
     });
   }
   if (!firstRun) {
-    const permission = document.getElementById("notification-permission")!;
-    input("desktop-notifications").addEventListener("change", async () => {
-      if (!input("desktop-notifications").checked) return;
-      input("desktop-notifications").disabled = true;
+    const testButton = document.getElementById(
+      "test-notification",
+    ) as HTMLButtonElement;
+    testButton.addEventListener("click", async () => {
+      testButton.disabled = true;
       try {
-        let result = await notifications.isPermissionGranted();
-        if (!result.granted) result = await notifications.requestPermission();
-        input("desktop-notifications").checked = result.granted;
-        permission.textContent = result.message;
-      } catch {
-        input("desktop-notifications").checked = false;
-        permission.textContent = "Could not check notification permission.";
+        await notifications.sendTest(input("notification-sound").checked);
+        status.textContent =
+          "Test notification sent. Check Windows notifications if no banner appears.";
+      } catch (error) {
+        status.textContent =
+          typeof error === "string"
+            ? error
+            : "Could not send the test notification.";
       } finally {
-        input("desktop-notifications").disabled = false;
+        testButton.disabled = false;
       }
     });
+    const permission = document.getElementById("notification-permission")!;
+    const enableButton = document.getElementById(
+      "enable-notifications",
+    ) as HTMLButtonElement;
+    const systemButton = document.getElementById(
+      "notification-settings",
+    ) as HTMLButtonElement;
+    let lastPermission:
+      Awaited<ReturnType<typeof notifications.isPermissionGranted>> | undefined;
+    const showPermission = (
+      result: Awaited<ReturnType<typeof notifications.isPermissionGranted>>,
+    ) => {
+      lastPermission = result;
+      const enabled =
+        result.granted &&
+        result.webviewState === "granted" &&
+        input("desktop-notifications").checked;
+      permission.textContent = `Desktop notifications: ${enabled ? "Enabled" : "Disabled"}. ${result.message}${result.webviewState === "denied" ? " ChatPlus WebView notifications are denied. Use Enable notifications after Windows access is available." : result.webviewState === "unavailable" ? " Open ChatPlus to check browser notification permission." : ""}`;
+      systemButton.hidden =
+        result.granted || !/Windows/i.test(navigator.userAgent);
+      enableButton.hidden = enabled;
+    };
+    const refreshPermission = async () => {
+      try {
+        showPermission(await notifications.isPermissionGranted());
+      } catch {
+        permission.textContent = "Could not check notification permission.";
+      }
+    };
+    const enable = async () => {
+      enableButton.disabled = true;
+      input("desktop-notifications").disabled = true;
+      try {
+        const result = await notifications.requestPermission();
+        input("desktop-notifications").checked =
+          result.granted && result.webviewState === "granted";
+        showPermission(result);
+        if (input("desktop-notifications").checked)
+          status.textContent =
+            "Permission is available. Save to enable desktop notifications.";
+      } catch (error) {
+        input("desktop-notifications").checked = false;
+        status.textContent =
+          typeof error === "string" ? error : "Could not enable notifications.";
+        await refreshPermission();
+      } finally {
+        enableButton.disabled = false;
+        input("desktop-notifications").disabled = false;
+      }
+    };
+    enableButton.addEventListener("click", () => {
+      void enable();
+    });
+    input("desktop-notifications").addEventListener("change", () => {
+      if (input("desktop-notifications").checked) void enable();
+      else if (lastPermission) showPermission(lastPermission);
+    });
+    systemButton.addEventListener("click", () => {
+      void notifications.openSettings().catch(() => {
+        status.textContent = "Could not open Windows notification settings.";
+      });
+    });
+    window.addEventListener("focus", () => {
+      void refreshPermission();
+    });
+    void refreshPermission();
     document.getElementById("check-updates")!.addEventListener("click", () => {
       void updates.checkForUpdates().catch(() => {
         status.textContent = "Unable to check for updates.";

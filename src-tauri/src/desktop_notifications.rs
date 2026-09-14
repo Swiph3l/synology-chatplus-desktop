@@ -20,6 +20,7 @@ pub struct Tracking {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Permission {
+    pub webview_state: String,
     pub granted: bool,
     pub state: String,
     pub bridge_available: bool,
@@ -37,7 +38,7 @@ pub fn permission(app: &AppHandle) -> Permission {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .bridge_available;
-    Permission {granted:plugin_granted && os_granted,state:if plugin_granted&&os_granted{"granted"}else{"denied"}.into(),bridge_available:available,message:if plugin_granted&&os_granted{"Notifications follow your preference and Windows notification settings. Enable browser notifications in ChatPlus as well."}else{"Notifications are blocked or unavailable. Check the system notification settings for ChatPlus Desktop."}.into()}
+    Permission {webview_state:"unknown".into(),granted:plugin_granted && os_granted,state:if plugin_granted&&os_granted{"granted"}else{"denied"}.into(),bridge_available:available,message:if plugin_granted&&os_granted{"Windows notifications are available. Enable browser notifications in ChatPlus as well."}else{"Windows notifications are blocked or unavailable for ChatPlus Desktop. Open Windows notification settings to check access."}.into()}
 }
 pub fn request_permission(app: &AppHandle) -> Result<Permission, String> {
     if !matches!(
@@ -49,6 +50,17 @@ pub fn request_permission(app: &AppHandle) -> Result<Permission, String> {
             .map_err(|_| "Could not request notification permission.")?;
     }
     Ok(permission(app))
+}
+pub fn send_test(app: &AppHandle, sound: bool) -> Result<(), String> {
+    // Explicit local user action: independent of unread, focus and tracking state.
+    let mut permission = permission(app);
+    if !permission.granted {
+        permission = request_permission(app)?;
+    }
+    if !permission.granted {
+        return Err(permission.message);
+    }
+    show(app, "ChatPlus Desktop", "Notifications are working.", sound)
 }
 #[cfg(windows)]
 fn os_permission(app: &AppHandle) -> bool {

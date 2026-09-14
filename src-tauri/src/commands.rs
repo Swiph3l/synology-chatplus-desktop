@@ -15,20 +15,55 @@ fn local(window: &tauri::WebviewWindow, labels: &[&str]) -> Result<(), String> {
     Ok(())
 }
 #[tauri::command]
-pub fn get_notification_permission(
+pub async fn get_notification_permission(
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,
 ) -> Result<crate::desktop_notifications::Permission, String> {
     local(&window, &["settings"])?;
-    Ok(crate::desktop_notifications::permission(&app))
+    let mut result = crate::desktop_notifications::permission(&app);
+    result.webview_state = crate::notification_bridge::permission_state(&app).await;
+    Ok(result)
 }
 #[tauri::command]
-pub fn request_notification_permission(
+pub fn open_notification_settings(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    local(&window, &["settings"])?;
+    #[cfg(windows)]
+    {
+        use tauri_plugin_opener::OpenerExt;
+        app.opener()
+            .open_url("ms-settings:notifications", None::<&str>)
+            .map_err(|_| "Could not open Windows notification settings.".into())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = app;
+        Err("Open notification settings in your operating system.".into())
+    }
+}
+#[tauri::command]
+pub async fn request_notification_permission(
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,
 ) -> Result<crate::desktop_notifications::Permission, String> {
     local(&window, &["settings"])?;
-    crate::desktop_notifications::request_permission(&app)
+    let mut result = crate::desktop_notifications::request_permission(&app)?;
+    if result.granted {
+        crate::notification_bridge::enable_permission(&app).await?;
+    }
+    result.webview_state = crate::notification_bridge::permission_state(&app).await;
+    Ok(result)
+}
+#[tauri::command]
+pub fn send_test_notification(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    sound: bool,
+) -> Result<(), String> {
+    local(&window, &["settings"])?;
+    crate::desktop_notifications::send_test(&app, sound)
 }
 #[tauri::command]
 pub fn get_settings(
