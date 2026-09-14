@@ -3,32 +3,19 @@ import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { configureBuild } from "./tauri-build-config.mjs";
 
 const require = createRequire(import.meta.url);
 const args = process.argv.slice(2);
 const env = { ...process.env };
 if (args[0] === "build") {
   const project = JSON.parse(readFileSync("project.json", "utf8"));
-  if (project.updaterEnabled && !project.updaterPublicKey)
-    throw new Error(
-      "An updater-enabled build requires its public verification key in project.json.",
-    );
-  if (!env.TAURI_SIGNING_PRIVATE_KEY) {
-    if (project.updaterEnabled)
-      throw new Error(
-        "An updater-enabled release requires its private signing key in the build environment.",
-      );
-    const delimiter = args.indexOf("--");
-    args.splice(
-      delimiter < 0 ? args.length : delimiter,
-      0,
-      "--config",
-      JSON.stringify({ bundle: { createUpdaterArtifacts: false } }),
-    );
-    console.log(
-      "Development build: updater disabled; no signing key or updater signatures generated.",
-    );
-  }
+  const release = configureBuild(args, env, project);
+  console.log(
+    release
+      ? "Release build: signed updater artifacts required."
+      : "Normal build: no updater artifacts or signatures; runtime updater configuration preserved.",
+  );
 }
 if (
   args[0] === "build" &&

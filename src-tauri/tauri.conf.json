@@ -17,7 +17,7 @@
     }
   },
   "bundle": {
-    "createUpdaterArtifacts": true,
+    "createUpdaterArtifacts": false,
     "resources": ["../NOTICE", "../third-party/webpki-root-certs-LICENSE.txt"],
     "active": true,
     "targets": ["nsis"],

@@ -12,7 +12,9 @@ artifact hashes for each candidate. Never equate an unchecked item with PASS.
 - [ ] Run `npm run build` and `npm run check:release`.
 - [ ] Run `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check`.
 - [ ] Run locked Cargo check, debug tests and release tests on supported targets.
-- [ ] Run `npm run tauri build`; retain the actual final packages.
+- [ ] Run `npm run tauri build` with `CHATPLUS_RELEASE_BUILD=1` and signing
+      credentials supplied securely as described in [UPDATER_SIGNING.md](UPDATER_SIGNING.md);
+      retain the actual final packages and updater signatures.
 - [ ] Run `npm audit`, `cargo audit --file src-tauri/Cargo.lock`
       and `cargo deny --manifest-path src-tauri/Cargo.toml --config deny.toml --locked check`.
 - [ ] Apply the [target-specific dependency policy](DEPENDENCY_POLICY.md).

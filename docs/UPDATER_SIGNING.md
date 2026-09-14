@@ -7,13 +7,26 @@ signature-verified bytes. Installation requires explicit restart confirmation.
 ## Configuration
 
 project.json defines owner/repository, updaterEnabled and the public verification
-key. Updates default to disabled until a production public key is configured.
+key. The runtime updater is enabled with the configured production public key.
 Unconfigured checks show a local message without requesting GitHub. Private signing keys must remain outside the repository.
 
-The base Tauri configuration enables createUpdaterArtifacts, passive Windows
-installation and downgrade prevention. The build wrapper explicitly disables
-artifact signing for unsigned development builds. An enabled updater build without
-TAURI_SIGNING_PRIVATE_KEY fails instead of silently producing unsigned artifacts.
+The base Tauri configuration disables createUpdaterArtifacts and retains passive
+Windows installation and downgrade prevention. `updaterEnabled` controls runtime
+availability only; it does not require a private key to compile or package the app.
+Normal local and push/PR CI builds force createUpdaterArtifacts to false and remove
+signing credentials from the CLI environment. They still embed the runtime public
+key and can receive signed updates. Windows NSIS, Linux DEB and macOS app test
+packages are built without updater signatures; CI archives the macOS app separately.
+
+Only `CHATPLUS_RELEASE_BUILD=1` selects signed release packaging through
+`npm run tauri build`. This mode validates the enabled runtime, public key and
+nonempty TAURI_SIGNING_PRIVATE_KEY before starting Tauri, then forces
+createUpdaterArtifacts to true. Tauri validates the private key/password and
+generates updater packages and `.sig` files. The tag-only release workflow sets
+the mode and passes TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+to its signing step. Ordinary CI never receives these secrets. For an authorized
+local release build, set the same mode in an environment already provisioned with
+signing credentials; do not use a normal build as a release artifact.
 
 Before the first release, generate and securely back up a Tauri signing key, commit
 only the public key, enable updates and supply private key/password through protected
