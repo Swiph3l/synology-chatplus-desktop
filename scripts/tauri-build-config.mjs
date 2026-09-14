@@ -19,7 +19,12 @@ export function configureBuild(args, env, project) {
     delimiter < 0 ? args.length : delimiter,
     0,
     "--config",
-    JSON.stringify({ bundle: { createUpdaterArtifacts: release } }),
+    JSON.stringify({
+      bundle: { createUpdaterArtifacts: release },
+      // The CLI signer also needs this key; the runtime Rust override is not visible to it.
+      // Tauri decodes the complete base64-wrapped minisign key internally.
+      plugins: { updater: { pubkey: project.updaterPublicKey } },
+    }),
   );
   return release;
 }

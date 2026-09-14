@@ -147,6 +147,42 @@ impl Drop for Fixture {
 fn app() -> tauri::App<tauri::test::MockRuntime> {
     app_version("0.1.0")
 }
+#[test]
+fn production_public_key_parses_and_manual_updater_initializes() {
+    let previous_error = minisign::PublicKey::from_box(String::new().into()).unwrap_err();
+    assert!(previous_error
+        .to_string()
+        .contains("Missing comment in public key"));
+    let config = super::configuration();
+    let decoded = String::from_utf8(STANDARD.decode(&config.updater_public_key).unwrap()).unwrap();
+    let public_key = minisign::PublicKey::from_box(decoded.into()).unwrap();
+    assert_eq!(public_key.to_bytes().len(), 42);
+    let app = app();
+    super::builder(
+        app.handle(),
+        "https://github.com/Swiph3l/synology-chatplus-desktop/releases/latest/download/latest.json"
+            .parse()
+            .unwrap(),
+        config.updater_public_key,
+        UpdateChannel::Stable,
+    )
+    .expect("production public key must initialize the manual updater");
+}
+
+#[test]
+#[ignore = "requires a locally built production artifact and its .sig; never reads a private key"]
+fn production_artifact_signature_verifies() {
+    let path = std::env::var("CHATPLUS_SIGNED_ARTIFACT").expect("artifact path required");
+    let config = super::configuration();
+    let decoded = String::from_utf8(STANDARD.decode(config.updater_public_key).unwrap()).unwrap();
+    let public_key = minisign::PublicKey::from_box(decoded.into()).unwrap();
+    let signature = std::fs::read_to_string(format!("{path}.sig")).unwrap();
+    let decoded = String::from_utf8(STANDARD.decode(signature.trim()).unwrap()).unwrap();
+    let signature = minisign::SignatureBox::from_string(&decoded).unwrap();
+    let artifact = std::fs::File::open(path).unwrap();
+    minisign::verify(&public_key, &signature, artifact, true, false, false)
+        .expect("artifact must be signed by the existing production key");
+}
 fn app_version(version: &str) -> tauri::App<tauri::test::MockRuntime> {
     let mut context = tauri::test::mock_context(tauri::test::noop_assets());
     context.package_info_mut().version = Version::parse(version).unwrap();

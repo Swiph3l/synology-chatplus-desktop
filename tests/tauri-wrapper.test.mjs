@@ -63,7 +63,21 @@ test("wrapper separates runtime updater configuration from release signing", asy
       assert.ok(i >= 0);
       assert.ok(i < result.args.indexOf("--"));
       assert.ok(result.args.includes("--locked"));
-      return JSON.parse(result.args[i + 1]).bundle.createUpdaterArtifacts;
+      const config = JSON.parse(result.args[i + 1]);
+      assert.equal(config.plugins.updater.pubkey, project.updaterPublicKey);
+      const decoded = Buffer.from(
+        config.plugins.updater.pubkey,
+        "base64",
+      ).toString("utf8");
+      assert.match(
+        decoded,
+        /^untrusted comment: minisign public key: [0-9A-F]+\r?\n[A-Za-z0-9+/]{56}\r?\n?$/,
+      );
+      assert.equal(
+        Buffer.from(decoded, "utf8").toString("base64"),
+        project.updaterPublicKey,
+      );
+      return config.bundle.createUpdaterArtifacts;
     };
     await t.test(
       "normal CI without key passes on every package target and preserves runtime",

@@ -8,6 +8,13 @@ signature-verified bytes. Installation requires explicit restart confirmation.
 
 project.json defines owner/repository, updaterEnabled and the public verification
 key. The runtime updater is enabled with the configured production public key.
+Keep the complete base64-wrapped contents of Tauri's `.pub` file in
+`updaterPublicKey`. Both the Tauri CLI signer and runtime plugin decode that outer
+base64 layer into the minisign comment and key lines internally. Do not pass the
+decoded text or only its second line directly to Tauri's `pubkey` field.
+The wrapper supplies this same key as `plugins.updater.pubkey` to the CLI;
+the runtime builder reads it from `project.json`. An empty static plugin key alone
+is insufficient for signing and causes `Missing comment in public key`.
 Unconfigured checks show a local message without requesting GitHub. Private signing keys must remain outside the repository.
 
 The base Tauri configuration disables createUpdaterArtifacts and retains passive
