@@ -1,4 +1,4 @@
-﻿name: Windows signed draft release
+name: Windows signed draft release
 on:
   push:
     tags: ["v*"]
@@ -88,7 +88,7 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6 (Node 24)
         with:
           node-version: 22
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7 (Node 24)
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v7 (Node 24)
         with:
           name: signed-windows-x86_64
           path: release-artifacts
