@@ -2,7 +2,14 @@
 
 All notable changes will be documented here. Versions follow Semantic Versioning.
 
-## Unreleased
+## 0.5.0-beta.1 — prepared, not published
+
+First public beta target: Windows x64 NSIS only. Linux and macOS are experimental.
+Windows binaries are unsigned; SmartScreen warnings are possible. Camera,
+microphone and Synology Meet runtime behavior remain unconfirmed.
+
+The signed updater requires the owner's production key and a successful
+beta.1-to-beta.2 install/restart test before production operation is claimed.
 
 ### Added
 
@@ -28,7 +35,7 @@ All notable changes will be documented here. Versions follow Semantic Versioning
 
 ### Changed
 
-- Base application version is 0.5.0. No release tag is implied.
+- Application version is 0.5.0-beta.1. No release tag is implied.
 
 - Compact desktop preferences, a server-only first-run dialog and a concise
   About window with collapsed technical details and separate license viewing.

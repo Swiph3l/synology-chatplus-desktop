@@ -24,7 +24,7 @@ policy, not a claim that an advisory is harmless on every platform.
   There is no blanket `continue-on-error` or future-advisory ignore.
 - A Linux release must pass strict `cargo deny --target x86_64-unknown-linux-gnu`
   checking or receive a separate evidence-based release decision. The Windows
-  exception does not authorize Linux distribution. Release automation stays disabled.
+  exception does not authorize Linux distribution. The Windows-only draft workflow does not distribute Linux.
 
 ## Reviewed dependency paths (base version 0.5.0)
 

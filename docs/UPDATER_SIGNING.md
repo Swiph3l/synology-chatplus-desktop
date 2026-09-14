@@ -25,7 +25,8 @@ do not provide Authenticode, Apple notarization or remove SmartScreen warnings.
 
 Stable uses https://github.com/{owner}/{repository}/releases/latest/download/latest.json.
 Pre-release lists up to 100 published releases through GitHub's public API, chooses
-the highest eligible SemVer with a latest.json asset and includes stable versions.
+the highest eligible SemVer with a latest-prerelease.json asset. It never reads
+latest.json; stable releases normally supply only the Stable manifest.
 Drafts and missing manifests are skipped. Review this bounded policy if retaining
 more than 100 recent releases. No token or HTML scraping is used.
 
@@ -51,9 +52,13 @@ updater-metadata.mjs generates metadata only for supplied targets and rejects ab
 empty or malformed inputs. Cryptographic verification occurs in the updater.
 release-metadata.mjs combines the collected platform manifests.
 
-Both jobs in .github/workflows/release.yml are deliberately disabled. After review
-and activation, version tags build and sign platform packages, run checks, collect
-SBOMs, generate metadata/checksums, attest artifacts and create a draft release.
+The Windows-only .github/workflows/release.yml accepts version tags, validates
+all source versions and production signing configuration, and requires Windows CI,
+CodeQL and security checks on the same main commit. It builds NSIS and its updater
+signature, collects SBOMs, generates channel-specific metadata/checksums, attests
+public-repository artifacts and creates a draft release. Beta tags write only
+latest-prerelease.json; stable tags write only latest.json. Linux/macOS do not
+participate in this release gate. Missing signing configuration fails closed.
 Publication is a separate maintainer action.
 
 Before enabling, resolve audit findings, verify runner architectures and protected
@@ -61,6 +66,9 @@ secrets, exercise platform packages and provide complete corresponding GPL sourc
 For a compromised key, stop publication and distribute a trusted recovery installer
 with a replacement public key; never bypass verification. Keep installers and source
 available for manual recovery.
+
+See [Windows beta owner steps](WINDOWS_BETA.md) for the key-generation command,
+GitHub Secrets, exact Windows assets and beta.1 to beta.2 smoke test.
 
 ## Local verification
 

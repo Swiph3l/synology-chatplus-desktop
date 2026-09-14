@@ -6,6 +6,13 @@ export function validVersion(version) {
     version,
   );
 }
+export function manifestName(version) {
+  if (!validVersion(version))
+    throw new Error("A valid SemVer version is required");
+  return version.split("+")[0].includes("-")
+    ? "latest-prerelease.json"
+    : "latest.json";
+}
 export async function generate(
   root,
   version,
@@ -80,7 +87,7 @@ if (
     project,
   );
   await writeFile(
-    path.join(root, "latest.json"),
+    path.join(root, manifestName(version)),
     JSON.stringify(metadata, null, 2) + "\n",
   );
   console.log(

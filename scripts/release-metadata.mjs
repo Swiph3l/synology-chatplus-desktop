@@ -1,5 +1,6 @@
 import { readdir, readFile, writeFile } from "node:fs/promises";
-import { generate } from "./updater-metadata.mjs";
+import { generate, manifestName } from "./updater-metadata.mjs";
+import { repositoryIdentity } from "./release-identity.mjs";
 const root = "release-artifacts";
 const targets = {};
 for (const file of await readdir(root))
@@ -9,7 +10,7 @@ for (const file of await readdir(root))
     targets[manifest.target] = manifest.file;
   }
 const project = JSON.parse(await readFile("project.json", "utf8"));
-const version = process.env.GITHUB_REF_NAME?.replace(/^v/, "");
+const { version } = repositoryIdentity(process.env.GITHUB_REF_NAME);
 const metadata = await generate(
   root,
   version,
@@ -18,6 +19,6 @@ const metadata = await generate(
   project,
 );
 await writeFile(
-  `${root}/latest.json`,
+  `${root}/${manifestName(version)}`,
   JSON.stringify(metadata, null, 2) + "\n",
 );

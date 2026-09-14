@@ -63,12 +63,12 @@ or account data.
 
 ## Supported platforms
 
-| Platform                    | Status                                                                |
-| --------------------------- | --------------------------------------------------------------------- |
-| Windows x64                 | Primary development and testing platform; Microsoft WebView2 required |
-| Linux x64                   | Build configuration prepared; runtime validation pending              |
-| macOS Intel / Apple Silicon | Build configuration prepared; runtime validation pending              |
-| Windows ARM64               | Not validated                                                         |
+| Platform                    | Status                                          |
+| --------------------------- | ----------------------------------------------- |
+| Windows x64                 | Public Beta target; Microsoft WebView2 required |
+| Linux x64                   | Experimental; runtime validation pending        |
+| macOS Intel / Apple Silicon | Experimental; runtime validation pending        |
+| Windows ARM64               | Not validated                                   |
 
 The app uses the system WebView and does not bundle Chromium.
 
@@ -167,12 +167,12 @@ cargo test --release --locked --manifest-path src-tauri/Cargo.toml
 
 Debug builds include a synthetic local fixture and Developer menu; both are
 excluded from release builds. CI checks platform builds without publishing
-installers. Release automation is disabled.
+installers. Reviewed version tags trigger a Windows-only draft release; publication is manual.
 
 About shows the version and maintainer. **Technical details** contains build,
 Git and runtime information plus **Copy Diagnostics**. Unknown values appear as
-Unavailable. Untagged builds display `0.5.0-dev+<commit>`; source/package versions
-remain `0.5.0`. Builds do not create tags or change versions.
+Unavailable. Untagged builds display `0.5.0-beta.1-dev+<commit>`; source/package versions
+remain `0.5.0-beta.1`. Builds do not create tags or change versions.
 
 Settings includes update channels, opt-in automatic checks and manual checking.
 The signed updater is implemented but disabled until a production verification key
@@ -181,13 +181,14 @@ and release are configured. Unconfigured checks make no network request. See
 
 ## Security & verification
 
-Windows binaries are currently unsigned. An unsigned alpha does not establish
+Windows: **Unsigned / SmartScreen warning possible**. An unsigned beta does not establish
 publisher identity; do not disable SmartScreen to install it.
 
 Release verification tooling produces `SHA256SUMS.txt` from final packages and
 separate npm/Rust CycloneDX SBOMs. These describe dependencies, including build
-tools; they do not certify safety. Future GitHub builds have a disabled artifact
-attestation workflow. No attestation exists for the current local build.
+tools; they do not certify safety. The public GitHub draft-release workflow generates
+artifact attestations. Local builds are not attested. See the
+[Windows beta process](docs/WINDOWS_BETA.md) for signing prerequisites and smoke tests.
 Verify a future attested artifact with:
 
 ```sh

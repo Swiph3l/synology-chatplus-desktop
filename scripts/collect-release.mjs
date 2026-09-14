@@ -1,4 +1,10 @@
-import { readdir, mkdir, copyFile, writeFile } from "node:fs/promises";
+import {
+  readdir,
+  mkdir,
+  copyFile,
+  writeFile,
+  readFile,
+} from "node:fs/promises";
 import path from "node:path";
 const target = process.argv[2];
 const extensions = {
@@ -21,7 +27,11 @@ if (candidates.length !== 1)
     "Expected exactly one signed updater package for this target",
   );
 await mkdir("release-artifacts", { recursive: true });
-const file = `${target}--${path.basename(candidates[0])}`;
+const { version } = JSON.parse(await readFile("package.json", "utf8"));
+const file =
+  target === "windows-x86_64"
+    ? `${target}--ChatPlus Desktop_${version}_x64-setup.exe`
+    : `${target}--${path.basename(candidates[0])}`;
 await copyFile(candidates[0], path.join("release-artifacts", file));
 await copyFile(
   candidates[0] + ".sig",

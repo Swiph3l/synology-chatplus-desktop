@@ -1,6 +1,7 @@
 //! HTTPS fixtures use ephemeral keys in memory; never install fixture payloads.
 use super::{accepts, UpdateChannel};
 use base64::{engine::general_purpose::STANDARD, Engine};
+use semver::Version;
 use std::{
     io::{Read, Write},
     net::TcpListener,
@@ -144,7 +145,11 @@ impl Drop for Fixture {
     }
 }
 fn app() -> tauri::App<tauri::test::MockRuntime> {
+    app_version("0.1.0")
+}
+fn app_version(version: &str) -> tauri::App<tauri::test::MockRuntime> {
     let mut context = tauri::test::mock_context(tauri::test::noop_assets());
+    context.package_info_mut().version = Version::parse(version).unwrap();
     context.config_mut().plugins.0.insert(
         "updater".into(),
         serde_json::json!({"pubkey":"", "endpoints":[]}),
@@ -153,6 +158,26 @@ fn app() -> tauri::App<tauri::test::MockRuntime> {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .build(context)
         .unwrap()
+}
+#[tokio::test]
+async fn beta_one_downloads_and_verifies_beta_two_only_in_prerelease_channel() {
+    let app = app_version("0.5.0-beta.1");
+    let fixture = Fixture::new("0.5.0-beta.2", false, false, false);
+    assert!(fixture
+        .updater(app.handle(), UpdateChannel::Stable)
+        .check()
+        .await
+        .unwrap()
+        .is_none());
+    let update = fixture
+        .updater(app.handle(), UpdateChannel::PreRelease)
+        .check()
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(update.version, "0.5.0-beta.2");
+    assert!(!update.download(|_, _| {}, || {}).await.unwrap().is_empty());
+    // A real installation/restart remains a separate owner smoke test.
 }
 #[tokio::test]
 async fn actual_updater_verifies_signed_https_download() {

@@ -1,31 +1,16 @@
-﻿name: Future signed release (disabled)
+﻿name: Windows signed draft release
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch:
 permissions:
   contents: read
+  actions: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   build:
-    # Enable only after maintainer review of signing, audits and the checklist.
-    if: ${{ false }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            target: windows-x86_64
-            rust-target: x86_64-pc-windows-msvc
-            bundles: nsis
-          - os: ubuntu-latest
-            target: linux-x86_64
-            rust-target: x86_64-unknown-linux-gnu
-            bundles: appimage
-          - os: macos-latest
-            target: darwin-aarch64
-            rust-target: aarch64-apple-darwin
-            bundles: app
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5 (Node 24)
         with:
@@ -39,12 +24,19 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt
-      - name: Linux dependencies
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libayatana-appindicator3-dev librsvg2-dev patchelf
+      - name: Validate tag, versions and production signing configuration
+        run: node scripts/release-identity.mjs
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      - name: Require Windows x64 host
+        run: |
+          $hostInfo = rustc -vV
+          if ($LASTEXITCODE -ne 0 -or $hostInfo -notcontains 'host: x86_64-pc-windows-msvc') { throw 'Windows x64 toolchain required.' }
+      - name: Require Windows CI, CodeQL and security checks on the tagged commit
+        run: node scripts/release-checks.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}
       - run: npm ci
-      - name: Validate release identity
-        run: node -e "const p=require('./package.json'),c=require('./project.json');if(process.env.GITHUB_REF_NAME!=='v'+p.version||!c.updaterEnabled||!c.updaterPublicKey)process.exit(1)"
       - run: npm run format:check
       - run: npm run typecheck
       - run: npm test
@@ -57,36 +49,36 @@ jobs:
       - run: cargo install cargo-audit --version 0.22.2 --locked
       - run: cargo install cargo-deny --version 0.20.2 --locked
       - run: cargo audit --file src-tauri/Cargo.lock
-      # Distribution gates the actual platform; Windows review exceptions do not apply.
-      - run: cargo deny --manifest-path src-tauri/Cargo.toml --config deny.toml --target ${{ matrix.rust-target }} --locked check
+      # Only Windows is distributed; Linux/macOS remain experimental.
+      - run: cargo deny --manifest-path src-tauri/Cargo.toml --config deny.toml --target x86_64-pc-windows-msvc --locked check
       - name: Build and sign updater packages
-        run: npm run tauri build -- --bundles ${{ matrix.bundles }}
+        run: npm run tauri build -- --bundles nsis
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       - name: Check Windows binary privacy
-        if: runner.os == 'Windows'
         run: node scripts/check-binary-privacy.mjs
-      - run: node scripts/collect-release.mjs ${{ matrix.target }}
+      - run: node scripts/collect-release.mjs windows-x86_64
       - run: cargo install cargo-cyclonedx --version 0.5.9 --locked
       - run: npm run sbom -- security-output
       - name: Collect dependency evidence
         shell: pwsh
         env:
-          RELEASE_TARGET: ${{ matrix.target }}
+          RELEASE_TARGET: windows-x86_64
         run: |
           Get-ChildItem security-output | ForEach-Object { Copy-Item $_.FullName "release-artifacts/${env:RELEASE_TARGET}--$($_.Name)" }
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6 (Node 24)
         with:
-          name: signed-${{ matrix.target }}
+          name: signed-windows-x86_64
           path: release-artifacts/
           retention-days: 7
+          if-no-files-found: error
   draft:
-    if: ${{ false }}
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read
       id-token: write
       attestations: write
     steps:
@@ -98,13 +90,14 @@ jobs:
           node-version: 22
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7 (Node 24)
         with:
-          pattern: signed-*
-          merge-multiple: true
+          name: signed-windows-x86_64
           path: release-artifacts
       - name: Generate actual updater metadata
         run: node scripts/release-metadata.mjs
       - run: node scripts/checksums.mjs release-artifacts
-      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+      - name: Attest public release artifacts
+        if: github.event.repository.private == false
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: release-artifacts/*
       - name: Create draft only
@@ -115,9 +108,10 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           $releaseArgs = @('release','create',$env:RELEASE_TAG,'--draft','--verify-tag','--title',"ChatPlus Desktop $env:RELEASE_TAG",'--notes-file','CHANGELOG.md')
-          if ($env:RELEASE_TAG -match '-') { $releaseArgs += '--prerelease' }
+          if ($env:RELEASE_TAG -match '^v\d+\.\d+\.\d+-') { $releaseArgs += '--prerelease' }
           gh @releaseArgs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $files = @(Get-ChildItem release-artifacts -File | ForEach-Object FullName)
           gh release upload $env:RELEASE_TAG @files
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       # Publishing a draft is a separate maintainer action; never automatic.

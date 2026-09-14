@@ -160,6 +160,12 @@ struct Asset {
     name: String,
     browser_download_url: url::Url,
 }
+fn manifest_name(channel: &UpdateChannel) -> &'static str {
+    match channel {
+        UpdateChannel::Stable => "latest.json",
+        UpdateChannel::PreRelease => "latest-prerelease.json",
+    }
+}
 async fn endpoint(
     config: &Configuration,
     channel: &UpdateChannel,
@@ -207,11 +213,9 @@ async fn endpoint(
         .collect();
     releases.sort_by(|a, b| b.0.cmp(&a.0));
     for (_, release) in releases {
-        if let Some(asset) = release
-            .assets
-            .into_iter()
-            .find(|a| a.name == "latest.json" && https_asset(&a.browser_download_url, config))
-        {
+        if let Some(asset) = release.assets.into_iter().find(|a| {
+            a.name == manifest_name(channel) && https_asset(&a.browser_download_url, config)
+        }) {
             return Ok(Some(asset.browser_download_url));
         }
     }
@@ -516,6 +520,24 @@ pub fn start(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn beta_upgrade_and_manifest_channels() {
+        assert_eq!(manifest_name(&UpdateChannel::Stable), "latest.json");
+        assert_eq!(
+            manifest_name(&UpdateChannel::PreRelease),
+            "latest-prerelease.json"
+        );
+        let current = Version::parse("0.5.0-beta.1").unwrap();
+        let next = Version::parse("0.5.0-beta.2").unwrap();
+        assert!(accepts(&current, &next, &UpdateChannel::PreRelease));
+        assert!(!accepts(&current, &next, &UpdateChannel::Stable));
+        assert!(!accepts(&next, &current, &UpdateChannel::PreRelease));
+        assert!(accepts(
+            &current,
+            &Version::parse("0.5.0").unwrap(),
+            &UpdateChannel::Stable
+        ));
+    }
     #[test]
     fn channel_policy_never_downgrades() {
         let current = Version::parse("0.1.0").unwrap();
