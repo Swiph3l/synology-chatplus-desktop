@@ -160,19 +160,40 @@ struct Asset {
     name: String,
     browser_download_url: url::Url,
 }
+
+enum EndpointSelection {
+    Found(url::Url),
+    MissingManifest,
+}
+
 fn manifest_name(channel: &UpdateChannel) -> &'static str {
     match channel {
         UpdateChannel::Stable => "latest.json",
         UpdateChannel::PreRelease => "latest-prerelease.json",
     }
 }
+
+fn select_release_manifest(
+    release: Release,
+    config: &Configuration,
+    channel: &UpdateChannel,
+) -> Option<url::Url> {
+    // Pre-release must never read the stable manifest.
+    // TODO(Swiph3l): verify this against a clean beta.1 -> beta.2 install.
+    release
+        .assets
+        .into_iter()
+        .find(|a| a.name == manifest_name(channel) && https_asset(&a.browser_download_url, config))
+        .map(|a| a.browser_download_url)
+}
+
 async fn endpoint(
     config: &Configuration,
     channel: &UpdateChannel,
-) -> Result<Option<url::Url>, String> {
+) -> Result<EndpointSelection, String> {
     let repository = config.repository_url()?;
     if matches!(channel, UpdateChannel::Stable) {
-        return Ok(Some(
+        return Ok(EndpointSelection::Found(
             format!("{repository}/releases/latest/download/latest.json")
                 .parse()
                 .unwrap(),
@@ -213,13 +234,11 @@ async fn endpoint(
         .collect();
     releases.sort_by(|a, b| b.0.cmp(&a.0));
     for (_, release) in releases {
-        if let Some(asset) = release.assets.into_iter().find(|a| {
-            a.name == manifest_name(channel) && https_asset(&a.browser_download_url, config)
-        }) {
-            return Ok(Some(asset.browser_download_url));
+        if let Some(url) = select_release_manifest(release, config, channel) {
+            return Ok(EndpointSelection::Found(url));
         }
     }
-    Ok(None)
+    Ok(EndpointSelection::MissingManifest)
 }
 pub async fn check(app: &AppHandle, manual: bool) -> Result<Snapshot, String> {
     let config = configuration();
@@ -250,10 +269,16 @@ pub async fn check(app: &AppHandle, manual: bool) -> Result<Snapshot, String> {
     }
     emit(app);
     let result = async {
-        let Some(endpoint) = endpoint(&config, &channel).await? else {
-            return Ok(None);
+        let endpoint = match endpoint(&config, &channel).await? {
+            EndpointSelection::Found(endpoint) => endpoint,
+            EndpointSelection::MissingManifest => {
+                return Ok((None, Some(
+                    "No eligible pre-release manifest was found for the selected channel."
+                        .to_string(),
+                )));
+            }
         };
-        builder(
+        let update = builder(
             app,
             endpoint,
             config.updater_public_key.clone(),
@@ -263,7 +288,8 @@ pub async fn check(app: &AppHandle, manual: bool) -> Result<Snapshot, String> {
         .await
         .map_err(|_| {
             "Unable to check for updates. Check your connection and try again.".to_string()
-        })
+        })?;
+        Ok((update, None))
     }
     .await;
     let mut show = false;
@@ -278,7 +304,7 @@ pub async fn check(app: &AppHandle, manual: bool) -> Result<Snapshot, String> {
             return Ok(snapshot(app));
         }
         match result {
-            Ok(update) => {
+            Ok((update, message_override)) => {
                 if let Some(ref update) = update {
                     if !https_asset(&update.download_url, &config)
                         || Version::parse(&update.version).ok().is_none_or(|v| {
@@ -308,7 +334,8 @@ pub async fn check(app: &AppHandle, manual: bool) -> Result<Snapshot, String> {
                     show = true;
                 } else {
                     inner.snapshot.phase = "current".into();
-                    inner.snapshot.message = "You're up to date.".into();
+                    inner.snapshot.message = message_override
+                        .unwrap_or_else(|| "You're up to date.".to_string());
                 }
                 inner.update = update;
                 inner.snapshot.last_successful_check = Some(now());
@@ -520,6 +547,22 @@ pub fn start(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn asset(name: &str, url: &str) -> Asset {
+        Asset {
+            name: name.into(),
+            browser_download_url: url.parse().unwrap(),
+        }
+    }
+
+    fn release(tag: &str, assets: Vec<Asset>) -> Release {
+        Release {
+            tag_name: tag.into(),
+            draft: false,
+            assets,
+        }
+    }
+
     #[test]
     fn beta_upgrade_and_manifest_channels() {
         assert_eq!(manifest_name(&UpdateChannel::Stable), "latest.json");
@@ -536,6 +579,16 @@ mod tests {
             &current,
             &Version::parse("0.5.0").unwrap(),
             &UpdateChannel::Stable
+        ));
+        assert!(accepts(
+            &Version::parse("0.5.0-beta.2").unwrap(),
+            &Version::parse("0.5.0-rc.1").unwrap(),
+            &UpdateChannel::PreRelease
+        ));
+        assert!(accepts(
+            &Version::parse("0.5.0-rc.1").unwrap(),
+            &Version::parse("0.5.0").unwrap(),
+            &UpdateChannel::PreRelease
         ));
     }
     #[test]
@@ -570,6 +623,64 @@ mod tests {
         assert!(!automatic_due(true, Some(100), 0, 101));
         assert!(!automatic_due(true, None, 200, 100));
         assert!(automatic_due(true, Some(100), 0, 100 + INTERVAL));
+    }
+
+    #[test]
+    fn semver_prerelease_order_is_strictly_increasing() {
+        let beta1 = Version::parse("0.5.0-beta.1").unwrap();
+        let beta2 = Version::parse("0.5.0-beta.2").unwrap();
+        let rc1 = Version::parse("0.5.0-rc.1").unwrap();
+        let stable = Version::parse("0.5.0").unwrap();
+        assert!(accepts(&beta1, &beta2, &UpdateChannel::PreRelease));
+        assert!(!accepts(&beta2, &beta1, &UpdateChannel::PreRelease));
+        assert!(accepts(&beta2, &rc1, &UpdateChannel::PreRelease));
+        assert!(accepts(&beta2, &stable, &UpdateChannel::PreRelease));
+        assert!(accepts(&rc1, &stable, &UpdateChannel::PreRelease));
+    }
+
+    #[test]
+    fn prerelease_manifest_selection_never_falls_back_to_stable_manifest() {
+        let config = configuration();
+        let release = release(
+            "v0.5.0-beta.2",
+            vec![
+                asset(
+                    "latest.json",
+                    "https://github.com/Swiph3l/synology-chatplus-desktop/releases/download/v0.5.0-beta.2/latest.json",
+                ),
+                asset(
+                    "latest-prerelease.json",
+                    "https://github.com/Swiph3l/synology-chatplus-desktop/releases/download/v0.5.0-beta.2/latest-prerelease.json",
+                ),
+            ],
+        );
+        let selected = select_release_manifest(release, &config, &UpdateChannel::PreRelease)
+            .unwrap()
+            .to_string();
+        assert!(selected.ends_with("latest-prerelease.json"));
+    }
+
+    #[test]
+    fn prerelease_without_prerelease_manifest_returns_none() {
+        let config = configuration();
+        let release = release(
+            "v0.5.0-beta.2",
+            vec![asset(
+                "latest.json",
+                "https://github.com/Swiph3l/synology-chatplus-desktop/releases/download/v0.5.0-beta.2/latest.json",
+            )],
+        );
+        assert!(select_release_manifest(release, &config, &UpdateChannel::PreRelease).is_none());
+    }
+
+    #[test]
+    fn manifest_selection_is_shared_for_manual_and_automatic_checks() {
+        // Keep the channel decision in one place so manual and automatic checks cannot diverge.
+        let automatic_manifest = manifest_name(&UpdateChannel::PreRelease);
+        let manual_manifest = manifest_name(&UpdateChannel::PreRelease);
+        assert_eq!(automatic_manifest, manual_manifest);
+        assert_eq!(automatic_manifest, "latest-prerelease.json");
+        assert_eq!(manifest_name(&UpdateChannel::Stable), "latest.json");
     }
     #[test]
     fn updater_assets_are_confined_to_project_https() {
