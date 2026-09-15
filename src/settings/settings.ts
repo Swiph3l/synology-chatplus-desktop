@@ -32,18 +32,20 @@ export async function renderSettings() {
       ${firstRun ? "" : '<nav class="settings-tabs" aria-label="Settings categories"><button type="button" data-tab="general" aria-pressed="true">General</button><button type="button" data-tab="notifications" aria-pressed="false">Notifications</button><button type="button" data-tab="updates" aria-pressed="false">Updates</button></nav>'}
       <div data-panel="general">
       <fieldset class="server-section">${firstRun ? "" : "<legend>ChatPlus server</legend>"}<label for="server">Server URL</label><input id="server" type="url" required placeholder="https://example.com/chat/" autocomplete="url" spellcheck="false">${firstRun ? "" : "<small>Enter the URL of your ChatPlus installation.</small>"}</fieldset>
-      ${firstRun
-      ? ""
-      : `
+      ${
+        firstRun
+          ? ""
+          : `
       <fieldset><legend>Appearance</legend><div class="preference-row"><label for="theme">Theme</label><select id="theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></div></fieldset>
       <fieldset><legend>Startup</legend><label class="toggle"><input id="autostart" type="checkbox">${/Windows/i.test(navigator.userAgent) ? "Start with Windows" : "Start at login"}</label></fieldset>
       <fieldset><legend>Window</legend><label class="toggle"><input id="minimize" type="checkbox">Minimize to tray</label><label class="toggle"><input id="close" type="checkbox">Close to tray</label></fieldset>
       <fieldset><legend>Links</legend><label class="toggle"><input id="external" type="checkbox">Open external links in default browser</label></fieldset>`
-    }
+      }
       </div>
-      ${firstRun
-      ? ""
-      : `
+      ${
+        firstRun
+          ? ""
+          : `
       <div data-panel="notifications" hidden>
         <fieldset><legend>Notifications</legend>
           <label class="toggle"><input id="desktop-notifications" type="checkbox">Desktop notifications</label>
@@ -74,7 +76,7 @@ export async function renderSettings() {
         <button id="check-updates" class="secondary" type="button">Check for Updates</button>
         <small id="update-configuration"></small>
       </div>`
-    }
+      }
       <p id="status" role="status" aria-live="polite"></p>
       <div class="form-footer"><button id="save" type="submit">${firstRun ? "Connect" : "Save"}</button></div>
       <p id="save-feedback" aria-live="polite"></p>
@@ -293,32 +295,32 @@ export async function renderSettings() {
         serverUrl: normalizeServer(input("server").value),
         ...(theme
           ? {
-            theme: theme.value as Theme,
-            autostart: input("autostart").checked,
-            minimizeToTray: input("minimize").checked,
-            closeToTray: input("close").checked,
-            externalLinks: input("external").checked,
-            desktopNotifications: input("desktop-notifications").checked,
-            notificationPreview: (
-              document.getElementById(
-                "notification-preview",
-              ) as HTMLSelectElement
-            ).value as Settings["notificationPreview"],
-            notificationCooldown: Number(
-              (
+              theme: theme.value as Theme,
+              autostart: input("autostart").checked,
+              minimizeToTray: input("minimize").checked,
+              closeToTray: input("close").checked,
+              externalLinks: input("external").checked,
+              desktopNotifications: input("desktop-notifications").checked,
+              notificationPreview: (
                 document.getElementById(
-                  "notification-cooldown",
+                  "notification-preview",
                 ) as HTMLSelectElement
-              ).value,
-            ) as Settings["notificationCooldown"],
-            notificationSound: input("notification-sound").checked,
-            unreadTitle: input("unread-title").checked,
-            unreadTray: input("unread-tray").checked,
-            automaticUpdates: input("automatic-updates").checked,
-            updateChannel: (
-              document.getElementById("update-channel") as HTMLSelectElement
-            ).value as Settings["updateChannel"],
-          }
+              ).value as Settings["notificationPreview"],
+              notificationCooldown: Number(
+                (
+                  document.getElementById(
+                    "notification-cooldown",
+                  ) as HTMLSelectElement
+                ).value,
+              ) as Settings["notificationCooldown"],
+              notificationSound: input("notification-sound").checked,
+              unreadTitle: input("unread-title").checked,
+              unreadTray: input("unread-tray").checked,
+              automaticUpdates: input("automatic-updates").checked,
+              updateChannel: (
+                document.getElementById("update-channel") as HTMLSelectElement
+              ).value as Settings["updateChannel"],
+            }
           : {}),
       });
       // Swiph3l: Saving no longer closes this page, so users can tweak several sections without reopening Settings.
