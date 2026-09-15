@@ -1,30 +1,16 @@
 name: CI
 on:
   push:
-    branches: [main]
+    branches: [main, beta/fixes, feature/**, fix/**]
   pull_request:
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
   validate:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            bundles: nsis
-            artifact-name: chatplus-desktop-windows-x64-nsis
-            artifact-path: src-tauri/target/release/bundle/nsis/*.exe
-          - os: ubuntu-latest
-            bundles: deb
-            artifact-name: chatplus-desktop-linux-x64-deb
-            artifact-path: src-tauri/target/release/bundle/deb/*.deb
-          - os: macos-latest
-            bundles: app
-            artifact-name: chatplus-desktop-macos
-            artifact-path: src-tauri/target/release/bundle/macos/ChatPlus Desktop.app.tar.gz
-    runs-on: ${{ matrix.os }}
+    # Swiph3l: Release artifacts are tag-only; branch CI must stay lightweight.
+    name: validate (windows-latest, dev)
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5 (Node 24)
         with:
@@ -38,50 +24,11 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt
-      - name: Linux prerequisites
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libayatana-appindicator3-dev librsvg2-dev patchelf
       - run: npm ci
       - run: npm run format:check
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
-      - run: npm run check:release
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
       - run: cargo check --locked --manifest-path src-tauri/Cargo.toml
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
-      - run: cargo test --release --locked --manifest-path src-tauri/Cargo.toml
-      - name: Validate configuration and package application
-        run: npm run tauri build -- --bundles ${{ matrix.bundles }}
-      - name: Check Windows binary privacy
-        if: runner.os == 'Windows'
-        run: node scripts/check-binary-privacy.mjs
-      - name: Archive experimental macOS app for testing
-        if: runner.os == 'macOS' && matrix.bundles == 'app'
-        shell: bash
-        run: |
-          set -euo pipefail
-          bundle_dir="src-tauri/target/release/bundle/macos"
-          test -d "$bundle_dir/ChatPlus Desktop.app"
-          test -f "$bundle_dir/ChatPlus Desktop.app/Contents/Info.plist"
-          # Preserve executable permissions and symlinks inside the .app bundle.
-          tar -czf "$bundle_dir/ChatPlus Desktop.app.tar.gz" -C "$bundle_dir" "ChatPlus Desktop.app"
-          test -s "$bundle_dir/ChatPlus Desktop.app.tar.gz"
-      - name: Verify final test package exists
-        shell: pwsh
-        env:
-          TEST_PACKAGE_PATH: ${{ matrix.artifact-path }}
-        run: |
-          $packages = @(Get-ChildItem -Path $env:TEST_PACKAGE_PATH -File -ErrorAction Stop)
-          if ($packages.Count -eq 0) { throw 'Expected final test package was not produced.' }
-          foreach ($package in $packages) {
-            if ($package.Length -eq 0) { throw "Empty test package: $($package.Name)" }
-          }
-      # Temporary maintainer TEST ARTIFACTS only; no release or registry publication.
-      - name: Upload platform test package
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ${{ matrix.artifact-name }}
-          path: ${{ matrix.artifact-path }}
-          retention-days: 7
-          if-no-files-found: error

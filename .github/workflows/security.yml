@@ -1,7 +1,7 @@
 name: Dependency and secret audits
 on:
   push:
-    branches: [main]
+    branches: [main, beta/fixes, feature/**, fix/**]
   pull_request:
   schedule:
     - cron: "11 6 * * 1"

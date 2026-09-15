@@ -268,30 +268,32 @@ pub async fn check(app: &AppHandle, manual: bool) -> Result<Snapshot, String> {
         inner.verified_bytes = None;
     }
     emit(app);
-    let result = async {
-        let endpoint = match endpoint(&config, &channel).await? {
-            EndpointSelection::Found(endpoint) => endpoint,
-            EndpointSelection::MissingManifest => {
-                return Ok((None, Some(
+    let result =
+        async {
+            let endpoint =
+                match endpoint(&config, &channel).await? {
+                    EndpointSelection::Found(endpoint) => endpoint,
+                    EndpointSelection::MissingManifest => {
+                        return Ok((None, Some(
                     "No eligible pre-release manifest was found for the selected channel."
                         .to_string(),
                 )));
-            }
-        };
-        let update = builder(
-            app,
-            endpoint,
-            config.updater_public_key.clone(),
-            channel.clone(),
-        )?
-        .check()
-        .await
-        .map_err(|_| {
-            "Unable to check for updates. Check your connection and try again.".to_string()
-        })?;
-        Ok((update, None))
-    }
-    .await;
+                    }
+                };
+            let update = builder(
+                app,
+                endpoint,
+                config.updater_public_key.clone(),
+                channel.clone(),
+            )?
+            .check()
+            .await
+            .map_err(|_| {
+                "Unable to check for updates. Check your connection and try again.".to_string()
+            })?;
+            Ok((update, None))
+        }
+        .await;
     let mut show = false;
     {
         let service = app.state::<Service>();
@@ -334,8 +336,8 @@ pub async fn check(app: &AppHandle, manual: bool) -> Result<Snapshot, String> {
                     show = true;
                 } else {
                     inner.snapshot.phase = "current".into();
-                    inner.snapshot.message = message_override
-                        .unwrap_or_else(|| "You're up to date.".to_string());
+                    inner.snapshot.message =
+                        message_override.unwrap_or_else(|| "You're up to date.".to_string());
                 }
                 inner.update = update;
                 inner.snapshot.last_successful_check = Some(now());
