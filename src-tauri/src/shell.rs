@@ -11,6 +11,9 @@ pub fn broadcast_settings(app: &AppHandle) {
     let _ = app.emit_to("fixture", "theme-changed", &settings.theme);
 }
 pub fn theme_window(window: &tauri::WebviewWindow, theme: &Theme) -> tauri::Result<()> {
+    // Swiph3l: Live native theme switching on Windows can make the menu bar unstable.
+    // Keep native frame theme unchanged at runtime; page/theme colors are still updated.
+    #[cfg(not(windows))]
     window.set_theme(theme.native())?;
     let dark = match theme {
         Theme::Dark => true,

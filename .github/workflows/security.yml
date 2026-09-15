@@ -1,8 +1,10 @@
 name: Dependency and secret audits
 on:
   push:
-    branches: [main, beta/fixes, feature/**, fix/**]
+    branches: [main]
   pull_request:
+    # Swiph3l: skip expensive dependency/secret audit on beta/fixes pushes; it will run before merge to main.
+    branches: [main]
   schedule:
     - cron: "11 6 * * 1"
   workflow_dispatch:

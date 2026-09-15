@@ -19,7 +19,19 @@ mod version_format;
 mod window;
 use tauri::Manager;
 fn main() {
+    // Swiph3l: Reqwest with rustls-no-provider needs one global crypto backend before any client is built.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     tauri::Builder::default()
+        // Swiph3l: ChatPlus Desktop must run as a single instance.
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            // Swiph3l: A second launch should restore the existing window, not start another client.
+            if crate::window::restore_existing(app).ok() == Some(true) {
+                return;
+            }
+            if app.try_state::<state::AppState>().is_some() {
+                let _ = crate::window::open(app);
+            }
+        }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_store::Builder::default().build())
@@ -27,7 +39,7 @@ fn main() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(
             tauri_plugin_autostart::Builder::new()
-                .app_name("ChatPlus Desktop")
+                .app_name(state::AUTOSTART_ENTRY_NAME)
                 .build(),
         )
         .plugin(
@@ -88,12 +100,16 @@ fn main() {
         })
         .build(tauri::generate_context!())
         .expect("Could not start ChatPlus Desktop")
-        .run(|_, event| {
+        .run(|app, event| {
             if let tauri::RunEvent::ExitRequested {
                 code: None, api, ..
             } = event
             {
-                api.prevent_exit();
+                // Swiph3l: ChatPlus Desktop must run as a single instance.
+                // Allow secondary single-instance launches to exit when no window exists.
+                if !app.webview_windows().is_empty() {
+                    api.prevent_exit();
+                }
             }
         });
 }

@@ -12,7 +12,8 @@ const result = await build({
 test("sidebar unread observes initial state and read changes, not focus or missing UI", () => {
   const messages = [],
     observers = [],
-    tasks = [];
+    tasks = [],
+    timers = [];
   let marker = true,
     present = true;
   const header = {
@@ -20,6 +21,7 @@ test("sidebar unread observes initial state and read changes, not focus or missi
     querySelectorAll: () =>
       present ? [{ querySelector: () => (marker ? {} : null) }] : [],
   };
+  const titleNode = {};
   const window = {
     chrome: {
       webview: {
@@ -30,8 +32,23 @@ test("sidebar unread observes initial state and read changes, not focus or missi
   window.top = window;
   runInNewContext(result.outputFiles[0].text, {
     window,
-    document: { querySelector: () => ({ parentElement: header }) },
+    document: {
+      title: "ChatPlus Desktop",
+      querySelector: (selector) => {
+        if (selector === "head > title") return titleNode;
+        return { parentElement: header };
+      },
+    },
     queueMicrotask: (callback) => tasks.push(callback),
+    setTimeout: (callback) => {
+      const timer = { callback, cleared: false };
+      timers.push(timer);
+      return timers.length;
+    },
+    clearTimeout: (id) => {
+      const timer = timers[id - 1];
+      if (timer) timer.cleared = true;
+    },
     MutationObserver: class {
       constructor(callback) {
         this.callback = callback;
@@ -44,8 +61,21 @@ test("sidebar unread observes initial state and read changes, not focus or missi
   const flush = () => {
     while (tasks.length) tasks.shift()();
   };
+  const runTimers = () => {
+    for (const timer of timers.splice(0)) {
+      if (!timer.cleared) timer.callback();
+    }
+  };
   flush();
-  assert.deepEqual(messages, [{ chatplusUnread: 1, unread: true }]);
+  assert.deepEqual(messages, [
+    {
+      chatplusUnread: 1,
+      source: "chatplus-dom",
+      hasUnread: true,
+      count: null,
+      reason: "badge-present",
+    },
+  ]);
   observers[0].callback();
   observers[0].callback();
   flush();
@@ -58,5 +88,70 @@ test("sidebar unread observes initial state and read changes, not focus or missi
   marker = false;
   observers[0].callback();
   flush();
-  assert.deepEqual(messages[1], { chatplusUnread: 1, unread: false });
+  marker = true;
+  observers[0].callback();
+  flush();
+  runTimers();
+  assert.equal(
+    messages.length,
+    1,
+    "temporary badge removal must not clear unread immediately",
+  );
+  marker = false;
+  observers[0].callback();
+  flush();
+  runTimers();
+  assert.deepEqual(messages[1], {
+    chatplusUnread: 1,
+    source: "chatplus-dom",
+    hasUnread: false,
+    count: 0,
+    reason: "confirmed-badge-removed",
+  });
+});
+
+test("title fallback reports unread only when sidebar state is unavailable", () => {
+  const messages = [],
+    tasks = [];
+  const window = {
+    chrome: {
+      webview: {
+        postMessage: (value) => messages.push(JSON.parse(value)),
+      },
+    },
+  };
+  window.top = window;
+  const titleNode = {};
+  const document = {
+    title: "(5) ChatPlus",
+    querySelector: (selector) => {
+      if (selector === "head > title") return titleNode;
+      return null;
+    },
+  };
+  runInNewContext(result.outputFiles[0].text, {
+    window,
+    document,
+    queueMicrotask: (callback) => tasks.push(callback),
+    setTimeout: () => 1,
+    clearTimeout: () => {},
+    MutationObserver: class {
+      constructor(callback) {
+        this.callback = callback;
+      }
+      observe() {
+        this.callback();
+      }
+      disconnect() {}
+    },
+  });
+  while (tasks.length) tasks.shift()();
+  assert.equal(messages.length, 1);
+  assert.deepEqual(messages[0], {
+    chatplusUnread: 1,
+    source: "title-fallback",
+    hasUnread: true,
+    count: 5,
+    reason: "title-fallback",
+  });
 });

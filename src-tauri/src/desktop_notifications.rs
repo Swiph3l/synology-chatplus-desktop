@@ -1,7 +1,7 @@
 //! Desktop notification policy and platform adapters. No content is logged/persisted.
 use crate::state::NotificationPreview;
 use std::{
-    collections::VecDeque,
+    collections::HashMap,
     hash::{Hash, Hasher},
     sync::Mutex,
     time::{Duration, Instant},
@@ -14,8 +14,16 @@ pub struct Service(pub Mutex<Tracking>);
 pub struct Tracking {
     pub bridge_available: bool,
     pub active_after: Option<Instant>,
-    recent: VecDeque<(u64, Instant)>,
+    recent: HashMap<u64, Instant>,
     pub last_status: String,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NativeState {
+    Enabled,
+    NotRegistered,
+    Blocked,
+    Unavailable,
 }
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -27,18 +35,49 @@ pub struct Permission {
     pub message: String,
 }
 pub fn permission(app: &AppHandle) -> Permission {
-    let plugin_granted = matches!(
-        app.notification().permission_state(),
-        Ok(tauri::plugin::PermissionState::Granted)
-    );
-    let os_granted = os_permission(app);
+    // Swiph3l: Native Windows sender state and WebView Notification.permission are separate notification paths.
+    let plugin_state = app.notification().permission_state().ok();
+    let native = native_state(app);
     let available = app
         .state::<Service>()
         .0
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .bridge_available;
-    Permission {webview_state:"unknown".into(),granted:plugin_granted && os_granted,state:if plugin_granted&&os_granted{"granted"}else{"denied"}.into(),bridge_available:available,message:if plugin_granted&&os_granted{"Windows notifications are available. Enable browser notifications in ChatPlus as well."}else{"Windows notifications are blocked or unavailable for ChatPlus Desktop. Open Windows notification settings to check access."}.into()}
+    let (state, native_granted, mut message) = match native {
+        NativeState::Enabled => (
+            "enabled",
+            true,
+            "Windows notifications are available for ChatPlus Desktop.",
+        ),
+        NativeState::NotRegistered => (
+            "not-registered",
+            false,
+            "ChatPlus Desktop is not yet registered as a Windows notification sender.",
+        ),
+        NativeState::Blocked => (
+            "blocked",
+            false,
+            "Windows notifications are disabled for ChatPlus Desktop.",
+        ),
+        NativeState::Unavailable => (
+            "unavailable",
+            true,
+            "Windows notification status is unavailable right now.",
+        ),
+    };
+    let mut granted = native_granted;
+    if matches!(plugin_state, Some(tauri::plugin::PermissionState::Denied)) {
+        granted = false;
+        message = "Windows notifications are blocked by system policy for this app.";
+    };
+    Permission {
+        webview_state: "unknown".into(),
+        granted,
+        state: state.into(),
+        bridge_available: available,
+        message: message.into(),
+    }
 }
 pub fn request_permission(app: &AppHandle) -> Result<Permission, String> {
     if !matches!(
@@ -62,19 +101,36 @@ pub fn send_test(app: &AppHandle, sound: bool) -> Result<(), String> {
     }
     show(app, "ChatPlus Desktop", "Notifications are working.", sound)
 }
-#[cfg(windows)]
-fn os_permission(app: &AppHandle) -> bool {
-    use windows::{
-        core::HSTRING,
-        UI::Notifications::{NotificationSetting, ToastNotificationManager},
-    };
-    ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(&app.config().identifier))
-        .and_then(|notifier| notifier.Setting())
-        .is_ok_and(|value| value == NotificationSetting::Enabled)
-}
-#[cfg(not(windows))]
-fn os_permission(_: &AppHandle) -> bool {
-    true
+fn native_state(app: &AppHandle) -> NativeState {
+    #[cfg(windows)]
+    {
+        use windows::{
+            core::HSTRING,
+            UI::Notifications::{NotificationSetting, ToastNotificationManager},
+        };
+        // Swiph3l: The installed shortcut AUMID and toast notifier AUMID must match exactly.
+        // Swiph3l: Validate the installed .lnk property store, not only generated NSIS.
+        let Ok(notifier) = ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(
+            &app.config().identifier,
+        )) else {
+            return NativeState::NotRegistered;
+        };
+        return match notifier.Setting() {
+            Ok(NotificationSetting::Enabled) => NativeState::Enabled,
+            Ok(NotificationSetting::DisabledForApplication)
+            | Ok(NotificationSetting::DisabledForUser)
+            | Ok(NotificationSetting::DisabledByGroupPolicy)
+            | Ok(NotificationSetting::DisabledByManifest) => NativeState::Blocked,
+            // TODO(Swiph3l): verify sender registration on a clean Windows profile.
+            Err(_) => NativeState::Unavailable,
+            _ => NativeState::Unavailable,
+        };
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = app;
+        NativeState::Enabled
+    }
 }
 pub fn preview(mode: &NotificationPreview, title: &str, body: &str) -> (String, String) {
     let clean = |value: &str, limit| {
@@ -93,7 +149,8 @@ pub fn preview(mode: &NotificationPreview, title: &str, body: &str) -> (String, 
     }
 }
 pub fn should_notify(enabled: bool, granted: bool, focused: bool, active: bool) -> bool {
-    enabled && granted && !focused && active
+    let _ = focused;
+    enabled && granted && active
 }
 pub fn begin_tracking(app: &AppHandle) {
     let service = app.state::<Service>();
@@ -130,22 +187,24 @@ pub fn deliver(app: &AppHandle, title: &str, body: &str, tag: &str) -> bool {
     ) {
         return false;
     }
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    (title, body, tag).hash(&mut hasher);
-    let key = hasher.finish();
+    // Swiph3l: Cooldown suppresses repeated toasts only; unread state must always update.
+    // Swiph3l: First toast is immediate, regardless of the selected cooldown.
+    let key = conversation_key(tag);
     {
         let service = app.state::<Service>();
         let mut tracking = service.0.lock().unwrap_or_else(|e| e.into_inner());
-        let now = Instant::now();
-        tracking
-            .recent
-            .retain(|(_, at)| now.duration_since(*at) < Duration::from_secs(2));
-        if tracking.recent.iter().any(|(previous, _)| *previous == key)
-            || tracking.recent.len() >= 5
-        {
+        if cooldown_suppressed(
+            &mut tracking,
+            key,
+            Instant::now(),
+            settings.notification_cooldown,
+        ) {
+            println!(
+                "notification: conversation={} action=suppressed reason=cooldown",
+                key
+            );
             return false;
         }
-        tracking.recent.push_back((key, now));
     }
     let (title, body) = preview(&settings.notification_preview, title, body);
     let result = show(app, &title, &body, settings.notification_sound);
@@ -159,7 +218,44 @@ pub fn deliver(app: &AppHandle, title: &str, body: &str, tag: &str) -> bool {
         "The system could not display the notification."
     }
     .into();
+    println!(
+        "notification: conversation={} action={} reason=delivery",
+        key,
+        if result.is_ok() { "shown" } else { "failed" }
+    );
     result.is_ok()
+}
+
+fn cooldown_suppressed(tracking: &mut Tracking, key: u64, now: Instant, cooldown: u16) -> bool {
+    let cooldown = crate::state::normalize_notification_cooldown_seconds(cooldown) as u64;
+    if cooldown == 0 {
+        tracking.recent.clear();
+        return false;
+    }
+    let window = Duration::from_secs(cooldown);
+    tracking
+        .recent
+        .retain(|_, at| now.duration_since(*at) < window);
+    if tracking
+        .recent
+        .get(&key)
+        .is_some_and(|at| now.duration_since(*at) < window)
+    {
+        return true;
+    }
+    tracking.recent.insert(key, now);
+    false
+}
+
+fn conversation_key(tag: &str) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    let normalized = tag.trim();
+    if normalized.is_empty() {
+        "global".hash(&mut hasher);
+    } else {
+        normalized.hash(&mut hasher);
+    }
+    hasher.finish()
 }
 #[cfg(windows)]
 fn show(app: &AppHandle, title: &str, body: &str, sound: bool) -> Result<(), String> {
@@ -286,13 +382,75 @@ mod tests {
     #[test]
     fn permission_focus_and_startup_gate_notifications() {
         assert!(should_notify(true, true, false, true));
+        assert!(should_notify(true, true, true, true));
         for values in [
             (false, true, false, true),
             (true, false, false, true),
-            (true, true, true, true),
             (true, true, false, false),
         ] {
             assert!(!should_notify(values.0, values.1, values.2, values.3));
         }
+    }
+
+    #[test]
+    fn conversation_cooldown_uses_tag_with_global_fallback() {
+        let global_a = conversation_key("");
+        let global_b = conversation_key("   ");
+        assert_eq!(global_a, global_b);
+        assert_eq!(
+            conversation_key("room:alpha"),
+            conversation_key("room:alpha")
+        );
+        assert_ne!(
+            conversation_key("room:alpha"),
+            conversation_key("room:beta")
+        );
+    }
+
+    #[test]
+    fn first_toast_is_immediate_then_suppressed_within_selected_window() {
+        let mut tracking = Tracking::default();
+        let key = conversation_key("room:alpha");
+        let now = Instant::now();
+        assert!(!cooldown_suppressed(&mut tracking, key, now, 60));
+        assert!(cooldown_suppressed(
+            &mut tracking,
+            key,
+            now + Duration::from_secs(10),
+            60
+        ));
+        assert!(!cooldown_suppressed(
+            &mut tracking,
+            key,
+            now + Duration::from_secs(61),
+            60
+        ));
+    }
+
+    #[test]
+    fn cooldown_is_per_conversation_and_zero_disables_suppression() {
+        let mut tracking = Tracking::default();
+        let now = Instant::now();
+        let alpha = conversation_key("room:alpha");
+        let beta = conversation_key("room:beta");
+        assert!(!cooldown_suppressed(&mut tracking, alpha, now, 60));
+        assert!(!cooldown_suppressed(
+            &mut tracking,
+            beta,
+            now + Duration::from_secs(5),
+            60
+        ));
+        assert!(!cooldown_suppressed(
+            &mut tracking,
+            alpha,
+            now + Duration::from_secs(6),
+            0
+        ));
+        assert!(!cooldown_suppressed(
+            &mut tracking,
+            alpha,
+            now + Duration::from_secs(7),
+            0
+        ));
     }
 }

@@ -11,6 +11,7 @@ export interface Settings {
   updateChannel: "stable" | "pre-release";
   desktopNotifications: boolean;
   notificationPreview: "full" | "sender" | "generic";
+  notificationCooldown: 0 | 30 | 60 | 90;
   notificationSound: boolean;
   unreadTitle: boolean;
   unreadTray: boolean;

@@ -8,6 +8,19 @@ pub fn focus(window: &tauri::WebviewWindow) -> tauri::Result<()> {
     window.show()?;
     window.set_focus()
 }
+
+pub fn restore_existing(app: &AppHandle) -> Result<bool, String> {
+    if let Some(w) = app.get_webview_window("main") {
+        focus(&w).map_err(|_| "Could not focus ChatPlus.".to_string())?;
+        return Ok(true);
+    }
+    if let Some(w) = app.get_webview_window("settings") {
+        focus(&w).map_err(|_| "Could not focus setup.".to_string())?;
+        return Ok(true);
+    }
+    Ok(false)
+}
+
 fn open_external(app: &AppHandle, url: &url::Url) {
     if state::current(app).external_links
         && matches!(url.scheme(), "https" | "http")
@@ -159,25 +172,30 @@ pub fn reopen(app: &AppHandle) -> Result<(), String> {
 pub fn apply_theme(app: &AppHandle) -> Result<(), String> {
     let settings = state::current(app);
     for window in app.webview_windows().values() {
+        if window.label() == "main" {
+            continue;
+        }
         crate::shell::theme_window(window, &settings.theme)
             .map_err(|_| "Could not update window theme.")?;
-        if window.label() != "main" {
-            window
-                .eval(&format!(
-                    "document.documentElement.dataset.theme = {}",
-                    serde_json::to_string(&settings.theme).unwrap()
-                ))
-                .map_err(|_| "Could not update page theme.")?;
-        }
+        window
+            .eval(&format!(
+                "document.documentElement.dataset.theme = {}",
+                serde_json::to_string(&settings.theme).unwrap()
+            ))
+            .map_err(|_| "Could not update page theme.")?;
     }
     if let Some(w) = app.get_webview_window("main") {
+        #[cfg(not(windows))]
         let theme = match settings.theme {
             Theme::System => None,
             Theme::Dark => Some(tauri::Theme::Dark),
             Theme::Light => Some(tauri::Theme::Light),
         };
+        #[cfg(not(windows))]
         w.set_theme(theme)
             .map_err(|_| "Could not apply window theme.")?;
+        // Swiph3l: Live set_theme on Windows can destabilize the native menu bar.
+        // Keep the frame stable and apply theme through page/background updates.
         let dark = match settings.theme {
             Theme::Dark => true,
             Theme::Light => false,

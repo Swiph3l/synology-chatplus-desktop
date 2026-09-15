@@ -32,20 +32,18 @@ export async function renderSettings() {
       ${firstRun ? "" : '<nav class="settings-tabs" aria-label="Settings categories"><button type="button" data-tab="general" aria-pressed="true">General</button><button type="button" data-tab="notifications" aria-pressed="false">Notifications</button><button type="button" data-tab="updates" aria-pressed="false">Updates</button></nav>'}
       <div data-panel="general">
       <fieldset class="server-section">${firstRun ? "" : "<legend>ChatPlus server</legend>"}<label for="server">Server URL</label><input id="server" type="url" required placeholder="https://example.com/chat/" autocomplete="url" spellcheck="false">${firstRun ? "" : "<small>Enter the URL of your ChatPlus installation.</small>"}</fieldset>
-      ${
-        firstRun
-          ? ""
-          : `
+      ${firstRun
+      ? ""
+      : `
       <fieldset><legend>Appearance</legend><div class="preference-row"><label for="theme">Theme</label><select id="theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></div></fieldset>
       <fieldset><legend>Startup</legend><label class="toggle"><input id="autostart" type="checkbox">${/Windows/i.test(navigator.userAgent) ? "Start with Windows" : "Start at login"}</label></fieldset>
       <fieldset><legend>Window</legend><label class="toggle"><input id="minimize" type="checkbox">Minimize to tray</label><label class="toggle"><input id="close" type="checkbox">Close to tray</label></fieldset>
       <fieldset><legend>Links</legend><label class="toggle"><input id="external" type="checkbox">Open external links in default browser</label></fieldset>`
-      }
+    }
       </div>
-      ${
-        firstRun
-          ? ""
-          : `
+      ${firstRun
+      ? ""
+      : `
       <div data-panel="notifications" hidden>
         <fieldset><legend>Notifications</legend>
           <label class="toggle"><input id="desktop-notifications" type="checkbox">Desktop notifications</label>
@@ -54,6 +52,9 @@ export async function renderSettings() {
           <button id="notification-settings" type="button" class="secondary" hidden>Open Windows notification settings</button>
           <label for="notification-preview">Notification preview</label>
           <select id="notification-preview"><option value="full">Full preview</option><option value="sender">Sender/chat only</option><option value="generic">Generic notification</option></select>
+          <label for="notification-cooldown">Notification cooldown</label>
+          <select id="notification-cooldown"><option value="0">No cooldown</option><option value="30">30 seconds</option><option value="60">60 seconds</option><option value="90">90 seconds</option></select>
+          <small>Limits repeated notifications from the same conversation. The first notification is always shown immediately.</small>
           <small>Previews may reveal private information on your lock screen. Sender/chat uses the title supplied by ChatPlus.</small>
         </fieldset>
         <fieldset><legend>Unread indicators</legend>
@@ -73,15 +74,40 @@ export async function renderSettings() {
         <button id="check-updates" class="secondary" type="button">Check for Updates</button>
         <small id="update-configuration"></small>
       </div>`
-      }
+    }
       <p id="status" role="status" aria-live="polite"></p>
       <div class="form-footer"><button id="save" type="submit">${firstRun ? "Connect" : "Save"}</button></div>
+      <p id="save-feedback" aria-live="polite"></p>
     </form>
     <footer><span>Unofficial community client.</span>${firstRun ? "" : '<button id="about" class="text-button" type="button">About</button>'}</footer>`;
   const input = (id: string) => document.getElementById(id) as HTMLInputElement;
   const theme = document.querySelector<HTMLSelectElement>("#theme");
   const status = document.getElementById("status")!;
   const button = document.querySelector<HTMLButtonElement>("#save")!;
+  const saveFeedback = document.getElementById("save-feedback")!;
+  let saveFeedbackTimer: ReturnType<typeof setTimeout> | undefined;
+  const clearSaveFeedback = () => {
+    if (saveFeedbackTimer) {
+      clearTimeout(saveFeedbackTimer);
+      saveFeedbackTimer = undefined;
+    }
+    saveFeedback.classList.remove("visible");
+    saveFeedback.textContent = "";
+  };
+  const showSaveFeedback = (text: string) => {
+    clearSaveFeedback();
+    saveFeedback.textContent = text;
+    saveFeedback.classList.add("visible");
+    saveFeedbackTimer = setTimeout(() => {
+      saveFeedback.classList.remove("visible");
+      saveFeedbackTimer = undefined;
+      setTimeout(() => {
+        if (!saveFeedback.classList.contains("visible")) {
+          saveFeedback.textContent = "";
+        }
+      }, 150);
+    }, 2400);
+  };
   input("server").value = original.serverUrl;
   applyTheme(original.theme);
   if (theme) {
@@ -98,6 +124,9 @@ export async function renderSettings() {
     (
       document.getElementById("notification-preview") as HTMLSelectElement
     ).value = original.notificationPreview;
+    (
+      document.getElementById("notification-cooldown") as HTMLSelectElement
+    ).value = String(original.notificationCooldown);
     (document.getElementById("update-channel") as HTMLSelectElement).value =
       original.updateChannel;
     theme.addEventListener("change", () => applyTheme(theme.value as Theme));
@@ -146,14 +175,27 @@ export async function renderSettings() {
       result: Awaited<ReturnType<typeof notifications.isPermissionGranted>>,
     ) => {
       lastPermission = result;
-      const enabled =
-        result.granted &&
-        result.webviewState === "granted" &&
-        input("desktop-notifications").checked;
-      permission.textContent = `Desktop notifications: ${enabled ? "Enabled" : "Disabled"}. ${result.message}${result.webviewState === "denied" ? " ChatPlus WebView notifications are denied. Use Enable notifications after Windows access is available." : result.webviewState === "unavailable" ? " Open ChatPlus to check browser notification permission." : ""}`;
+      const desktopState =
+        result.state === "enabled"
+          ? "Enabled"
+          : result.state === "not-registered"
+            ? "Not registered"
+            : result.state === "blocked"
+              ? "Blocked"
+              : "Unavailable";
+      const webviewState =
+        result.webviewState === "granted"
+          ? "Allowed"
+          : result.webviewState === "denied"
+            ? "Blocked"
+            : result.webviewState === "unavailable"
+              ? "Unavailable"
+              : "Unknown";
+      permission.textContent = `Desktop notifications: ${desktopState}. ${result.message} ChatPlus WebView notifications: ${webviewState}.`;
       systemButton.hidden =
-        result.granted || !/Windows/i.test(navigator.userAgent);
-      enableButton.hidden = enabled;
+        result.state === "enabled" || !/Windows/i.test(navigator.userAgent);
+      enableButton.hidden =
+        result.state === "enabled" && result.webviewState === "granted";
     };
     const refreshPermission = async () => {
       try {
@@ -167,12 +209,11 @@ export async function renderSettings() {
       input("desktop-notifications").disabled = true;
       try {
         const result = await notifications.requestPermission();
-        input("desktop-notifications").checked =
-          result.granted && result.webviewState === "granted";
+        input("desktop-notifications").checked = result.granted;
         showPermission(result);
         if (input("desktop-notifications").checked)
           status.textContent =
-            "Permission is available. Save to enable desktop notifications.";
+            "Desktop notification permission is available. Save to apply preferences.";
       } catch (error) {
         input("desktop-notifications").checked = false;
         status.textContent =
@@ -245,33 +286,47 @@ export async function renderSettings() {
     event.preventDefault();
     button.disabled = true;
     status.textContent = "";
+    clearSaveFeedback();
     try {
       await saveSettings({
         ...original,
         serverUrl: normalizeServer(input("server").value),
         ...(theme
           ? {
-              theme: theme.value as Theme,
-              autostart: input("autostart").checked,
-              minimizeToTray: input("minimize").checked,
-              closeToTray: input("close").checked,
-              externalLinks: input("external").checked,
-              desktopNotifications: input("desktop-notifications").checked,
-              notificationPreview: (
+            theme: theme.value as Theme,
+            autostart: input("autostart").checked,
+            minimizeToTray: input("minimize").checked,
+            closeToTray: input("close").checked,
+            externalLinks: input("external").checked,
+            desktopNotifications: input("desktop-notifications").checked,
+            notificationPreview: (
+              document.getElementById(
+                "notification-preview",
+              ) as HTMLSelectElement
+            ).value as Settings["notificationPreview"],
+            notificationCooldown: Number(
+              (
                 document.getElementById(
-                  "notification-preview",
+                  "notification-cooldown",
                 ) as HTMLSelectElement
-              ).value as Settings["notificationPreview"],
-              notificationSound: input("notification-sound").checked,
-              unreadTitle: input("unread-title").checked,
-              unreadTray: input("unread-tray").checked,
-              automaticUpdates: input("automatic-updates").checked,
-              updateChannel: (
-                document.getElementById("update-channel") as HTMLSelectElement
-              ).value as Settings["updateChannel"],
-            }
+              ).value,
+            ) as Settings["notificationCooldown"],
+            notificationSound: input("notification-sound").checked,
+            unreadTitle: input("unread-title").checked,
+            unreadTray: input("unread-tray").checked,
+            automaticUpdates: input("automatic-updates").checked,
+            updateChannel: (
+              document.getElementById("update-channel") as HTMLSelectElement
+            ).value as Settings["updateChannel"],
+          }
           : {}),
       });
+      // Swiph3l: Saving no longer closes this page, so users can tweak several sections without reopening Settings.
+      showSaveFeedback(
+        firstRun
+          ? "Settings saved."
+          : "Settings saved. You can continue editing.",
+      );
     } catch (error) {
       status.textContent =
         error instanceof Error ? error.message : String(error);

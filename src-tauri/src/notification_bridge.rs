@@ -118,7 +118,13 @@ pub fn attach(app: &tauri::AppHandle, window: &tauri::WebviewWindow) -> tauri::R
                 args.TryGetWebMessageAsString(&mut json)?;
                 let json = CoTaskMemPWSTR::from(json).to_string();
                 if let Some(unread) = parse_unread(&json) {
-                    crate::unread::publish(&unread_app, None, unread);
+                    crate::unread::publish_from(
+                        &unread_app,
+                        unread.count,
+                        unread.has_unread,
+                        unread.source,
+                        &unread.reason,
+                    );
                 }
                 Ok(())
             })),
@@ -201,16 +207,49 @@ pub fn attach(app: &tauri::AppHandle, window: &tauri::WebviewWindow) -> tauri::R
     })
 }
 
-fn parse_unread(json: &str) -> Option<bool> {
-    if json.len() > 100 {
+struct UnreadObservation {
+    has_unread: bool,
+    count: Option<u32>,
+    source: crate::unread::Source,
+    reason: String,
+}
+
+fn parse_unread(json: &str) -> Option<UnreadObservation> {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Message {
+        #[serde(default)]
+        chatplus_unread: u8,
+        unread: Option<bool>,
+        has_unread: Option<bool>,
+        count: Option<u32>,
+        source: Option<String>,
+        reason: Option<String>,
+    }
+
+    if json.len() > 512 {
         return None;
     }
-    let value: serde_json::Value = serde_json::from_str(json).ok()?;
-    let object = value.as_object()?;
-    if object.len() != 2 || value["chatplusUnread"] != 1 {
+    let value: Message = serde_json::from_str(json).ok()?;
+    if value.chatplus_unread != 1 {
         return None;
     }
-    value["unread"].as_bool()
+    let has_unread = value.has_unread.or(value.unread)?;
+    let source = match value.source.as_deref() {
+        Some("chatplus-dom") | None => crate::unread::Source::ChatPlusDom,
+        Some("title-fallback") => crate::unread::Source::TitleFallback,
+        _ => return None,
+    };
+    let reason = value.reason.unwrap_or_else(|| "event".into());
+    if reason.len() > 120 {
+        return None;
+    }
+    Some(UnreadObservation {
+        has_unread,
+        count: value.count,
+        source,
+        reason,
+    })
 }
 #[cfg(not(windows))]
 pub fn attach(_: &tauri::AppHandle, _: &tauri::WebviewWindow) -> tauri::Result<()> {
@@ -223,20 +262,27 @@ mod tests {
     #[test]
     fn unread_messages_are_boolean_only() {
         assert_eq!(
-            parse_unread(r#"{"chatplusUnread":1,"unread":true}"#),
+            parse_unread(r#"{"chatplusUnread":1,"unread":true}"#).map(|value| value.has_unread),
             Some(true)
         );
         assert_eq!(
-            parse_unread(r#"{"chatplusUnread":1,"unread":false}"#),
+            parse_unread(r#"{"chatplusUnread":1,"unread":false}"#).map(|value| value.has_unread),
             Some(false)
+        );
+        assert_eq!(
+            parse_unread(
+                r#"{"chatplusUnread":1,"hasUnread":true,"count":3,"source":"chatplus-dom","reason":"badge-created"}"#
+            )
+            .map(|value| (value.has_unread, value.count)),
+            Some((true, Some(3)))
         );
         for value in [
             r#"{"chatplusUnread":1,"unread":"true"}"#,
-            r#"{"chatplusUnread":1,"unread":true,"command":"open"}"#,
+            r#"{"chatplusUnread":1,"source":"unknown","unread":true}"#,
             "null",
             "{}",
         ] {
-            assert_eq!(parse_unread(value), None);
+            assert!(parse_unread(value).is_none());
         }
     }
     #[test]

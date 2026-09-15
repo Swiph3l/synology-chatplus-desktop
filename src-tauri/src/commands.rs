@@ -49,10 +49,11 @@ pub async fn request_notification_permission(
     app: tauri::AppHandle,
 ) -> Result<crate::desktop_notifications::Permission, String> {
     local(&window, &["settings"])?;
-    let mut result = crate::desktop_notifications::request_permission(&app)?;
+    let result = crate::desktop_notifications::request_permission(&app)?;
     if result.granted {
-        crate::notification_bridge::enable_permission(&app).await?;
+        let _ = crate::notification_bridge::enable_permission(&app).await;
     }
+    let mut result = result;
     result.webview_state = crate::notification_bridge::permission_state(&app).await;
     Ok(result)
 }
@@ -96,16 +97,17 @@ pub async fn save_settings(
     settings.server_url = state::normalize_server(&settings.server_url)?;
     let old = state::current(&app);
     state::persist(&app, settings.clone())?;
-    if old.server_url != settings.server_url || old.theme != settings.theme {
+    // Swiph3l: Rebuild only when the server changes; theme updates apply live without reopening the main window.
+    if old.server_url != settings.server_url {
         window::reopen(&app)?;
     }
-    window::open(&app)?;
+    // Swiph3l: Avoid stealing focus when the main window already exists; create it only when absent.
+    if app.get_webview_window("main").is_none() {
+        window::open(&app)?;
+    }
     window::apply_theme(&app)?;
-    // Keep setup available on validation, persistence or window-opening failure.
-    // Close it only after the configured main window has opened successfully.
-    window
-        .destroy()
-        .map_err(|_| "Settings saved, but the settings window could not close.".into())
+    // Swiph3l: Keep Settings visible after Save so users can continue editing multiple options.
+    window::focus(&window).map_err(|_| "Settings saved, but Settings could not be focused.".into())
 }
 #[tauri::command]
 pub fn get_about_info(

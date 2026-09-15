@@ -4,6 +4,8 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_store::StoreExt;
 
+pub const AUTOSTART_ENTRY_NAME: &str = "ChatPlus Desktop";
+
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Theme {
@@ -43,6 +45,18 @@ pub enum NotificationPreview {
     Sender,
     Generic,
 }
+
+fn default_notification_cooldown_seconds() -> u16 {
+    60
+}
+
+pub fn normalize_notification_cooldown_seconds(value: u16) -> u16 {
+    match value {
+        0 | 30 | 60 | 90 => value,
+        _ => default_notification_cooldown_seconds(),
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
@@ -56,6 +70,8 @@ pub struct Settings {
     pub update_channel: UpdateChannel,
     pub desktop_notifications: bool,
     pub notification_preview: NotificationPreview,
+    #[serde(default = "default_notification_cooldown_seconds")]
+    pub notification_cooldown: u16,
     pub notification_sound: bool,
     pub unread_title: bool,
     pub unread_tray: bool,
@@ -66,13 +82,15 @@ impl Default for Settings {
             server_url: String::new(),
             theme: Theme::System,
             autostart: false,
-            minimize_to_tray: false,
+            // Swiph3l: These defaults apply on first run; existing users keep their saved window preferences.
+            minimize_to_tray: true,
             close_to_tray: true,
             external_links: true,
             automatic_updates: false,
             update_channel: UpdateChannel::Stable,
             desktop_notifications: false,
             notification_preview: NotificationPreview::Sender,
+            notification_cooldown: default_notification_cooldown_seconds(),
             notification_sound: true,
             unread_title: true,
             unread_tray: true,
@@ -120,11 +138,21 @@ pub fn load(app: &AppHandle) -> Result<Settings, Box<dyn std::error::Error>> {
     if !settings.server_url.is_empty() {
         settings.server_url = normalize_server(&settings.server_url).unwrap_or_default();
     }
+    settings.notification_cooldown =
+        normalize_notification_cooldown_seconds(settings.notification_cooldown);
     settings.autostart = app.autolaunch().is_enabled()?;
+    if settings.autostart {
+        #[cfg(windows)]
+        if let Err(error) = reconcile_windows_autostart(app, false) {
+            println!("autostart: self-heal skipped ({error})");
+        }
+    }
     Ok(settings)
 }
-pub fn persist(app: &AppHandle, settings: Settings) -> Result<(), String> {
+pub fn persist(app: &AppHandle, mut settings: Settings) -> Result<(), String> {
     let old = current(app);
+    settings.notification_cooldown =
+        normalize_notification_cooldown_seconds(settings.notification_cooldown);
     let store = app
         .store("settings.json")
         .map_err(|_| "Could not open settings store.")?;
@@ -139,6 +167,12 @@ pub fn persist(app: &AppHandle, settings: Settings) -> Result<(), String> {
             launch.disable()
         }
         .map_err(|_| "Could not update start-at-login preference.")?;
+    }
+    if settings.autostart {
+        #[cfg(windows)]
+        if let Err(error) = reconcile_windows_autostart(app, true) {
+            println!("autostart: self-heal skipped ({error})");
+        }
     }
     store.set(
         "settings",
@@ -166,6 +200,69 @@ pub fn persist(app: &AppHandle, settings: Settings) -> Result<(), String> {
     }
     Ok(())
 }
+
+#[cfg(windows)]
+fn reconcile_windows_autostart(_app: &AppHandle, enforce_enabled: bool) -> Result<(), String> {
+    use std::env;
+    use winreg::{
+        RegKey, RegValue,
+        enums::{HKEY_CURRENT_USER, REG_BINARY, REG_SZ},
+    };
+
+    const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+    const STARTUP_APPROVED_KEY: &str =
+        "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run";
+    const STARTUP_ENABLED_BYTES: [u8; 12] = [2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+    let exe = env::current_exe().map_err(|_| "Could not resolve executable path.")?;
+    let command = format!("\"{}\"", exe.display());
+
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let (run, _) = hkcu
+        .create_subkey(RUN_KEY)
+        .map_err(|_| "Could not open autostart registry key.")?;
+
+    let current = run.get_value::<String, _>(AUTOSTART_ENTRY_NAME).ok();
+    if current.as_deref() != Some(command.as_str()) {
+        run.set_raw_value(
+            AUTOSTART_ENTRY_NAME,
+            &RegValue {
+                vtype: REG_SZ,
+                bytes: to_utf16le(&command),
+            },
+        )
+        .map_err(|_| "Could not repair autostart command.")?;
+    }
+
+    let (startup, _) = hkcu
+        .create_subkey(STARTUP_APPROVED_KEY)
+        .map_err(|_| "Could not open startup status registry key.")?;
+    let has_value = startup.get_raw_value(AUTOSTART_ENTRY_NAME).is_ok();
+
+    if enforce_enabled || !has_value {
+        startup
+            .set_raw_value(
+                AUTOSTART_ENTRY_NAME,
+                &RegValue {
+                    vtype: REG_BINARY,
+                    bytes: STARTUP_ENABLED_BYTES.to_vec(),
+                },
+            )
+            .map_err(|_| "Could not repair startup visibility state.")?;
+    }
+
+    Ok(())
+}
+
+#[cfg(windows)]
+fn to_utf16le(value: &str) -> Vec<u8> {
+    value
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .flat_map(u16::to_le_bytes)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -176,6 +273,17 @@ mod tests {
         assert!(!settings.automatic_updates);
         assert!(matches!(settings.update_channel, UpdateChannel::Stable));
         assert!(settings.server_url.is_empty());
+        assert_eq!(settings.notification_cooldown, 60);
+    }
+
+    #[test]
+    fn notification_cooldown_accepts_only_supported_values() {
+        assert_eq!(normalize_notification_cooldown_seconds(0), 0);
+        assert_eq!(normalize_notification_cooldown_seconds(30), 30);
+        assert_eq!(normalize_notification_cooldown_seconds(60), 60);
+        assert_eq!(normalize_notification_cooldown_seconds(90), 90);
+        assert_eq!(normalize_notification_cooldown_seconds(15), 60);
+        assert_eq!(normalize_notification_cooldown_seconds(120), 60);
     }
     #[test]
     fn normalizes_paths() {

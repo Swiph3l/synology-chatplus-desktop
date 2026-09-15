@@ -45,11 +45,16 @@ beta.1-to-beta.2 install/restart test before production operation is claimed.
 - Project licensing is now GNU GPLv3 (GPL-3.0-only), with local
   license access in About and an acceptance page in the Windows installer.
 - README clarifies source availability, independent branding and project support.
+- Dependency and secret audits now run on pushes to `main` and on pull requests
+  targeting `main`, avoiding expensive runs on every `beta/fixes` push while
+  preserving pre-merge protection.
 
 ### Fixed
 
-- Successful Save and open ChatPlus closes setup/settings after opening the
-  main window; failed saves keep the form available with an error.
+- Successful Save keeps setup/settings open so multiple preferences can be
+  adjusted without reopening the window.
+- Theme changes no longer reopen the main window and now apply live, improving
+  Windows menu bar stability.
 - Dark theme gives the ChatPlus header wordmark a readable foreground color.
 
 No public release has been published.

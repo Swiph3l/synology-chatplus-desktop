@@ -5,6 +5,33 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Manager};
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Source {
+    ChatPlusDom,
+    TitleFallback,
+}
+
+impl Source {
+    fn rank(self) -> u8 {
+        match self {
+            Self::ChatPlusDom => 2,
+            Self::TitleFallback => 1,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::ChatPlusDom => "chatplus-dom",
+            Self::TitleFallback => "title-fallback",
+        }
+    }
+}
+
+fn accepts_source(previous_rank: u8, source: Source) -> bool {
+    source.rank() >= previous_rank
+}
+
 #[derive(Clone, Default, Serialize, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Unread {
@@ -13,13 +40,30 @@ pub struct Unread {
     pub mention_count: Option<u32>,
     pub last_update: Option<u64>,
 }
+
+struct State {
+    unread: Unread,
+    source_rank: u8,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            unread: Unread::default(),
+            source_rank: 0,
+        }
+    }
+}
+
 #[derive(Default)]
-pub struct Service(pub Mutex<Unread>);
+pub struct Service(Mutex<State>);
+
 pub fn current(app: &AppHandle) -> Unread {
     app.state::<Service>()
         .0
         .lock()
         .unwrap_or_else(|e| e.into_inner())
+        .unread
         .clone()
 }
 pub fn label(value: &Unread) -> String {
@@ -40,18 +84,51 @@ pub fn title(value: &Unread, enabled: bool) -> String {
         None => "ChatPlus Desktop •".into(),
     }
 }
-pub fn publish(app: &AppHandle, count: Option<u32>, has_unread: bool) {
+
+pub fn publish_from(
+    app: &AppHandle,
+    count: Option<u32>,
+    has_unread: bool,
+    source: Source,
+    reason: &str,
+) {
     let service = app.state::<Service>();
-    let mut unread = service.0.lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = service.0.lock().unwrap_or_else(|e| e.into_inner());
     let count = count.map(|n| n.min(1_000_000));
     let has_unread = count.map(|n| n > 0).unwrap_or(has_unread);
-    if unread.last_update.is_some()
-        && unread.total_unread_count == count
-        && unread.has_unread == has_unread
+    if state.unread.last_update.is_some() && !accepts_source(state.source_rank, source) {
+        return;
+    }
+    if state.unread.last_update.is_some()
+        && state.unread.total_unread_count == count
+        && state.unread.has_unread == has_unread
     {
         return;
     }
-    *unread = Unread {
+    println!(
+        "unread: source={} previous={} next={} reason={}",
+        source.label(),
+        state
+            .unread
+            .total_unread_count
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| {
+                if state.unread.has_unread {
+                    "dot".into()
+                } else {
+                    "0".into()
+                }
+            }),
+        count.map(|n| n.to_string()).unwrap_or_else(|| {
+            if has_unread {
+                "dot".into()
+            } else {
+                "0".into()
+            }
+        }),
+        reason,
+    );
+    state.unread = Unread {
         total_unread_count: count,
         has_unread,
         mention_count: None,
@@ -62,7 +139,8 @@ pub fn publish(app: &AppHandle, count: Option<u32>, has_unread: bool) {
                 .as_millis() as u64,
         ),
     };
-    drop(unread);
+    state.source_rank = source.rank();
+    drop(state);
     refresh(app);
 }
 pub fn refresh(app: &AppHandle) {
@@ -88,5 +166,13 @@ mod tests {
         assert_eq!(title(&value, false), "ChatPlus Desktop");
         value.total_unread_count = Some(120);
         assert_eq!(label(&value), "99+ unread messages");
+    }
+
+    #[test]
+    fn source_priority_prefers_dom_over_title_fallback() {
+        assert!(accepts_source(0, Source::TitleFallback));
+        assert!(accepts_source(1, Source::TitleFallback));
+        assert!(accepts_source(1, Source::ChatPlusDom));
+        assert!(!accepts_source(2, Source::TitleFallback));
     }
 }

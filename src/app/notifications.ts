@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 export interface NotificationPermission {
   webviewState: string;
   granted: boolean;
-  state: "granted" | "denied";
+  state: "enabled" | "blocked" | "not-registered" | "unavailable";
   bridgeAvailable: boolean;
   message: string;
 }

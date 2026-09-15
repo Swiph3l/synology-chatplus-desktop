@@ -273,9 +273,7 @@ pub fn dispatch(app: &AppHandle, action: Action) -> Result<(), String> {
                 _ => Theme::System,
             };
             state::persist(app, settings)?;
-            if app.get_webview_window("main").is_some() {
-                window::reopen(app)?;
-            }
+            // Swiph3l: Apply theme live here; reopening the main window can destabilize the Windows menu bar.
             window::apply_theme(app)
         }
         Action::ZoomIn | Action::ZoomOut | Action::ZoomReset => {
