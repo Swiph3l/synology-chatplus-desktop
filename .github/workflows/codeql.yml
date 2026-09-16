@@ -21,7 +21,7 @@ jobs:
       matrix:
         language: [javascript-typescript, rust, actions]
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5 (Node 24)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5 (Node 24)
         with:
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6 (Node 24)
