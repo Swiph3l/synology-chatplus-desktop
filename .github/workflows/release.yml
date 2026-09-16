@@ -1,4 +1,4 @@
-﻿name: Windows signed draft release
+name: Windows signed draft release
 on:
   push:
     tags: ["v*"]
@@ -68,7 +68,7 @@ jobs:
           RELEASE_TARGET: windows-x86_64
         run: |
           Get-ChildItem security-output | ForEach-Object { Copy-Item $_.FullName "release-artifacts/${env:RELEASE_TARGET}--$($_.Name)" }
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6 (Node 24)
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v6 (Node 24)
         with:
           name: signed-windows-x86_64
           path: release-artifacts/
