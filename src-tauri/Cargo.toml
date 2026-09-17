@@ -35,7 +35,7 @@ reqwest = { version = "0.13", default-features = false, features = ["json"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 
 [target.'cfg(windows)'.dependencies]
-tauri-winrt-notification = "0.7.3"
+tauri-winrt-notification = "0.8.1"
 webview2-com = "0.38"
 windows = { version = "0.61", features = ["UI_Notifications"] }
 winreg = "0.55"
