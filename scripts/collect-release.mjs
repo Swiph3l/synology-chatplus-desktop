@@ -30,8 +30,25 @@ await mkdir("release-artifacts", { recursive: true });
 const { version } = JSON.parse(await readFile("package.json", "utf8"));
 const file =
   target === "windows-x86_64"
-    ? `${target}--ChatPlus Desktop_${version}_x64-setup.exe`
+    ? `${target}--ChatPlus-Desktop_${version}_x64-setup.exe`
     : `${target}--${path.basename(candidates[0])}`;
+if (target === "windows-x86_64") {
+  // Swiph3l: Ship the actual application separately; the updater must still install the signed NSIS package.
+  const application = "src-tauri/target/release/chatplus-desktop.exe";
+  const bytes = await readFile(application);
+  if (!bytes.length || bytes.equals(await readFile(candidates[0])))
+    throw new Error(
+      "Standalone application must be nonempty and distinct from the installer",
+    );
+  // Swiph3l: GitHub rewrites spaces in asset names, so published names must already be URL-safe.
+  await copyFile(
+    application,
+    path.join(
+      "release-artifacts",
+      `${target}--ChatPlus-Desktop_${version}_x64.exe`,
+    ),
+  );
+}
 await copyFile(candidates[0], path.join("release-artifacts", file));
 await copyFile(
   candidates[0] + ".sig",

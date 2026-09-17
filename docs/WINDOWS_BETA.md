@@ -69,8 +69,9 @@ id-token write and attestations write for the draft job.
 The NSIS EXE is also the Tauri v2 Windows updater payload; no second updater archive
 is required. The collector gives it a deterministic distribution name:
 
-- `windows-x86_64--ChatPlus Desktop_0.5.0-beta.2_x64-setup.exe`
-- `windows-x86_64--ChatPlus Desktop_0.5.0-beta.2_x64-setup.exe.sig`
+- `windows-x86_64--ChatPlus-Desktop_0.5.0-beta.2_x64.exe` (standalone application)
+- `windows-x86_64--ChatPlus-Desktop_0.5.0-beta.2_x64-setup.exe`
+- `windows-x86_64--ChatPlus-Desktop_0.5.0-beta.2_x64-setup.exe.sig`
 - `windows-x86_64--target.json`
 - `windows-x86_64--npm.cdx.json`
 - `windows-x86_64--rust.cdx.json`
@@ -78,16 +79,16 @@ is required. The collector gives it a deterministic distribution name:
 - `latest-prerelease.json`
 - `SHA256SUMS.txt`
 
-GitHub stores the attestation separately; it is not an extra release asset. All eight
+GitHub stores the attestation separately; it is not an extra release asset. All nine
 files above are uploaded to the draft. GitHub also offers automatic source archives.
 The intermediate Actions artifact is `signed-windows-x86_64`. Its ZIP digest is not
 the installer hash. SHA256SUMS is generated after signing/collection from actual
 final file bytes, including the EXE, sidecar, manifests and SBOMs.
 
 ```powershell
-Get-FileHash -Algorithm SHA256 -LiteralPath '.\windows-x86_64--ChatPlus Desktop_0.5.0-beta.2_x64-setup.exe'
-Get-AuthenticodeSignature -LiteralPath '.\windows-x86_64--ChatPlus Desktop_0.5.0-beta.2_x64-setup.exe'
-gh attestation verify '.\windows-x86_64--ChatPlus Desktop_0.5.0-beta.2_x64-setup.exe' -R Swiph3l/synology-chatplus-desktop
+Get-FileHash -Algorithm SHA256 -LiteralPath '.\windows-x86_64--ChatPlus-Desktop_0.5.0-beta.2_x64-setup.exe'
+Get-AuthenticodeSignature -LiteralPath '.\windows-x86_64--ChatPlus-Desktop_0.5.0-beta.2_x64-setup.exe'
+gh attestation verify '.\windows-x86_64--ChatPlus-Desktop_0.5.0-beta.2_x64-setup.exe' -R Swiph3l/synology-chatplus-desktop
 ```
 
 Compare the EXE hash to its own SHA256SUMS entry. Inspect extracted NSIS contents,

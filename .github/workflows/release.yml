@@ -59,7 +59,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       - name: Check Windows binary privacy
         run: node scripts/check-binary-privacy.mjs
-      - run: node scripts/collect-release.mjs windows-x86_64
+      - name: Collect standalone application and signed setup
+        run: node scripts/collect-release.mjs windows-x86_64
       - run: cargo install cargo-cyclonedx --version 0.5.9 --locked
       - run: npm run sbom -- security-output
       - name: Collect dependency evidence
