@@ -1,6 +1,6 @@
 # Windows public beta preparation
 
-Target: `v0.5.0-beta.1`, Windows x64 NSIS. Public Beta is the intended release
+Target: `v0.5.0-beta.2`, Windows x64 NSIS. Public Beta is the intended release
 status, not a claim that this working tree has been published. Linux and macOS are
 **Experimental**, are excluded from this release and do not block its Windows gate.
 ChatPlus Desktop is unofficial, independent from Synology Inc., and GPL-3.0-only.
@@ -51,7 +51,7 @@ branding are changed by this release preparation.
 3. Review Dependabot/security findings. An agent's inability to read Security API
    is not itself a release blocker. Windows dependency policy applies; Linux-only
    issues and lack of Authenticode are not Windows beta blockers.
-4. After explicit release approval, create and push `v0.5.0-beta.1` yourself.
+4. After explicit release approval, create and push `v0.5.0-beta.2` yourself.
    Version validation must match package.json, package-lock.json root entries,
    Cargo.toml, Cargo.lock and tauri.conf.json exactly.
 5. The tag workflow requires the matching main checks, signs and builds Windows,
@@ -69,8 +69,8 @@ id-token write and attestations write for the draft job.
 The NSIS EXE is also the Tauri v2 Windows updater payload; no second updater archive
 is required. The collector gives it a deterministic distribution name:
 
-- `windows-x86_64--ChatPlus Desktop_0.5.0-beta.1_x64-setup.exe`
-- `windows-x86_64--ChatPlus Desktop_0.5.0-beta.1_x64-setup.exe.sig`
+- `windows-x86_64--ChatPlus Desktop_0.5.0-beta.2_x64-setup.exe`
+- `windows-x86_64--ChatPlus Desktop_0.5.0-beta.2_x64-setup.exe.sig`
 - `windows-x86_64--target.json`
 - `windows-x86_64--npm.cdx.json`
 - `windows-x86_64--rust.cdx.json`
@@ -85,9 +85,9 @@ the installer hash. SHA256SUMS is generated after signing/collection from actual
 final file bytes, including the EXE, sidecar, manifests and SBOMs.
 
 ```powershell
-Get-FileHash -Algorithm SHA256 -LiteralPath '.\windows-x86_64--ChatPlus Desktop_0.5.0-beta.1_x64-setup.exe'
-Get-AuthenticodeSignature -LiteralPath '.\windows-x86_64--ChatPlus Desktop_0.5.0-beta.1_x64-setup.exe'
-gh attestation verify '.\windows-x86_64--ChatPlus Desktop_0.5.0-beta.1_x64-setup.exe' -R Swiph3l/synology-chatplus-desktop
+Get-FileHash -Algorithm SHA256 -LiteralPath '.\windows-x86_64--ChatPlus Desktop_0.5.0-beta.2_x64-setup.exe'
+Get-AuthenticodeSignature -LiteralPath '.\windows-x86_64--ChatPlus Desktop_0.5.0-beta.2_x64-setup.exe'
+gh attestation verify '.\windows-x86_64--ChatPlus Desktop_0.5.0-beta.2_x64-setup.exe' -R Swiph3l/synology-chatplus-desktop
 ```
 
 Compare the EXE hash to its own SHA256SUMS entry. Inspect extracted NSIS contents,

@@ -205,8 +205,8 @@ pub fn persist(app: &AppHandle, mut settings: Settings) -> Result<(), String> {
 fn reconcile_windows_autostart(_app: &AppHandle, enforce_enabled: bool) -> Result<(), String> {
     use std::env;
     use winreg::{
-        RegKey, RegValue,
         enums::{HKEY_CURRENT_USER, REG_BINARY, REG_SZ},
+        RegKey, RegValue,
     };
 
     const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";

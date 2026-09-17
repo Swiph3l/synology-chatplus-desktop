@@ -76,6 +76,7 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
         .on_page_load(move |_, payload| {
             let value = match payload.event() {
                 tauri::webview::PageLoadEvent::Started => {
+                    crate::unread::reset(&load_app);
                     crate::desktop_notifications::pause_tracking(&load_app);
                     crate::connection::Connection::Connecting
                 }

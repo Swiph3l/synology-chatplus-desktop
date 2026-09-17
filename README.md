@@ -171,8 +171,8 @@ installers. Reviewed version tags trigger a Windows-only draft release; publicat
 
 About shows the version and maintainer. **Technical details** contains build,
 Git and runtime information plus **Copy Diagnostics**. Unknown values appear as
-Unavailable. Untagged builds display `0.5.0-beta.1-dev+<commit>`; source/package versions
-remain `0.5.0-beta.1`. Builds do not create tags or change versions.
+Unavailable. Untagged builds display `0.5.0-beta.2-dev+<commit>`; source/package versions
+remain `0.5.0-beta.2`. Builds do not create tags or change versions.
 
 Settings includes update channels, opt-in automatic checks and manual checking.
 The signed updater is implemented but disabled until a production verification key

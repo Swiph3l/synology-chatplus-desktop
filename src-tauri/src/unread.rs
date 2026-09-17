@@ -55,8 +55,35 @@ impl Default for State {
     }
 }
 
+impl State {
+    fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    fn accept(&mut self, count: Option<u32>, has_unread: bool, source: Source) -> bool {
+        if self.unread.last_update.is_some() && !accepts_source(self.source_rank, source) {
+            return false;
+        }
+        // Swiph3l: A matching DOM observation still takes priority over later title fallback events.
+        self.source_rank = source.rank();
+        self.unread.last_update.is_none()
+            || self.unread.total_unread_count != count
+            || self.unread.has_unread != has_unread
+    }
+}
+
 #[derive(Default)]
 pub struct Service(Mutex<State>);
+
+pub fn reset(app: &AppHandle) {
+    // Swiph3l: A new page must not inherit unread counts or source priority from the previous server/page.
+    app.state::<Service>()
+        .0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .reset();
+    refresh(app);
+}
 
 pub fn current(app: &AppHandle) -> Unread {
     app.state::<Service>()
@@ -96,13 +123,7 @@ pub fn publish_from(
     let mut state = service.0.lock().unwrap_or_else(|e| e.into_inner());
     let count = count.map(|n| n.min(1_000_000));
     let has_unread = count.map(|n| n > 0).unwrap_or(has_unread);
-    if state.unread.last_update.is_some() && !accepts_source(state.source_rank, source) {
-        return;
-    }
-    if state.unread.last_update.is_some()
-        && state.unread.total_unread_count == count
-        && state.unread.has_unread == has_unread
-    {
+    if !state.accept(count, has_unread, source) {
         return;
     }
     println!(
@@ -139,7 +160,6 @@ pub fn publish_from(
                 .as_millis() as u64,
         ),
     };
-    state.source_rank = source.rank();
     drop(state);
     refresh(app);
 }
@@ -155,6 +175,38 @@ pub fn refresh(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn matching_dom_observation_blocks_stale_title_fallback() {
+        let mut state = State {
+            unread: Unread {
+                total_unread_count: Some(3),
+                has_unread: true,
+                last_update: Some(1),
+                ..Unread::default()
+            },
+            source_rank: Source::TitleFallback.rank(),
+        };
+        assert!(!state.accept(Some(3), true, Source::ChatPlusDom));
+        assert!(!state.accept(Some(0), false, Source::TitleFallback));
+        assert!(state.accept(Some(0), false, Source::ChatPlusDom));
+    }
+
+    #[test]
+    fn fresh_page_accepts_title_fallback_without_old_unread_state() {
+        let mut state = State {
+            unread: Unread {
+                total_unread_count: Some(3),
+                has_unread: true,
+                last_update: Some(1),
+                ..Unread::default()
+            },
+            source_rank: Source::ChatPlusDom.rank(),
+        };
+        state.reset();
+        assert_eq!(state.unread, Unread::default());
+        assert!(state.accept(Some(0), false, Source::TitleFallback));
+    }
+
     #[test]
     fn titles_distinguish_exact_boolean_and_disabled_states() {
         let mut value = Unread::default();
