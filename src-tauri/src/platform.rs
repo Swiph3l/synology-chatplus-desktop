@@ -3,7 +3,8 @@
 #[cfg(windows)]
 pub fn observe_connection(
     app: &tauri::AppHandle,
-    window: &tauri::WebviewWindow,
+    window: &tauri::Webview,
+    service_id: &str,
 ) -> tauri::Result<()> {
     use crate::connection::{self, Connection};
     use webview2_com::{
@@ -14,6 +15,7 @@ pub fn observe_connection(
         NavigationCompletedEventHandler,
     };
     let app = app.clone();
+    let service_id = service_id.to_string();
     window.with_webview(move |webview| unsafe {
         let Ok(core) = webview.controller().CoreWebView2() else {
             connection::set(&app, Connection::Unknown);
@@ -26,10 +28,10 @@ pub fn observe_connection(
                     let mut success = Default::default();
                     args.IsSuccess(&mut success)?;
                     let state = if success.as_bool() {
-                        crate::desktop_notifications::begin_tracking(&handler_app);
+                        crate::desktop_notifications::begin_tracking_for(&handler_app, &service_id);
                         Connection::Connected
                     } else {
-                        crate::desktop_notifications::pause_tracking(&handler_app);
+                        crate::desktop_notifications::pause_tracking_for(&handler_app, &service_id);
                         let mut status = Default::default();
                         args.WebErrorStatus(&mut status)?;
                         if status == COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED {
@@ -41,7 +43,13 @@ pub fn observe_connection(
                             Connection::Error
                         }
                     };
-                    connection::set(&handler_app, state);
+                    if crate::state::current(&handler_app)
+                        .active_service
+                        .as_deref()
+                        == Some(&service_id)
+                    {
+                        connection::set(&handler_app, state);
+                    }
                 }
                 Ok(())
             })),
@@ -53,6 +61,6 @@ pub fn observe_connection(
     })
 }
 #[cfg(not(windows))]
-pub fn observe_connection(_: &tauri::AppHandle, _: &tauri::WebviewWindow) -> tauri::Result<()> {
+pub fn observe_connection(_: &tauri::AppHandle, _: &tauri::Webview, _: &str) -> tauri::Result<()> {
     Ok(())
 }

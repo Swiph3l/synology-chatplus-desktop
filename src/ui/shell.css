@@ -42,6 +42,43 @@ body {
   padding: 20px 24px;
 }
 
+body.services-page {
+  padding: 6px;
+}
+.services-page main {
+  margin: 0;
+  max-width: none;
+}
+.service-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.service-rail button {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  position: relative;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.service-rail button[aria-pressed="true"] {
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 var(--accent);
+}
+.service-rail .has-unread::after {
+  content: "";
+  position: absolute;
+  right: 3px;
+  top: 3px;
+  width: 6px;
+  height: 6px;
+  background: var(--accent);
+  border-radius: 50%;
+}
+
 main {
   max-width: 580px;
   margin: auto;

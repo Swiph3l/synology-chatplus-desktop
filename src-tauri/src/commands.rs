@@ -71,7 +71,7 @@ pub fn get_settings(
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,
 ) -> Result<Settings, String> {
-    local(&window, &["settings"])?;
+    local(&window, &["settings", "main"])?;
     Ok(state::current(&app))
 }
 #[tauri::command]
@@ -94,17 +94,10 @@ pub async fn save_settings(
     mut settings: Settings,
 ) -> Result<(), String> {
     local(&window, &["settings"])?;
-    settings.server_url = state::normalize_server(&settings.server_url)?;
+    settings.migrate_services()?;
     let old = state::current(&app);
     state::persist(&app, settings.clone())?;
-    // Swiph3l: Rebuild only when the server changes; theme updates apply live without reopening the main window.
-    if old.server_url != settings.server_url {
-        window::reopen(&app)?;
-    }
-    // Swiph3l: Avoid stealing focus when the main window already exists; create it only when absent.
-    if app.get_webview_window("main").is_none() {
-        window::open(&app)?;
-    }
+    crate::services::reconcile(&app, &old)?;
     window::apply_theme(&app)?;
     // Swiph3l: Keep Settings visible after Save so users can continue editing multiple options.
     window::focus(&window).map_err(|_| "Settings saved, but Settings could not be focused.".into())
@@ -229,7 +222,7 @@ pub fn get_shell_theme(
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,
 ) -> Result<state::Theme, String> {
-    let mut labels = vec!["settings", "about", "license", "update"];
+    let mut labels = vec!["main", "settings", "about", "license", "update"];
     if cfg!(debug_assertions) {
         labels.push("fixture");
     }
@@ -246,4 +239,46 @@ pub async fn developer_action(
     local(&window, &["settings", "fixture"])?;
     let action = crate::menu::Action::parse(&action).ok_or("Unknown menu action.")?;
     crate::menu::dispatch(&app, action)
+}
+
+#[tauri::command]
+pub async fn activate_service(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<(), String> {
+    local(&window, &["main"])?;
+    crate::services::activate(&app, &id)
+}
+#[tauri::command]
+pub async fn open_settings(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    local(&window, &["main"])?;
+    shell::settings(&app).map_err(|_| "Could not open Settings.".into())
+}
+
+#[tauri::command]
+pub async fn close_settings(window: tauri::WebviewWindow) -> Result<(), String> {
+    local(&window, &["settings"])?;
+    window
+        .close()
+        .map_err(|_| "Could not close Settings.".into())
+}
+
+#[tauri::command]
+pub fn get_providers(
+    window: tauri::WebviewWindow,
+) -> Result<Vec<crate::providers::ProviderDefinition>, String> {
+    local(&window, &["settings", "main"])?;
+    use crate::providers::ProviderId;
+    Ok([
+        ProviderId::SynologyChatplus,
+        ProviderId::SynologyChat,
+        ProviderId::Slack,
+    ]
+    .into_iter()
+    .map(|id| id.definition())
+    .collect())
 }

@@ -10,6 +10,7 @@ import { normalizeServer } from "../app/navigation";
 import { applyTheme, bindShellTheme } from "../theme/theme";
 import { notifications } from "../app/notifications";
 import { updates } from "../app/updates";
+import { serviceEditor } from "./services";
 
 export async function renderSettings() {
   const app = document.querySelector<HTMLElement>("#app")!;
@@ -23,13 +24,14 @@ export async function renderSettings() {
       '<h1>Settings</h1><p role="alert">Could not load settings. Restart the application.</p>';
     return;
   }
-  const firstRun = !original.serverUrl;
+  const firstRun = !original.services.length;
+  const serviceDraft = structuredClone(original.services);
   document.body.classList.toggle("setup-page", firstRun);
   app.innerHTML = `
     <header class="page-header"><img class="brand" src="/chatplus.png" alt="" width="32" height="32"><h1>${firstRun ? "ChatPlus Desktop" : "Settings"}</h1></header>
     ${firstRun ? '<h2 class="connect-heading">Connect to ChatPlus</h2>' : ""}
     <form id="settings">
-      ${firstRun ? "" : '<nav class="settings-tabs" aria-label="Settings categories"><button type="button" data-tab="general" aria-pressed="true">General</button><button type="button" data-tab="notifications" aria-pressed="false">Notifications</button><button type="button" data-tab="updates" aria-pressed="false">Updates</button></nav>'}
+      ${firstRun ? "" : '<nav class="settings-tabs" aria-label="Settings categories"><button type="button" data-tab="general" aria-pressed="true">General</button><button type="button" data-tab="notifications" aria-pressed="false">Notifications</button><button type="button" data-tab="updates" aria-pressed="false">Updates</button><button type="button" data-tab="services" aria-pressed="false">Services</button></nav>'}
       <div data-panel="general">
       <fieldset class="server-section">${firstRun ? "" : "<legend>ChatPlus server</legend>"}<label for="server">Server URL</label><input id="server" type="url" required placeholder="https://example.com/chat/" autocomplete="url" spellcheck="false">${firstRun ? "" : "<small>Enter the URL of your ChatPlus installation.</small>"}</fieldset>
       ${
@@ -60,17 +62,19 @@ export async function renderSettings() {
           <small>Previews may reveal private information on your lock screen. Sender/chat uses the title supplied by ChatPlus.</small>
         </fieldset>
         <fieldset><legend>Unread indicators</legend>
-          <label class="toggle"><input id="unread-title" type="checkbox">Show unread count in title</label>
+          <label class="toggle"><input id="unread-title" type="checkbox">Show unread status in title</label>
           <label class="toggle"><input id="unread-tray" type="checkbox">Show unread status in tray</label>
           <label class="toggle"><input id="notification-sound" type="checkbox">Play notification sound</label>
         </fieldset>
         <button id="test-notification" type="button" class="secondary">Send test notification</button>
       </div>
+      <div data-panel="services" hidden><div id="service-editor"></div><button id="add-service" class="secondary" type="button">Add service</button><small>Switch enabled services using the desktop sidebar. ChatPlus remains the primary provider.</small></div>
       <div data-panel="updates" hidden>
         <fieldset><legend>Updates</legend>
           <label class="toggle"><input id="automatic-updates" type="checkbox">Check for updates automatically</label>
           <label for="update-channel">Channel</label>
           <select id="update-channel"><option value="stable">Stable</option><option value="pre-release">Pre-release</option></select>
+          <small id="channel-description"></small>
           <small>Automatic checks run after startup, then at most every six hours. Installation always requires confirmation.</small>
         </fieldset>
         <button id="check-updates" class="secondary" type="button">Check for Updates</button>
@@ -78,7 +82,7 @@ export async function renderSettings() {
       </div>`
       }
       <p id="status" role="status" aria-live="polite"></p>
-      <div class="form-footer"><button id="save" type="submit">${firstRun ? "Connect" : "Save"}</button></div>
+      <div class="form-footer"><button id="close-settings" type="button" class="secondary">Close</button><button id="save" type="submit">${firstRun ? "Connect" : "Save"}</button></div>
       <p id="save-feedback" aria-live="polite"></p>
     </form>
     <footer><span>Unofficial community client.</span>${firstRun ? "" : '<button id="about" class="text-button" type="button">About</button>'}</footer>`;
@@ -111,6 +115,25 @@ export async function renderSettings() {
     }, 2400);
   };
   input("server").value = original.serverUrl;
+  input("server").required = firstRun || Boolean(original.activeService);
+  document.getElementById("close-settings")!.addEventListener("click", () => {
+    void invoke("close_settings");
+  });
+  if (!firstRun) {
+    const add = serviceEditor(
+      document.getElementById("service-editor")!,
+      serviceDraft,
+      (service) => {
+        if (service.id === original.activeService)
+          input("server").value = service.url;
+      },
+    );
+    document.getElementById("add-service")!.addEventListener("click", add);
+    input("server").addEventListener("input", () => {
+      const active = serviceDraft.find((s) => s.id === original.activeService);
+      if (active) active.url = input("server").value;
+    });
+  }
   applyTheme(original.theme);
   if (theme) {
     theme.value = original.theme;
@@ -131,6 +154,17 @@ export async function renderSettings() {
     ).value = String(original.notificationCooldown);
     (document.getElementById("update-channel") as HTMLSelectElement).value =
       original.updateChannel;
+    const channel = document.getElementById(
+      "update-channel",
+    ) as HTMLSelectElement;
+    const describeChannel = () => {
+      document.getElementById("channel-description")!.textContent =
+        channel.value === "stable"
+          ? "Receive production releases only."
+          : "Receive beta/RC builds and newer stable releases.";
+    };
+    channel.addEventListener("change", describeChannel);
+    describeChannel();
     theme.addEventListener("change", () => applyTheme(theme.value as Theme));
   }
   for (const tab of document.querySelectorAll<HTMLButtonElement>(
@@ -268,6 +302,10 @@ export async function renderSettings() {
     }
   };
   await listen<Settings>("settings-changed", ({ payload }) => {
+    if (payload.activeService !== original.activeService) {
+      input("server").value = payload.serverUrl;
+      input("server").required = Boolean(payload.activeService);
+    }
     original = payload;
     applyTheme(payload.theme);
     if (theme) {
@@ -292,7 +330,11 @@ export async function renderSettings() {
     try {
       await saveSettings({
         ...original,
-        serverUrl: normalizeServer(input("server").value),
+        services: serviceDraft,
+        serviceSchema: firstRun ? 0 : original.serviceSchema,
+        serverUrl: input("server").value
+          ? normalizeServer(input("server").value)
+          : "",
         ...(theme
           ? {
               theme: theme.value as Theme,

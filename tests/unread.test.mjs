@@ -105,12 +105,12 @@ test("sidebar unread observes initial state and read changes, not focus or missi
     chatplusUnread: 1,
     source: "chatplus-dom",
     hasUnread: false,
-    count: 0,
+    count: null,
     reason: "confirmed-badge-removed",
   });
 });
 
-test("title fallback reports unread only when sidebar state is unavailable", () => {
+test("flashing title cannot create unread when sidebar is unavailable", () => {
   const messages = [],
     tasks = [];
   const window = {
@@ -146,12 +146,5 @@ test("title fallback reports unread only when sidebar state is unavailable", () 
     },
   });
   while (tasks.length) tasks.shift()();
-  assert.equal(messages.length, 1);
-  assert.deepEqual(messages[0], {
-    chatplusUnread: 1,
-    source: "title-fallback",
-    hasUnread: true,
-    count: 5,
-    reason: "title-fallback",
-  });
+  assert.equal(messages.length, 0);
 });

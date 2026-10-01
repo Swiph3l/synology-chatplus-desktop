@@ -4,6 +4,7 @@ use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 pub fn broadcast_settings(app: &AppHandle) {
     let settings = state::current(app);
     let _ = app.emit_to("settings", "settings-changed", &settings);
+    let _ = app.emit_to("main", "services-changed", &settings);
     let _ = app.emit_to("about", "theme-changed", &settings.theme);
     let _ = app.emit_to("license", "theme-changed", &settings.theme);
     let _ = app.emit_to("update", "theme-changed", &settings.theme);

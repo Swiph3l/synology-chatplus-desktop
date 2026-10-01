@@ -1,7 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { ServiceConfig } from "./providers";
 export type Theme = "system" | "light" | "dark";
 export interface Settings {
   serverUrl: string;
+  services: ServiceConfig[];
+  activeService: string | null;
+  serviceSchema: number;
   theme: Theme;
   autostart: boolean;
   minimizeToTray: boolean;

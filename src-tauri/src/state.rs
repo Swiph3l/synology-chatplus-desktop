@@ -61,6 +61,9 @@ pub fn normalize_notification_cooldown_seconds(value: u16) -> u16 {
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
     pub server_url: String,
+    pub services: Vec<crate::providers::ServiceConfig>,
+    pub active_service: Option<String>,
+    pub service_schema: u8,
     pub theme: Theme,
     pub autostart: bool,
     pub minimize_to_tray: bool,
@@ -80,6 +83,9 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             server_url: String::new(),
+            services: Vec::new(),
+            active_service: None,
+            service_schema: 0,
             theme: Theme::System,
             autostart: false,
             // Swiph3l: These defaults apply on first run; existing users keep their saved window preferences.
@@ -98,6 +104,41 @@ impl Default for Settings {
     }
 }
 pub struct AppState(pub Mutex<Settings>);
+impl Settings {
+    pub fn migrate_services(&mut self) -> Result<bool, String> {
+        let migrating = self.service_schema == 0;
+        if migrating && self.services.is_empty() && !self.server_url.is_empty() {
+            self.services.push(crate::providers::ServiceConfig {
+                id: "chatplus".into(),
+                provider: crate::providers::ProviderId::SynologyChatplus,
+                name: "ChatPlus".into(),
+                url: self.server_url.clone(),
+                enabled: true,
+                notifications: true,
+            });
+        }
+        crate::providers::normalize_services(&mut self.services)?;
+        if !self
+            .services
+            .iter()
+            .any(|s| s.enabled && Some(&s.id) == self.active_service.as_ref())
+        {
+            self.active_service = self
+                .services
+                .iter()
+                .find(|s| s.enabled)
+                .map(|s| s.id.clone());
+        }
+        self.server_url = self.active().map(|s| s.url.clone()).unwrap_or_default();
+        self.service_schema = 1;
+        Ok(migrating)
+    }
+    pub fn active(&self) -> Option<&crate::providers::ServiceConfig> {
+        self.services
+            .iter()
+            .find(|s| s.enabled && Some(&s.id) == self.active_service.as_ref())
+    }
+}
 #[derive(Default)]
 pub struct Status(pub Mutex<Option<String>>);
 pub fn current(app: &AppHandle) -> Settings {
@@ -140,6 +181,23 @@ pub fn load(app: &AppHandle) -> Result<Settings, Box<dyn std::error::Error>> {
     }
     settings.notification_cooldown =
         normalize_notification_cooldown_seconds(settings.notification_cooldown);
+    let before_migration = settings.clone();
+    match settings.migrate_services() {
+        Ok(true) => {
+            store.set("settings", serde_json::to_value(&settings)?);
+            // Preserve the original record if the one-time write cannot complete.
+            if store.save().is_err() {
+                store.set("settings", serde_json::to_value(before_migration)?);
+            }
+        }
+        Ok(false) => {}
+        Err(_) => {
+            // Keep existing configuration on disk; open setup with safe defaults.
+            settings.services.clear();
+            settings.service_schema = 0;
+            settings.migrate_services()?;
+        }
+    }
     settings.autostart = app.autolaunch().is_enabled()?;
     if settings.autostart {
         #[cfg(windows)]
@@ -151,6 +209,7 @@ pub fn load(app: &AppHandle) -> Result<Settings, Box<dyn std::error::Error>> {
 }
 pub fn persist(app: &AppHandle, mut settings: Settings) -> Result<(), String> {
     let old = current(app);
+    settings.migrate_services()?;
     settings.notification_cooldown =
         normalize_notification_cooldown_seconds(settings.notification_cooldown);
     let store = app
@@ -266,6 +325,47 @@ fn to_utf16le(value: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn legacy_migration_is_deterministic_idempotent_and_preserves_preferences() {
+        let mut settings: Settings = serde_json::from_value(serde_json::json!({
+            "serverUrl": "https://example.com/chat/", "theme": "dark",
+            "desktopNotifications": true, "notificationSound": false,
+            "notificationPreview": "generic", "updateChannel": "pre-release",
+            "automaticUpdates": true, "closeToTray": false, "autostart": true
+        }))
+        .unwrap();
+        assert!(settings.migrate_services().unwrap());
+        assert_eq!(settings.services.len(), 1);
+        assert_eq!(settings.services[0].id, "chatplus");
+        assert_eq!(settings.active_service.as_deref(), Some("chatplus"));
+        assert_eq!(
+            settings.services[0].provider,
+            crate::providers::ProviderId::SynologyChatplus
+        );
+        let first = serde_json::to_value(&settings).unwrap();
+        assert!(!settings.migrate_services().unwrap());
+        assert_eq!(serde_json::to_value(&settings).unwrap(), first);
+        assert!(settings.desktop_notifications && settings.automatic_updates && settings.autostart);
+        assert!(!settings.notification_sound && !settings.close_to_tray);
+        assert!(matches!(settings.theme, Theme::Dark));
+        assert!(matches!(settings.update_channel, UpdateChannel::PreRelease));
+    }
+    #[test]
+    fn migration_and_disabled_active_selection_never_duplicate_legacy_service() {
+        let mut settings = Settings {
+            server_url: "https://example.com/chat/".into(),
+            ..Settings::default()
+        };
+        settings.migrate_services().unwrap();
+        settings.services[0].enabled = false;
+        settings.migrate_services().unwrap();
+        assert_eq!(settings.services.len(), 1);
+        assert_eq!(settings.active_service, None);
+        assert!(settings.server_url.is_empty());
+        settings.services.clear();
+        settings.migrate_services().unwrap();
+        assert!(settings.services.is_empty());
+    }
     #[test]
     fn existing_settings_gain_safe_update_defaults() {
         let settings: Settings =

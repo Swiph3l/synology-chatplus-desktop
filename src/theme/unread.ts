@@ -14,7 +14,7 @@
     }
   ).chrome?.webview;
   const publish = (
-    source: "chatplus-dom" | "title-fallback",
+    source: "chatplus-dom",
     hasUnread: boolean,
     count: number | null,
     reason: string,
@@ -41,32 +41,13 @@
       .filter((value): value is Element => Boolean(value));
     if (!badges.length)
       return { hasUnread: false, count: null as number | null };
-    const counts = badges
-      .map((badge) => {
-        const text = (badge.textContent ?? "").trim();
-        const number = Number.parseInt(text, 10);
-        return Number.isFinite(number) ? number : null;
-      })
-      .filter((value): value is number => value !== null);
-    const count = counts.length ? counts.reduce((a, b) => a + b, 0) : null;
-    return { hasUnread: true, count };
-  };
-  const unreadFromTitle = () => {
-    const title = document.title.trim();
-    const countMatch = /^\((\d+)\)\s/.exec(title);
-    if (countMatch) {
-      return { hasUnread: true, count: Number.parseInt(countMatch[1], 10) };
-    }
-    if (title.includes("•")) {
-      return { hasUnread: true, count: null as number | null };
-    }
-    return null;
+    return { hasUnread: true, count: null as number | null };
   };
   const confirmCleared = () => {
     clearTimer = null;
     const state = domState();
     if (state && !state.hasUnread) {
-      publish("chatplus-dom", false, 0, "confirmed-badge-removed");
+      publish("chatplus-dom", false, null, "confirmed-badge-removed");
     }
   };
   const report = () => {
@@ -84,11 +65,7 @@
       }
       return;
     }
-    // Swiph3l: ChatPlus DOM owns unread state; focus must never clear it.
-    const fallback = unreadFromTitle();
-    if (fallback) {
-      publish("title-fallback", true, fallback.count, "title-fallback");
-    }
+    // Missing sidebar state is unknown; keep the last observation during reconnect.
   };
   const schedule = () => {
     if (!scheduled) {
@@ -121,13 +98,5 @@
     childList: true,
     subtree: true,
   });
-  const title = document.querySelector("head > title");
-  if (title) {
-    new MutationObserver(schedule).observe(title, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-    });
-  }
   discover();
 })();

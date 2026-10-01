@@ -148,7 +148,7 @@ pub fn refresh(app: &AppHandle) {
         }
     }
 }
-pub fn restore_zoom(app: &AppHandle, window: &tauri::WebviewWindow) -> tauri::Result<()> {
+pub fn restore_zoom(app: &AppHandle, window: &tauri::Webview) -> tauri::Result<()> {
     let state = app.state::<MenuState>();
     let zoom = *state.zoom.lock().unwrap_or_else(|e| e.into_inner());
     window.set_zoom(zoom)
@@ -257,7 +257,8 @@ pub fn dispatch(app: &AppHandle, action: Action) -> Result<(), String> {
         Action::Open => window::open(app),
         Action::Settings => shell::settings(app).map_err(|_| "Could not open Settings.".into()),
         Action::About => shell::about(app).map_err(|_| "Could not open About.".into()),
-        Action::Reload => content(app)?
+        Action::Reload => crate::services::active(app)
+            .ok_or("Open a service first.")?
             .reload()
             .map_err(|_| "Could not reload ChatPlus.".into()),
         Action::Quit => {
@@ -277,7 +278,7 @@ pub fn dispatch(app: &AppHandle, action: Action) -> Result<(), String> {
             window::apply_theme(app)
         }
         Action::ZoomIn | Action::ZoomOut | Action::ZoomReset => {
-            let window = content(app)?;
+            let window = crate::services::active(app).ok_or("Open a service first.")?;
             let state = app.state::<MenuState>();
             let mut zoom = state.zoom.lock().unwrap_or_else(|e| e.into_inner());
             let next = match action {

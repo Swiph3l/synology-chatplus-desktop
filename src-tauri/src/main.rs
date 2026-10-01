@@ -9,6 +9,8 @@ mod navigation;
 mod notification_bridge;
 mod platform;
 mod project;
+mod providers;
+mod services;
 mod shell;
 mod state;
 mod tray;
@@ -54,6 +56,10 @@ fn main() {
         )
         .invoke_handler(tauri::generate_handler![
             commands::get_settings,
+            commands::activate_service,
+            commands::open_settings,
+            commands::close_settings,
+            commands::get_providers,
             commands::get_notification_permission,
             commands::open_notification_settings,
             commands::send_test_notification,

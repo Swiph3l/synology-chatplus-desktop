@@ -1,37 +1,15 @@
-//! Central unread model. Sources publish observations; focus never marks messages read.
+//! Provider observations and desktop presentation are separate. Focus never marks messages read.
 use serde::Serialize;
 use std::{
+    collections::HashMap,
     sync::Mutex,
     time::{SystemTime, UNIX_EPOCH},
 };
-use tauri::{AppHandle, Manager};
-
+use tauri::{AppHandle, Emitter, Manager};
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Source {
     ChatPlusDom,
-    TitleFallback,
 }
-
-impl Source {
-    fn rank(self) -> u8 {
-        match self {
-            Self::ChatPlusDom => 2,
-            Self::TitleFallback => 1,
-        }
-    }
-
-    fn label(self) -> &'static str {
-        match self {
-            Self::ChatPlusDom => "chatplus-dom",
-            Self::TitleFallback => "title-fallback",
-        }
-    }
-}
-
-fn accepts_source(previous_rank: u8, source: Source) -> bool {
-    source.rank() >= previous_rank
-}
-
 #[derive(Clone, Default, Serialize, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Unread {
@@ -40,127 +18,87 @@ pub struct Unread {
     pub mention_count: Option<u32>,
     pub last_update: Option<u64>,
 }
-
-struct State {
-    unread: Unread,
-    source_rank: u8,
-}
-
-impl Default for State {
-    fn default() -> Self {
-        Self {
-            unread: Unread::default(),
-            source_rank: 0,
-        }
-    }
-}
-
-impl State {
-    fn reset(&mut self) {
-        *self = Self::default();
-    }
-
-    fn accept(&mut self, count: Option<u32>, has_unread: bool, source: Source) -> bool {
-        if self.unread.last_update.is_some() && !accepts_source(self.source_rank, source) {
-            return false;
-        }
-        // Swiph3l: A matching DOM observation still takes priority over later title fallback events.
-        self.source_rank = source.rank();
-        self.unread.last_update.is_none()
-            || self.unread.total_unread_count != count
-            || self.unread.has_unread != has_unread
-    }
-}
-
 #[derive(Default)]
-pub struct Service(Mutex<State>);
-
-pub fn reset(app: &AppHandle) {
-    // Swiph3l: A new page must not inherit unread counts or source priority from the previous server/page.
+pub struct Service(Mutex<HashMap<String, Unread>>);
+pub fn remove(app: &AppHandle, id: &str) {
     app.state::<Service>()
         .0
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .reset();
+        .remove(id);
     refresh(app);
 }
-
-pub fn current(app: &AppHandle) -> Unread {
+pub fn observations(app: &AppHandle) -> HashMap<String, Unread> {
     app.state::<Service>()
         .0
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .unread
         .clone()
 }
+fn aggregate<'a>(values: impl Iterator<Item = &'a Unread>) -> Unread {
+    values.fold(Unread::default(), |mut result, value| {
+        result.has_unread |= value.has_unread;
+        result.last_update = result.last_update.max(value.last_update);
+        result
+    })
+}
+pub fn current(app: &AppHandle) -> Unread {
+    let settings = crate::state::current(app);
+    let states = observations(app);
+    aggregate(
+        settings
+            .services
+            .iter()
+            .filter(|s| s.enabled)
+            .filter_map(|s| states.get(&s.id)),
+    )
+}
 pub fn label(value: &Unread) -> String {
-    match value.total_unread_count {
-        Some(n) if n > 99 => "99+ unread messages".into(),
-        Some(n) => format!("{n} unread messages"),
-        None if value.has_unread => "Unread messages".into(),
-        None if value.last_update.is_some() => "No unread messages".into(),
-        None => "Unread status unavailable".into(),
+    if value.has_unread {
+        "Unread messages".into()
+    } else if value.last_update.is_some() {
+        "No unread messages".into()
+    } else {
+        "Unread status unavailable".into()
     }
 }
 pub fn title(value: &Unread, enabled: bool) -> String {
-    if !enabled || !value.has_unread {
-        return "ChatPlus Desktop".into();
-    }
-    match value.total_unread_count {
-        Some(count) => format!("ChatPlus Desktop ({count})"),
-        None => "ChatPlus Desktop •".into(),
+    if enabled && value.has_unread {
+        "ChatPlus Desktop •".into()
+    } else {
+        "ChatPlus Desktop".into()
     }
 }
-
-pub fn publish_from(
+pub fn publish_for(
     app: &AppHandle,
-    count: Option<u32>,
+    id: &str,
+    _count: Option<u32>,
     has_unread: bool,
-    source: Source,
-    reason: &str,
+    _source: Source,
+    _reason: &str,
 ) {
     let service = app.state::<Service>();
-    let mut state = service.0.lock().unwrap_or_else(|e| e.into_inner());
-    let count = count.map(|n| n.min(1_000_000));
-    let has_unread = count.map(|n| n > 0).unwrap_or(has_unread);
-    if !state.accept(count, has_unread, source) {
+    let mut states = service.0.lock().unwrap_or_else(|e| e.into_inner());
+    if states
+        .get(id)
+        .is_some_and(|value| value.has_unread == has_unread)
+    {
         return;
     }
-    println!(
-        "unread: source={} previous={} next={} reason={}",
-        source.label(),
-        state
-            .unread
-            .total_unread_count
-            .map(|n| n.to_string())
-            .unwrap_or_else(|| {
-                if state.unread.has_unread {
-                    "dot".into()
-                } else {
-                    "0".into()
-                }
-            }),
-        count.map(|n| n.to_string()).unwrap_or_else(|| {
-            if has_unread {
-                "dot".into()
-            } else {
-                "0".into()
-            }
-        }),
-        reason,
+    states.insert(
+        id.into(),
+        Unread {
+            has_unread,
+            last_update: Some(
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64,
+            ),
+            ..Unread::default()
+        },
     );
-    state.unread = Unread {
-        total_unread_count: count,
-        has_unread,
-        mention_count: None,
-        last_update: Some(
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64,
-        ),
-    };
-    drop(state);
+    drop(states);
     refresh(app);
 }
 pub fn refresh(app: &AppHandle) {
@@ -169,6 +107,7 @@ pub fn refresh(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.set_title(&title(&unread, settings.unread_title));
         crate::desktop_notifications::taskbar(&window, &unread);
+        let _ = app.emit_to("main", "service-unread", observations(app));
     }
     crate::tray::refresh(app);
 }
@@ -176,55 +115,23 @@ pub fn refresh(app: &AppHandle) {
 mod tests {
     use super::*;
     #[test]
-    fn matching_dom_observation_blocks_stale_title_fallback() {
-        let mut state = State {
-            unread: Unread {
-                total_unread_count: Some(3),
+    fn desktop_aggregation_preserves_other_services() {
+        let values = [
+            Unread {
                 has_unread: true,
                 last_update: Some(1),
                 ..Unread::default()
             },
-            source_rank: Source::TitleFallback.rank(),
-        };
-        assert!(!state.accept(Some(3), true, Source::ChatPlusDom));
-        assert!(!state.accept(Some(0), false, Source::TitleFallback));
-        assert!(state.accept(Some(0), false, Source::ChatPlusDom));
-    }
-
-    #[test]
-    fn fresh_page_accepts_title_fallback_without_old_unread_state() {
-        let mut state = State {
-            unread: Unread {
-                total_unread_count: Some(3),
-                has_unread: true,
-                last_update: Some(1),
+            Unread {
+                has_unread: false,
+                last_update: Some(2),
                 ..Unread::default()
             },
-            source_rank: Source::ChatPlusDom.rank(),
-        };
-        state.reset();
-        assert_eq!(state.unread, Unread::default());
-        assert!(state.accept(Some(0), false, Source::TitleFallback));
-    }
-
-    #[test]
-    fn titles_distinguish_exact_boolean_and_disabled_states() {
-        let mut value = Unread::default();
-        assert_eq!(title(&value, true), "ChatPlus Desktop");
-        value.has_unread = true;
-        assert_eq!(title(&value, true), "ChatPlus Desktop •");
-        value.total_unread_count = Some(4);
-        assert_eq!(title(&value, true), "ChatPlus Desktop (4)");
-        assert_eq!(title(&value, false), "ChatPlus Desktop");
-        value.total_unread_count = Some(120);
-        assert_eq!(label(&value), "99+ unread messages");
-    }
-
-    #[test]
-    fn source_priority_prefers_dom_over_title_fallback() {
-        assert!(accepts_source(0, Source::TitleFallback));
-        assert!(accepts_source(1, Source::TitleFallback));
-        assert!(accepts_source(1, Source::ChatPlusDom));
-        assert!(!accepts_source(2, Source::TitleFallback));
+        ];
+        let result = aggregate(values.iter());
+        assert!(result.has_unread);
+        assert_eq!(result.total_unread_count, None);
+        assert_eq!(title(&result, true), "ChatPlus Desktop •");
+        assert_eq!(title(&result, false), "ChatPlus Desktop");
     }
 }

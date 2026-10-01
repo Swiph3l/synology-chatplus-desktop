@@ -2,9 +2,8 @@
 pub async fn permission_state(app: &tauri::AppHandle) -> String {
     #[cfg(windows)]
     {
-        use tauri::Manager;
         use windows::core::w;
-        let Some(window) = app.get_webview_window("main") else {
+        let Some(window) = crate::services::active(app) else {
             return "unavailable".into();
         };
         let (tx, rx) = tokio::sync::oneshot::channel();
@@ -36,7 +35,12 @@ pub async fn enable_permission(app: &tauri::AppHandle) -> Result<(), String> {
         let window = app
             .get_webview_window("main")
             .ok_or("Open ChatPlus first, then enable notifications.")?;
-        let server = crate::state::current(app).server_url;
+        let settings = crate::state::current(app);
+        let service = settings.active().ok_or("Open a service first.")?;
+        if !service.provider.definition().notifications {
+            return Err("Desktop notifications are unavailable for this provider.".into());
+        }
+        let server = service.url.clone();
         let origin = url::Url::parse(&server)
             .map_err(|_| "Configure your ChatPlus server first.")?
             .origin()
@@ -87,7 +91,11 @@ pub fn trusted_origin(server: &str, sender: &str) -> bool {
 }
 
 #[cfg(windows)]
-pub fn attach(app: &tauri::AppHandle, window: &tauri::WebviewWindow) -> tauri::Result<()> {
+pub fn attach(
+    app: &tauri::AppHandle,
+    window: &tauri::Webview,
+    service: &crate::providers::ServiceConfig,
+) -> tauri::Result<()> {
     use crate::desktop_notifications as notifications;
     use tauri::Manager;
     use webview2_com::{
@@ -100,31 +108,38 @@ pub fn attach(app: &tauri::AppHandle, window: &tauri::WebviewWindow) -> tauri::R
     };
     use windows::core::{Interface, PWSTR};
     let app = app.clone();
+    let service = service.clone();
     window.with_webview(move |webview| unsafe {
         let Ok(core) = webview.controller().CoreWebView2() else {
             return;
         };
         let unread_app = app.clone();
+        let unread_service = service.clone();
         let _ = core.add_WebMessageReceived(
             &webview2_com::WebMessageReceivedEventHandler::create(Box::new(move |_, args| {
                 let Some(args) = args else { return Ok(()) };
                 let mut source = PWSTR::null();
                 args.Source(&mut source)?;
                 let source = CoTaskMemPWSTR::from(source).to_string();
-                if !trusted_origin(&crate::state::current(&unread_app).server_url, &source) {
+                if !crate::services::configured(&unread_app, &unread_service)
+                    || !trusted_origin(&unread_service.url, &source)
+                {
                     return Ok(());
                 }
                 let mut json = PWSTR::null();
                 args.TryGetWebMessageAsString(&mut json)?;
                 let json = CoTaskMemPWSTR::from(json).to_string();
-                if let Some(unread) = parse_unread(&json) {
-                    crate::unread::publish_from(
-                        &unread_app,
-                        unread.count,
-                        unread.has_unread,
-                        unread.source,
-                        &unread.reason,
-                    );
+                if unread_service.provider.definition().unread {
+                    if let Some(unread) = parse_unread(&json) {
+                        crate::unread::publish_for(
+                            &unread_app,
+                            &unread_service.id,
+                            unread.count,
+                            unread.has_unread,
+                            unread.source,
+                            &unread.reason,
+                        );
+                    }
                 }
                 Ok(())
             })),
@@ -134,6 +149,7 @@ pub fn attach(app: &tauri::AppHandle, window: &tauri::WebviewWindow) -> tauri::R
             return;
         };
         let notify_app = app.clone();
+        let notify_service = service.clone();
         let registered = extended
             .add_NotificationReceived(
                 &NotificationReceivedEventHandler::create(Box::new(move |_, args| {
@@ -146,7 +162,10 @@ pub fn attach(app: &tauri::AppHandle, window: &tauri::WebviewWindow) -> tauri::R
                     let mut sender = PWSTR::null();
                     args.SenderOrigin(&mut sender)?;
                     let sender = CoTaskMemPWSTR::from(sender).to_string();
-                    if !trusted_origin(&crate::state::current(&notify_app).server_url, &sender) {
+                    if !crate::services::configured(&notify_app, &notify_service)
+                        || !notify_service.provider.definition().notifications
+                        || !trusted_origin(&notify_service.url, &sender)
+                    {
                         return Ok(());
                     }
                     let notification = args.Notification()?;
@@ -159,7 +178,13 @@ pub fn attach(app: &tauri::AppHandle, window: &tauri::WebviewWindow) -> tauri::R
                     let mut value = PWSTR::null();
                     notification.Tag(&mut value)?;
                     let tag = CoTaskMemPWSTR::from(value).to_string();
-                    if notifications::deliver(&notify_app, &title, &body, &tag) {
+                    if notifications::deliver_for(
+                        &notify_app,
+                        &notify_service.id,
+                        &title,
+                        &body,
+                        &tag,
+                    ) {
                         let _ = notification.ReportShown();
                     }
                     Ok(())
@@ -176,6 +201,7 @@ pub fn attach(app: &tauri::AppHandle, window: &tauri::WebviewWindow) -> tauri::R
             return;
         }
         let permission_app = app.clone();
+        let permission_service = service.clone();
         let _ = core.add_PermissionRequested(
             &PermissionRequestedEventHandler::create(Box::new(move |_, args| {
                 let Some(args) = args else {
@@ -191,7 +217,13 @@ pub fn attach(app: &tauri::AppHandle, window: &tauri::WebviewWindow) -> tauri::R
                 let uri = CoTaskMemPWSTR::from(uri).to_string();
                 let settings = crate::state::current(&permission_app);
                 let allow = settings.desktop_notifications
-                    && trusted_origin(&settings.server_url, &uri)
+                    && crate::services::configured(&permission_app, &permission_service)
+                    && settings
+                        .services
+                        .iter()
+                        .any(|s| s.id == permission_service.id && s.notifications)
+                    && permission_service.provider.definition().notifications
+                    && trusted_origin(&permission_service.url, &uri)
                     && notifications::permission(&permission_app).granted;
                 // The explicit saved desktop-notification preference authorizes this origin only.
                 // Camera/microphone and other requests retain the normal WebView behavior.
@@ -222,7 +254,6 @@ fn parse_unread(json: &str) -> Option<UnreadObservation> {
         chatplus_unread: u8,
         unread: Option<bool>,
         has_unread: Option<bool>,
-        count: Option<u32>,
         source: Option<String>,
         reason: Option<String>,
     }
@@ -237,7 +268,7 @@ fn parse_unread(json: &str) -> Option<UnreadObservation> {
     let has_unread = value.has_unread.or(value.unread)?;
     let source = match value.source.as_deref() {
         Some("chatplus-dom") | None => crate::unread::Source::ChatPlusDom,
-        Some("title-fallback") => crate::unread::Source::TitleFallback,
+        Some("title-fallback") => return None,
         _ => return None,
     };
     let reason = value.reason.unwrap_or_else(|| "event".into());
@@ -246,13 +277,17 @@ fn parse_unread(json: &str) -> Option<UnreadObservation> {
     }
     Some(UnreadObservation {
         has_unread,
-        count: value.count,
+        count: None,
         source,
         reason,
     })
 }
 #[cfg(not(windows))]
-pub fn attach(_: &tauri::AppHandle, _: &tauri::WebviewWindow) -> tauri::Result<()> {
+pub fn attach(
+    _: &tauri::AppHandle,
+    _: &tauri::Webview,
+    _: &crate::providers::ServiceConfig,
+) -> tauri::Result<()> {
     Ok(())
 }
 
@@ -274,7 +309,7 @@ mod tests {
                 r#"{"chatplusUnread":1,"hasUnread":true,"count":3,"source":"chatplus-dom","reason":"badge-created"}"#
             )
             .map(|value| (value.has_unread, value.count)),
-            Some((true, Some(3)))
+            Some((true, None))
         );
         for value in [
             r#"{"chatplusUnread":1,"unread":"true"}"#,

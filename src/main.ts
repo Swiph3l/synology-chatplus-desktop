@@ -1,6 +1,9 @@
 import "./ui/shell.css";
 const page = new URLSearchParams(location.search).get("page");
-if (page === "update") {
+if (page === "services") {
+  const { renderServices } = await import("./ui/services");
+  await renderServices();
+} else if (page === "update") {
   const { renderUpdate } = await import("./ui/update");
   await renderUpdate();
 } else if (page === "license") {

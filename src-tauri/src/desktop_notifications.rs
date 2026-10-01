@@ -13,7 +13,8 @@ pub struct Service(pub Mutex<Tracking>);
 #[derive(Default)]
 pub struct Tracking {
     pub bridge_available: bool,
-    pub active_after: Option<Instant>,
+    pub active_after: HashMap<String, Instant>,
+    duplicates: HashMap<u64, Instant>,
     recent: HashMap<u64, Instant>,
     pub last_status: String,
 }
@@ -99,7 +100,13 @@ pub fn send_test(app: &AppHandle, sound: bool) -> Result<(), String> {
     if !permission.granted {
         return Err(permission.message);
     }
-    show(app, "ChatPlus Desktop", "Notifications are working.", sound)
+    show(
+        app,
+        "ChatPlus Desktop",
+        "Notifications are working.",
+        sound,
+        None,
+    )
 }
 fn native_state(app: &AppHandle) -> NativeState {
     #[cfg(windows)]
@@ -149,36 +156,45 @@ pub fn preview(mode: &NotificationPreview, title: &str, body: &str) -> (String, 
     }
 }
 pub fn should_notify(enabled: bool, granted: bool, focused: bool, active: bool) -> bool {
-    let _ = focused;
-    enabled && granted && active
+    enabled && granted && !focused && active
 }
-pub fn begin_tracking(app: &AppHandle) {
+pub fn begin_tracking_for(app: &AppHandle, id: &str) {
     let service = app.state::<Service>();
     let mut state = service.0.lock().unwrap_or_else(|e| e.into_inner());
-    state.active_after = Some(Instant::now() + Duration::from_secs(2));
-    state.recent.clear();
+    state
+        .active_after
+        .insert(id.into(), Instant::now() + Duration::from_secs(2));
 }
-pub fn pause_tracking(app: &AppHandle) {
+pub fn pause_tracking_for(app: &AppHandle, id: &str) {
     app.state::<Service>()
         .0
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .active_after = None;
+        .active_after
+        .remove(id);
 }
-pub fn deliver(app: &AppHandle, title: &str, body: &str, tag: &str) -> bool {
+pub fn deliver_for(app: &AppHandle, id: &str, title: &str, body: &str, tag: &str) -> bool {
     let settings = crate::state::current(app);
-    let focused = app.get_webview_window("main").is_some_and(|w| {
-        w.is_focused().unwrap_or(false)
-            && w.is_visible().unwrap_or(false)
-            && !w.is_minimized().unwrap_or(true)
-    });
+    let Some(config) = settings.services.iter().find(|s| s.id == id && s.enabled) else {
+        return false;
+    };
+    if !config.notifications || !config.provider.definition().notifications {
+        return false;
+    }
+    let focused = settings.active_service.as_deref() == Some(id)
+        && app.get_webview_window("main").is_some_and(|w| {
+            w.is_focused().unwrap_or(false)
+                && w.is_visible().unwrap_or(false)
+                && !w.is_minimized().unwrap_or(true)
+        });
     let active = app
         .state::<Service>()
         .0
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .active_after
-        .is_some_and(|at| Instant::now() >= at);
+        .get(id)
+        .is_some_and(|at| Instant::now() >= *at);
     if !should_notify(
         settings.desktop_notifications,
         permission(app).granted,
@@ -189,25 +205,31 @@ pub fn deliver(app: &AppHandle, title: &str, body: &str, tag: &str) -> bool {
     }
     // Swiph3l: Cooldown suppresses repeated toasts only; unread state must always update.
     // Swiph3l: First toast is immediate, regardless of the selected cooldown.
-    let key = conversation_key(tag);
+    let key = conversation_key(&format!("{id}:{tag}"));
     {
         let service = app.state::<Service>();
         let mut tracking = service.0.lock().unwrap_or_else(|e| e.into_inner());
+        let duplicate = conversation_key(&format!("{id}:{tag}:{title}:{body}"));
+        if duplicate_suppressed(&mut tracking, duplicate, Instant::now()) {
+            return false;
+        }
         if cooldown_suppressed(
             &mut tracking,
             key,
             Instant::now(),
             settings.notification_cooldown,
         ) {
-            println!(
-                "notification: conversation={} action=suppressed reason=cooldown",
-                key
-            );
             return false;
         }
     }
     let (title, body) = preview(&settings.notification_preview, title, body);
-    let result = show(app, &title, &body, settings.notification_sound);
+    let result = show(
+        app,
+        &title,
+        &body,
+        settings.notification_sound,
+        Some(id.to_string()),
+    );
     app.state::<Service>()
         .0
         .lock()
@@ -218,11 +240,7 @@ pub fn deliver(app: &AppHandle, title: &str, body: &str, tag: &str) -> bool {
         "The system could not display the notification."
     }
     .into();
-    println!(
-        "notification: conversation={} action={} reason=delivery",
-        key,
-        if result.is_ok() { "shown" } else { "failed" }
-    );
+
     result.is_ok()
 }
 
@@ -258,7 +276,13 @@ fn conversation_key(tag: &str) -> u64 {
     hasher.finish()
 }
 #[cfg(windows)]
-fn show(app: &AppHandle, title: &str, body: &str, sound: bool) -> Result<(), String> {
+fn show(
+    app: &AppHandle,
+    title: &str,
+    body: &str,
+    sound: bool,
+    service_id: Option<String>,
+) -> Result<(), String> {
     // The official plugin handles permission policy. Its current desktop API
     // drops click handlers and errors, so Windows uses its Tauri WinRT backend
     // directly for activation and explicit silence; no second toast is sent.
@@ -270,7 +294,11 @@ fn show(app: &AppHandle, title: &str, body: &str, sound: bool) -> Result<(), Str
         .sound(if sound { Some(Sound::IM) } else { None })
         .on_activated(move |_| {
             let app = handle.clone();
-            let _ = handle.run_on_main_thread(move || {
+            let id = service_id.clone();
+            std::thread::spawn(move || {
+                if let Some(id) = id {
+                    let _ = crate::services::activate(&app, &id);
+                }
                 let _ = crate::window::open(&app);
             });
             Ok(())
@@ -357,6 +385,26 @@ pub fn taskbar(window: &tauri::WebviewWindow, unread: &crate::unread::Unread) {
 mod tests {
     use super::*;
     #[test]
+    fn duplicate_filter_is_independent_of_cooldown_and_scoped_to_service() {
+        let mut tracking = Tracking::default();
+        let at = Instant::now();
+        let alpha = conversation_key("service-a:room:message");
+        let beta = conversation_key("service-b:room:message");
+        assert!(!duplicate_suppressed(&mut tracking, alpha, at));
+        assert!(!cooldown_suppressed(&mut tracking, alpha, at, 0));
+        assert!(duplicate_suppressed(
+            &mut tracking,
+            alpha,
+            at + Duration::from_secs(1)
+        ));
+        assert!(!duplicate_suppressed(&mut tracking, beta, at));
+        assert!(!duplicate_suppressed(
+            &mut tracking,
+            alpha,
+            at + Duration::from_secs(7)
+        ));
+    }
+    #[test]
     fn privacy_modes_never_leak_body_when_hidden() {
         assert_eq!(
             preview(&NotificationPreview::Full, "Sender - chat", "private text"),
@@ -382,7 +430,7 @@ mod tests {
     #[test]
     fn permission_focus_and_startup_gate_notifications() {
         assert!(should_notify(true, true, false, true));
-        assert!(should_notify(true, true, true, true));
+        assert!(!should_notify(true, true, true, true));
         for values in [
             (false, true, false, true),
             (true, false, false, true),
@@ -453,4 +501,12 @@ mod tests {
             0
         ));
     }
+}
+
+fn duplicate_suppressed(tracking: &mut Tracking, key: u64, at: Instant) -> bool {
+    // WebView may repeat an event even when conversation cooldown is disabled.
+    tracking
+        .duplicates
+        .retain(|_, seen| at.duration_since(*seen) < Duration::from_secs(5));
+    tracking.duplicates.insert(key, at).is_some()
 }
