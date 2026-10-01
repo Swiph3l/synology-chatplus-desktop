@@ -60,7 +60,7 @@ fn open(
     crate::window::focus(&window)
 }
 pub fn settings(app: &AppHandle) -> tauri::Result<()> {
-    let first_run = state::current(app).server_url.is_empty();
+    let first_run = state::current(app).services.is_empty();
     open(
         app,
         "settings",

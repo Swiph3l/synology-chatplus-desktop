@@ -18,20 +18,21 @@ pub fn observe_connection(
     let service_id = service_id.to_string();
     window.with_webview(move |webview| unsafe {
         let Ok(core) = webview.controller().CoreWebView2() else {
-            connection::set(&app, Connection::Unknown);
+            connection::set_for(&app, &service_id, Connection::Unknown);
             return;
         };
         let handler_app = app.clone();
+        let handler_id = service_id.clone();
         let result = core.add_NavigationCompleted(
             &NavigationCompletedEventHandler::create(Box::new(move |_, args| {
                 if let Some(args) = args {
                     let mut success = Default::default();
                     args.IsSuccess(&mut success)?;
                     let state = if success.as_bool() {
-                        crate::desktop_notifications::begin_tracking_for(&handler_app, &service_id);
+                        crate::desktop_notifications::begin_tracking_for(&handler_app, &handler_id);
                         Connection::Connected
                     } else {
-                        crate::desktop_notifications::pause_tracking_for(&handler_app, &service_id);
+                        crate::desktop_notifications::pause_tracking_for(&handler_app, &handler_id);
                         let mut status = Default::default();
                         args.WebErrorStatus(&mut status)?;
                         if status == COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED {
@@ -43,20 +44,14 @@ pub fn observe_connection(
                             Connection::Error
                         }
                     };
-                    if crate::state::current(&handler_app)
-                        .active_service
-                        .as_deref()
-                        == Some(&service_id)
-                    {
-                        connection::set(&handler_app, state);
-                    }
+                    connection::set_for(&handler_app, &handler_id, state);
                 }
                 Ok(())
             })),
             &mut 0,
         );
         if result.is_err() {
-            connection::set(&app, Connection::Unknown);
+            connection::set_for(&app, &service_id, Connection::Unknown);
         }
     })
 }

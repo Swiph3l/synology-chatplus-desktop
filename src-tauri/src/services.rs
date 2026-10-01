@@ -83,6 +83,7 @@ pub fn show(app: &AppHandle) -> Result<(), String> {
     layout(app);
     let _ = app.emit_to("main", "services-changed", &settings);
     crate::unread::refresh(app);
+    crate::connection::refresh(app);
     active(app)
         .ok_or("Service unavailable.")?
         .set_focus()
@@ -163,9 +164,11 @@ fn create(app: &AppHandle, service: &ServiceConfig) -> Result<(), String> {
         .on_page_load(move |_, payload| {
             if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
                 crate::desktop_notifications::pause_tracking_for(&load_app, &load_id);
-                if state::current(&load_app).active_service.as_deref() == Some(&load_id) {
-                    crate::connection::set(&load_app, crate::connection::Connection::Connecting);
-                }
+                crate::connection::set_for(
+                    &load_app,
+                    &load_id,
+                    crate::connection::Connection::Connecting,
+                );
             }
         });
     // The migrated primary service retains Tauri's original default data directory.
