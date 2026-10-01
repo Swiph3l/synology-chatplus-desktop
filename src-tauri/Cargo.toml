@@ -38,7 +38,7 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 tauri-winrt-notification = "0.7.3"
 webview2-com = "0.38"
 windows = { version = "0.61", features = ["UI_Notifications"] }
-winreg = "0.55"
+winreg = "0.56"
 
 [dev-dependencies]
 base64 = "0.23.1"
