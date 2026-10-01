@@ -625,6 +625,7 @@ mod tests {
             ProviderId::Slack,
             ProviderId::Discord,
             ProviderId::SynologyChat,
+            ProviderId::Mattermost,
         ] {
             service.provider = provider;
             assert_eq!(
@@ -716,5 +717,41 @@ mod tests {
         assert_eq!((cursor.x, cursor.y), (35., 220.));
         assert!(popup_position(f64::NAN, 20., 900., 600.).is_err());
         assert!(popup_position(20., f64::INFINITY, 900., 600.).is_err());
+    }
+
+    #[test]
+    fn mattermost_menu_routes_instances_by_service_id() {
+        let settings = state::Settings {
+            services: vec![
+                configured(
+                    "mattermost-company",
+                    crate::providers::ProviderId::Mattermost,
+                ),
+                configured(
+                    "mattermost-private",
+                    crate::providers::ProviderId::Mattermost,
+                ),
+            ],
+            active_service: Some("mattermost-company".into()),
+            ..Default::default()
+        };
+        let clicked = configured_service(&settings, "mattermost-private").unwrap();
+        assert_eq!(clicked.id, "mattermost-private");
+        assert!(configured_service(&settings, "mattermost").is_err());
+        for action in service_actions(&clicked) {
+            assert_eq!(
+                ServiceAction::parse(&action.id(&clicked.id)),
+                Some((action, "mattermost-private"))
+            );
+        }
+        assert_eq!(
+            service_actions(&clicked),
+            vec![
+                ServiceAction::Open,
+                ServiceAction::Rename,
+                ServiceAction::Settings,
+                ServiceAction::Remove
+            ]
+        );
     }
 }

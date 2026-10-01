@@ -9,6 +9,7 @@ pub enum ProviderId {
     SynologyChat,
     Slack,
     Discord,
+    Mattermost,
 }
 
 #[derive(Serialize)]
@@ -51,6 +52,14 @@ impl ProviderId {
             Self::Discord => ProviderDefinition {
                 display_name: "Discord",
                 icon: "D",
+                experimental: true,
+                unread: false,
+                notifications: false,
+                theme: false,
+            },
+            Self::Mattermost => ProviderDefinition {
+                display_name: "Mattermost",
+                icon: "M",
                 experimental: true,
                 unread: false,
                 notifications: false,
@@ -303,6 +312,7 @@ mod tests {
             ProviderId::SynologyChat,
             ProviderId::Slack,
             ProviderId::Discord,
+            ProviderId::Mattermost,
         ] {
             assert!(!provider.definition().unread);
             assert!(!provider.definition().notifications);
@@ -408,5 +418,128 @@ mod tests {
         ] {
             assert!(ProviderId::Slack.validate_url(url).is_err());
         }
+    }
+
+    #[test]
+    fn mattermost_registration_and_serialization_keep_conservative_capabilities() {
+        let provider: ProviderId = serde_json::from_str("\"mattermost\"").unwrap();
+        assert_eq!(provider, ProviderId::Mattermost);
+        assert_eq!(serde_json::to_string(&provider).unwrap(), "\"mattermost\"");
+        let definition = provider.definition();
+        assert_eq!(definition.display_name, "Mattermost");
+        assert!(definition.experimental);
+        assert!(!definition.unread);
+        assert!(!definition.notifications);
+        assert!(!definition.theme);
+        for unknown in ["mattermost-cloud", "Mattermost", "unknown"] {
+            assert!(serde_json::from_value::<ProviderId>(serde_json::json!(unknown)).is_err());
+        }
+    }
+
+    #[test]
+    fn mattermost_requires_a_safe_custom_server_and_normalizes_it() {
+        for (input, expected) in [
+            (" https://CHAT.example.com ", "https://chat.example.com/"),
+            (
+                "https://mattermost.example.com:443",
+                "https://mattermost.example.com/",
+            ),
+            ("http://localhost:8065", "http://localhost:8065/"),
+            (
+                "https://chat.example.com/mattermost///",
+                "https://chat.example.com/mattermost/",
+            ),
+        ] {
+            assert_eq!(
+                ProviderId::Mattermost.validate_url(input).unwrap(),
+                expected
+            );
+        }
+        for invalid in [
+            "",
+            "chat.example.com",
+            "not a URL",
+            "https://",
+            "https://[invalid]",
+            "ftp://chat.example.com",
+            "file:///chat",
+            "javascript:alert(1)",
+            "data:text/html,chat",
+            "https://user:password@chat.example.com",
+            "https://chat.example.com/?token=example",
+            "https://chat.example.com/#token",
+            "https://chat.example.com/a b",
+            "https://chat.example.com\\other",
+        ] {
+            assert!(
+                ProviderId::Mattermost.validate_url(invalid).is_err(),
+                "{invalid}"
+            );
+        }
+    }
+
+    #[test]
+    fn mattermost_navigation_and_popups_follow_the_configured_origin() {
+        let configured = "https://chat.example.com:8443/mattermost/";
+        for target in [
+            "https://chat.example.com:8443/login",
+            "https://chat.example.com:8443/company/channels/town-square",
+            "https://chat.example.com:8443/oauth/complete?code=example",
+        ] {
+            assert!(ProviderId::Mattermost.allows(configured, &Url::parse(target).unwrap()));
+        }
+        for external in [
+            "https://chat.example.com/login",
+            "http://chat.example.com:8443/login",
+            "https://chat.example.com.evil.example:8443/",
+            "https://other.example.com:8443/",
+            "https://mattermost.com/",
+            "https://identity.example.com/login",
+            "https://user:password@chat.example.com:8443/login",
+            "file:///chat",
+            "javascript:alert(1)",
+        ] {
+            assert!(
+                !ProviderId::Mattermost.allows(configured, &Url::parse(external).unwrap()),
+                "{external}"
+            );
+        }
+        assert!(!ProviderId::Mattermost
+            .allows("invalid", &Url::parse("https://chat.example.com/").unwrap()));
+    }
+
+    #[test]
+    fn mattermost_accounts_have_stable_separate_profiles_after_rename_and_restart() {
+        let mut services: Vec<ServiceConfig> = ["company", "private"]
+            .into_iter()
+            .map(|id| ServiceConfig {
+                id: format!("mattermost-{id}"),
+                provider: ProviderId::Mattermost,
+                name: format!("Mattermost — {id}"),
+                // Same server, distinct accounts: isolation must use service ID.
+                url: "https://chat.example.com/".into(),
+                enabled: true,
+                notifications: true,
+            })
+            .collect();
+        normalize_services(&mut services).unwrap();
+        assert!(services.iter().all(|s| !s.notifications));
+        let root = std::path::Path::new("profiles");
+        let profiles = services
+            .iter()
+            .map(|s| s.profile_directory(root))
+            .collect::<Vec<_>>();
+        assert_ne!(profiles[0], profiles[1]);
+        assert_eq!(
+            profiles[0],
+            Some(root.join("services").join("mattermost-company"))
+        );
+        services[0].name = "Client A".into();
+        assert_eq!(services[0].profile_directory(root), profiles[0]);
+        let mut restarted: Vec<ServiceConfig> =
+            serde_json::from_slice(&serde_json::to_vec(&services).unwrap()).unwrap();
+        normalize_services(&mut restarted).unwrap();
+        assert_eq!(restarted, services);
+        assert_eq!(restarted[1].profile_directory(root), profiles[1]);
     }
 }

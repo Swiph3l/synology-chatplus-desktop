@@ -35,6 +35,7 @@ experimental and have not been validated for the new child-WebView layout.
 | Synology Chat     | Experimental web session | Configuration, activation, persistent profile and exact-origin navigation; unread/native notifications disabled     |
 | Slack             | Experimental web session | HTTPS Slack origins, web authentication, activation and persistent profile; unread/native notifications disabled    |
 | Discord           | Experimental web session | Separate account profiles, fixed web-app entry and exact HTTPS Discord origin; unread/native notifications disabled |
+| Mattermost        | Experimental web session | Custom HTTP(S) server, separate account profiles and exact configured origin; unread/native notifications disabled  |
 
 Synology Chat has a browser interface, making the shared WebView model feasible;
 its DOM is not assumed to match ChatPlus. Slack does not claim parity with Slack
@@ -64,6 +65,11 @@ profiles. Use custom names such as Personal Discord and GameDev Discord; tooltip
 identify each instance. Discord needs a display name rather than a custom server
 URL. Authentication stays in Discord's own web interface and may require manual
 MFA or CAPTCHA; the application never supplies credentials or reads private APIs.
+
+Mattermost requires a custom server URL and supports separate instances such as
+Mattermost — Company and Mattermost — Private. It reuses the persistent per-service
+profiles and desktop menu. Native unread/notifications are disabled; authenticated
+login, SSO and account retention remain pending live validation.
 
 Existing single-server settings migrate automatically to a deterministic ChatPlus
 service, retaining preferences and the original default WebView profile path.

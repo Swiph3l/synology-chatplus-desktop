@@ -3,8 +3,8 @@
 `ProviderDefinition` declares presentation, URL/origin rules and capabilities.
 `ServiceConfig` stores provider, stable ID, name, URL, enabled state and notification
 preference. `ServiceSession` binds a configuration to a native child-WebView label.
-The registry accepts only ChatPlus, Synology Chat, Slack and Discord; it is not a plugin
-framework or general browser.
+The registry accepts only ChatPlus, Synology Chat, Slack, Discord and Mattermost;
+it is not a plugin framework or general browser.
 
 ## Desktop boundaries
 
@@ -25,7 +25,7 @@ The migrated `chatplus` ID retains the original default directory. Removing a
 service leaves its disk profile. Installed upgrade cookie retention is untested.
 
 The service ID is also its profile identity. It is independent of provider type
-and display name: multiple Discord, Slack or ChatPlus configurations use distinct
+and display name: multiple Discord, Slack, Mattermost or ChatPlus configurations use distinct
 `services/<id>` directories, and a rename keeps the same directory. No cookie,
 credential, token or profile-content copying is implemented. Removing one service
 does not delete any profile directory. The legacy `chatplus` ID is the only default
@@ -103,6 +103,46 @@ Manual acceptance requires two test accounts: sign into each instance, switch aw
 and back, rename one, restart twice, disable/remove one, and confirm the other
 account/session survives. Keep credentials and all session/profile contents out of
 Git, logs, screenshots and diagnostic output.
+
+## Mattermost
+
+Mattermost (Experimental) uses the shared Services form: Provider, custom Display
+name, required Server URL, Enabled, and the informational Experimental badge/block.
+Examples include Mattermost — Company, Mattermost — Private and Mattermost — Client A.
+Its rail symbol uses the official Mattermost SVG logomark, displayed in black on
+light surfaces and white on dark surfaces. Source and usage terms:
+[Mattermost brand guidelines](https://handbook.mattermost.com/operations/operations/company-processes/publishing/publishing-guidelines/brand-and-visual-design-guidelines).
+
+Configure your own server, for example `https://chat.example.com` or
+`https://mattermost.example.com`. The existing HTTP(S) policy accepts custom hosts,
+ports and installation paths; it rejects empty/malformed URLs, unsafe schemes,
+credentials, query parameters and fragments. Normalization canonicalizes the host,
+default port and trailing slash. Navigation and popups require the exact configured
+scheme, host and port; there is no mattermost.com allowlist. External HTTP(S) links
+use the existing default-browser preference. Cross-origin SSO can open there, but
+there is no browser-cookie transfer or embedded cross-origin authentication bypass.
+
+| Capability                              | Current state                                                                         |
+| --------------------------------------- | ------------------------------------------------------------------------------------- |
+| Web session / normal web login          | Implemented through the shared WebView; authenticated live acceptance pending         |
+| Persistent profile / multiple instances | Stable `services/<service-id>` directories, including two accounts on the same server |
+| Switching                               | Existing lazy creation and hidden-view reuse; no provider-specific reload             |
+| External links                          | Shared safe HTTP(S) handling, controlled by desktop preference                        |
+| Native unread / notifications           | Disabled; no Mattermost DOM scraping or notification adapter enabled                  |
+| ChatPlus theme injection                | Disabled                                                                              |
+| Outer service menu                      | Open, local Rename/Service settings and confirmed Remove service                      |
+| Provider administration                 | No API; no members, leave-team or server-admin actions                                |
+
+Renaming retains the ID/profile. Removing one configuration closes its view and
+retains its disk profile, without deleting another account's profile or saving
+unrelated Settings drafts. A server URL is always required; Discord's fixed-entry,
+name-only form is not used.
+
+Mattermost documents [browser-based access and authentication](https://docs.mattermost.com/end-user-guide/preferences/manage-your-security-preferences).
+Server policies, WebView2 login/SSO compatibility, authenticated restart retention
+and two-account isolation still need controlled live validation. Tests establish
+configuration, origin rules, serialization, stable profile paths, rename/removal,
+form rendering and menu routing; they do not establish successful authentication.
 
 ## Migration
 

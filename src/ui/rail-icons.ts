@@ -5,11 +5,13 @@ const assets: Record<ProviderId, string> = {
   "synology-chat": "/providers/synology-chat.svg",
   slack: "/providers/slack.svg",
   discord: "/providers/discord.svg",
+  mattermost: "/providers/mattermost.svg",
 };
 
 export function providerIcon(provider: ProviderId) {
   const icon = document.createElement("img");
   icon.className = "provider-icon";
+  if (provider === "mattermost") icon.classList.add("provider-icon-mattermost");
   icon.src = assets[provider];
   icon.alt = "";
   icon.width = 26;

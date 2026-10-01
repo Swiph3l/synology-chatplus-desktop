@@ -15,3 +15,9 @@ application is not affiliated with or endorsed by Slack or Discord. The Discord
 symbol in public/providers/discord.svg is an unmodified asset from Discord's
 official brand page (https://discord.com/branding), used to identify the provider;
 it remains subject to Discord's brand guidelines and is not licensed as project code.
+
+Mattermost names and marks belong to their respective owners. This application is
+not affiliated with or endorsed by Mattermost. public/providers/mattermost.svg
+uses the official Mattermost logomark to identify the provider. It remains subject
+to Mattermost's brand guidelines and is not licensed as project code:
+https://handbook.mattermost.com/operations/operations/company-processes/publishing/publishing-guidelines/brand-and-visual-design-guidelines

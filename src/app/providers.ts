@@ -1,5 +1,5 @@
 export type ProviderId =
-  "synology-chatplus" | "synology-chat" | "slack" | "discord";
+  "synology-chatplus" | "synology-chat" | "slack" | "discord" | "mattermost";
 export interface ServiceConfig {
   id: string;
   provider: ProviderId;
@@ -40,5 +40,13 @@ export const providers = {
     urlMode: "fixed",
     urlLabel: "",
     defaultUrl: "https://discord.com/app/",
+  },
+  mattermost: {
+    name: "Mattermost",
+    icon: "M",
+    experimental: true,
+    urlMode: "server",
+    urlLabel: "Server URL",
+    defaultUrl: "",
   },
 } as const;

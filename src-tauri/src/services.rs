@@ -203,6 +203,32 @@ mod removal_tests {
         settings.migrate_services().unwrap();
         assert!(settings.services.is_empty());
     }
+
+    #[test]
+    fn mattermost_removal_keeps_the_other_account_and_unrelated_preferences() {
+        let mut settings = settings();
+        for service in &mut settings.services {
+            service.provider = ProviderId::Mattermost;
+        }
+        settings.theme = state::Theme::Dark;
+        settings.unread_title = false;
+        settings.migrate_services().unwrap();
+        let retained = settings.services[1].clone();
+        let profile = retained.profile_directory(std::path::Path::new("profiles"));
+        remove_configuration(&mut settings, "first").unwrap();
+        assert_eq!(settings.services, vec![retained]);
+        assert_eq!(settings.active_service.as_deref(), Some("second"));
+        assert!(matches!(settings.theme, state::Theme::Dark));
+        assert!(!settings.unread_title);
+        assert_eq!(
+            settings.services[0].profile_directory(std::path::Path::new("profiles")),
+            profile
+        );
+        let mut restarted: state::Settings =
+            serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        restarted.migrate_services().unwrap();
+        assert_eq!(restarted.services, settings.services);
+    }
 }
 
 pub fn remove(app: &AppHandle, id: &str) -> Result<(), String> {

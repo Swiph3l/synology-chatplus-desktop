@@ -147,6 +147,14 @@ body.services-page {
   object-fit: contain;
   transform: scale(0.92);
 }
+:root[data-theme="dark"] .provider-icon-mattermost {
+  filter: brightness(0) invert(1);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .provider-icon-mattermost {
+    filter: brightness(0) invert(1);
+  }
+}
 [aria-pressed="true"] > .provider-icon {
   transform: none;
 }
