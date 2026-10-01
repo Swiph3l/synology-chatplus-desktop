@@ -52,7 +52,8 @@ The service rail uses the blue [Synology ChatPlus provider icon](https://www.syn
 bundled locally as `public/providers/synology-chatplus.png`. The desktop app's own
 branding asset remains separate.
 
-Primary/default provider. HTTP(S) URLs reject credentials, queries and fragments.
+**Primary / Supported** provider and the default for migrated single-server settings.
+HTTP(S) URLs reject credentials, queries and fragments.
 Navigation/popups require the exact configured origin; external HTTP(S) links can
 use the default browser. Theme/unread scripts are injected only for ChatPlus.
 Sidebar markers produce boolean state without message/title scraping or private APIs.

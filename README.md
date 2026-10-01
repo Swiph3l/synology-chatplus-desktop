@@ -23,19 +23,19 @@ application bundles are redistributed.
 - A signature-verified updater with explicit installation/restart confirmation.
 - About and license windows; version and diagnostics derive from build metadata.
 
-Development remains **0.5.0-beta.2**. Windows x64 is the supported development target.
+The current prerelease target is **0.5.0-beta.3**. Windows x64 is the supported development target.
 Real-server and installed Windows validation remain release gates. Linux/macOS are
 experimental and have not been validated for the new child-WebView layout.
 
 ## Providers
 
-| Provider          | Status                   | Desktop integration                                                                                                 |
-| ----------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| Synology ChatPlus | Primary/default          | Theme, sidebar unread and WebView2 notification adapters                                                            |
-| Synology Chat     | Experimental web session | Configuration, activation, persistent profile and exact-origin navigation; unread/native notifications disabled     |
-| Slack             | Experimental web session | HTTPS Slack origins, web authentication, activation and persistent profile; unread/native notifications disabled    |
-| Discord           | Experimental web session | Separate account profiles, fixed web-app entry and exact HTTPS Discord origin; unread/native notifications disabled |
-| Mattermost        | Experimental web session | Custom HTTP(S) server, separate account profiles and exact configured origin; unread/native notifications disabled  |
+| Provider          | Status              | Desktop integration                                                                                                 |
+| ----------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Synology ChatPlus | Primary / Supported | Theme, sidebar unread and WebView2 notification adapters                                                            |
+| Synology Chat     | Experimental        | Configuration, activation, persistent profile and exact-origin navigation; unread/native notifications disabled     |
+| Slack             | Experimental        | HTTPS Slack origins, web authentication, activation and persistent profile; unread/native notifications disabled    |
+| Discord           | Experimental        | Separate account profiles, fixed web-app entry and exact HTTPS Discord origin; unread/native notifications disabled |
+| Mattermost        | Experimental        | Custom HTTP(S) server, separate account profiles and exact configured origin; unread/native notifications disabled  |
 
 Synology Chat has a browser interface, making the shared WebView model feasible;
 its DOM is not assumed to match ChatPlus. Slack does not claim parity with Slack
@@ -55,10 +55,12 @@ Theme changes apply live. Changing a service URL/provider recreates its view;
 finish drafts and calls first.
 
 Settings > Services adds, renames, enables or removes configured services. Select
-one from the narrow sidebar; there are no browser tabs or address bar. Sessions
+one from the narrow service rail; there are no browser tabs or address bar. Sessions
 are created on first activation, then remain in memory while another service is
-shown. Additional services use separate profile directories. Removing a service
-closes its view but retains its disk profile.
+shown. Additional services use separate profile directories. The rail's context menu
+offers Open, Rename/Service settings and confirmed Remove service; ChatPlus also
+offers desktop notification controls. Removal is persisted immediately, closes the
+view and retains its disk profile without saving unrelated Settings edits.
 
 Multiple instances of the same provider have separate stable service IDs and
 profiles. Use custom names such as Personal Discord and GameDev Discord; tooltips

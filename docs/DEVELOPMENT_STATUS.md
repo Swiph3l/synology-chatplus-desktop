@@ -1,6 +1,13 @@
 # Development validation — 2026-10-01
 
-Development remains **0.5.0-beta.2**. No push, final bump, tag, release, signed
+This report records the completed development pass at **9a123c2**, before the
+**0.5.0-beta.3** prerelease preparation. Its beta.2 versions and validation results
+below are historical evidence. The current release target and changes are recorded
+in [CHANGELOG.md](../CHANGELOG.md#050-beta3) and [WINDOWS_BETA.md](WINDOWS_BETA.md).
+The remaining native acceptance gates still apply; final stable 0.5.0 is not being
+prepared.
+
+Development remained **0.5.0-beta.2** during that pass. No push, final bump, tag, release, signed
 release packaging or remote issue closure was performed.
 
 ## Development finalization and stable gate

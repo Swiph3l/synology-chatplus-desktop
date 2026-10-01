@@ -89,7 +89,8 @@ with a replacement public key; never bypass verification. Keep installers and so
 available for manual recovery.
 
 See [Windows beta owner steps](WINDOWS_BETA.md) for the key-generation command,
-GitHub Secrets, exact Windows assets and beta.1 to beta.2 smoke test.
+GitHub Secrets, exact Windows assets and pending beta.2 to beta.3 acceptance test.
+The earlier beta.1 to beta.2 procedure is retained there as historical guidance.
 
 ## Local verification
 

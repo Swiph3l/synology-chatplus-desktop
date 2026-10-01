@@ -1,11 +1,16 @@
 # Windows acceptance — 2026-10-01 follow-up
 
+This report preserves observations and development validation from before the
+**0.5.0-beta.3** prerelease preparation. Beta.2 references identify those earlier
+builds; the current target is [v0.5.0-beta.3](WINDOWS_BETA.md). Preparing that
+prerelease does not complete any outstanding native acceptance gate below.
+
 Recommendation: **NOT READY FOR RC AUDIT**.
 
 The requested rail/form refinements and experimental Discord implementation are
 complete in separate local commits. This report records acceptance evidence and
 remaining manual gates; it does not classify unobserved behavior as passing.
-Development remains **0.5.0-beta.2**. Nothing was pushed, tagged, published or bumped
+Development remained **0.5.0-beta.2** during that pass. Nothing was pushed, tagged, published or bumped
 to final 0.5.0, and no remote issue was closed.
 
 ## 1. Native environment and preserved history

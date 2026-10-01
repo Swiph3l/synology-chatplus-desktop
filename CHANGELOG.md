@@ -2,22 +2,51 @@
 
 All notable changes will be documented here. Versions follow Semantic Versioning.
 
-## Unreleased — development remains 0.5.0-beta.2
+## 0.5.0-beta.3
 
-- Typed providers, isolated service WebViews and a compact vertical service rail.
-- One-time legacy server migration retaining preferences and the original profile path.
-- Experimental Synology Chat and Slack sessions; native unread/notifications disabled.
-- Per-service unread state and notification click routing; focused-service suppression.
-- Removed unread title fallback and navigation resets; state remains boolean.
-- Duplicate-event suppression independent of conversation cooldown.
-- Separate Settings Close action and tests for inline Save feedback and failures.
-- Dark reaction surfaces, hover, selected and keyboard-focus styling.
-- Pre-release updates include newer stable releases using real SemVer precedence.
-- Serialized service transitions and active-view focus on desktop restore.
-- Migration, provider and lifecycle regression tests; updated development documentation.
+Changes since 0.5.0-beta.2:
 
-Native Windows/real-server validation and replacement screenshots remain required.
-No final version bump, tag, push or release is included in this development pass.
+### Added
+
+- Multi-service/provider architecture with typed provider definitions and isolated,
+  lazily created service WebViews.
+- Compact vertical service rail with distinct provider icons and per-service unread
+  presentation; previously activated services stay alive while hidden.
+- Native service rail context menu with Open, Rename/Service settings, confirmed
+  Remove service and ChatPlus notification controls.
+- Provider-specific settings and connection state, including server/workspace URL
+  controls and Discord's fixed web-app entry.
+- Isolated service profiles for separate accounts; one-time legacy migration
+  retains preferences and the original ChatPlus profile path.
+- Experimental Synology Chat, Slack, Discord and Mattermost support. Desktop
+  unread/native notifications remain disabled for these four providers.
+
+### Fixed
+
+- Service removal persists immediately after confirmation, retains account profiles
+  and preserves unrelated Settings drafts; Save/removal overlap is serialized.
+- Windows service profile IDs reject case collisions and reserved device names
+  without renaming valid existing profiles.
+- Pre-release updater selection includes newer stable releases using SemVer
+  precedence while retaining channel and signature checks.
+- Unread/notification lifecycle uses per-service state, focused-service suppression,
+  source-service notification click routing and duplicate-event suppression
+  independent of conversation cooldown. Unread remains boolean; title fallback
+  and navigation-based resets were removed.
+- Service transitions are serialized and desktop restore focuses the active view;
+  host window actions use the correct window after child WebViews are added.
+- Theme/reaction styling covers dark surfaces, hover, selected and keyboard-focus
+  states; Settings has a separate Close action, inline Save feedback and restored
+  Save-button keyboard focus. Rail and service-form styling were refined.
+
+Synology ChatPlus remains **Primary / Supported**. Synology Chat, Slack, Discord
+and Mattermost remain **Experimental**.
+
+This is a prerelease preparation, not final stable 0.5.0. Native Windows/real-server
+acceptance, installed migration/login retention, signed updater install/restart and
+fresh screenshots remain outstanding as recorded in
+[WINDOWS_ACCEPTANCE.md](docs/WINDOWS_ACCEPTANCE.md). Automated regression coverage
+does not establish native acceptance.
 
 ## 0.5.0-beta.1 — prepared, not published
 
