@@ -182,3 +182,26 @@ test("failed Save keeps edits visible and does not announce success", async () =
   assert.equal(f.document.getElementById("theme").value, "dark");
   assert.equal(f.document.getElementById("save").disabled, false);
 });
+
+test("Save restores its keyboard focus after success and failure", async () => {
+  for (const failure of [false, true]) {
+    const f = await fixture();
+    const save = f.document.getElementById("save");
+    let focused = save;
+    Object.defineProperty(f.document, "activeElement", { get: () => focused });
+    let restored = false;
+    save.focus = () => {
+      focused = save;
+      restored = true;
+    };
+    if (failure) f.fail();
+    f.document
+      .querySelector("form")
+      .dispatchEvent(new f.window.Event("submit", { cancelable: true }));
+    focused = f.document.body;
+    await f.flush();
+    assert.equal(restored, true);
+    assert.equal(f.document.activeElement, save);
+    assert.equal(save.disabled, false);
+  }
+});

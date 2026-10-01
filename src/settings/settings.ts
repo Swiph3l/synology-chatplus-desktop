@@ -324,6 +324,7 @@ export async function renderSettings() {
   });
   document.querySelector("form")!.addEventListener("submit", async (event) => {
     event.preventDefault();
+    const restoreSaveFocus = document.activeElement === button;
     button.disabled = true;
     status.textContent = "";
     clearSaveFeedback();
@@ -376,6 +377,7 @@ export async function renderSettings() {
         error instanceof Error ? error.message : String(error);
     } finally {
       button.disabled = false;
+      if (restoreSaveFocus) button.focus();
     }
   });
   if (firstRun) input("server").focus();
