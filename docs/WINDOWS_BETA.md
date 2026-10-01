@@ -1,5 +1,11 @@
 # Windows public beta preparation
 
+The 2026-10-01 development pass remains at beta.2 and does not authorize another
+tag, push or release. Before a future RC, complete the [multi-service acceptance
+checks](DEVELOPMENT_STATUS.md), profile migration checks and actual-build screenshot
+capture. Pre-release accepts newer stable releases as well as beta/RC builds;
+the saved channel is never changed automatically.
+
 Target: `v0.5.0-beta.2`, Windows x64 NSIS. Public Beta is the intended release
 status, not a claim that this working tree has been published. Linux and macOS are
 **Experimental**, are excluded from this release and do not block its Windows gate.

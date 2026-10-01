@@ -74,3 +74,25 @@ outside Git, screenshots and logs. Never automate messages to real users.
 
 Live unread/event tests and native visual checks are distinct from unit tests of
 formatting, origin validation and notification policy.
+
+## Multi-service lifecycle
+
+Only ChatPlus enables native unread/notification adapters. Events validate their
+own service's origin and current enabled/capability preferences. Previously activated
+inactive views can notify; never-activated views cannot. Toast clicks select the
+source service before restoring the window. Test toasts restore the active service.
+
+Duplicate fingerprints remain in memory for five seconds, independently of cooldown,
+and include service identity. Navigation pauses delivery without clearing fingerprints
+or unread. Identical legitimate content within that window can be suppressed; no
+guaranteed provider message ID is available.
+
+Title/tray/taskbar aggregate enabled services' cached boolean observations; rail dots
+are per service. Clearing one service cannot clear another. Removing, disabling or
+changing a service invalidates its observation. Reload keeps it until the sidebar
+reports again. Startup restores state from the sidebar, not persisted desktop counts.
+
+Repeat the checklist with two ChatPlus services, switching while Settings/About are
+open. Include inactive delivery/click routing, cooldown zero, reconnect/startup,
+privacy, denied permission, sound off and Do Not Disturb. These native scenarios
+were not manually validated in the 2026-10-01 pass.

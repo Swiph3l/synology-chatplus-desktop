@@ -43,7 +43,7 @@ is unavailable to remote pages. No analytics or reporting integration was found 
 desktop shell source. This is not a verified absence of all network reporting:
 the configured site, OS and Microsoft WebView2 have independent behavior.
 
-The local Settings, About, License and Update capability grants only event listen/unlisten.
+The local service rail, Settings, About, License and Update capability grants only event listen/unlisten.
 Native store, autostart, opener, clipboard, tray and window operations run in
 Rust through scoped application commands or native UI actions. No filesystem,
 shell, notification, plugin or general window/WebView permission is granted to
@@ -51,8 +51,10 @@ JavaScript.
 
 ## Network boundaries
 
-The main WebView loads the user-configured server and resources selected by that
-server. Exact-origin top-level navigation is not a subresource firewall. External
+The local main view hosts the service rail. Remote child views load configured
+provider URLs and provider-selected resources. ChatPlus/Chat navigation is exact-origin;
+experimental Slack allows HTTPS slack.com and subdomains on port 443.
+Top-level navigation rules are not a subresource firewall. External
 HTTP(S) links, redirects and scripted popups may open the default browser when
 external links are enabled; this behavior is not restricted to verified user
 gestures. Query strings may contain sensitive information.

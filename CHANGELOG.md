@@ -2,6 +2,23 @@
 
 All notable changes will be documented here. Versions follow Semantic Versioning.
 
+## Unreleased — development remains 0.5.0-beta.2
+
+- Typed providers, isolated service WebViews and a compact vertical service rail.
+- One-time legacy server migration retaining preferences and the original profile path.
+- Experimental Synology Chat and Slack sessions; native unread/notifications disabled.
+- Per-service unread state and notification click routing; focused-service suppression.
+- Removed unread title fallback and navigation resets; state remains boolean.
+- Duplicate-event suppression independent of conversation cooldown.
+- Separate Settings Close action and tests for inline Save feedback and failures.
+- Dark reaction surfaces, hover, selected and keyboard-focus styling.
+- Pre-release updates include newer stable releases using real SemVer precedence.
+- Serialized service transitions and active-view focus on desktop restore.
+- Migration, provider and lifecycle regression tests; updated development documentation.
+
+Native Windows/real-server validation and replacement screenshots remain required.
+No final version bump, tag, push or release is included in this development pass.
+
 ## 0.5.0-beta.1 — prepared, not published
 
 First public beta target: Windows x64 NSIS only. Linux and macOS are experimental.
@@ -56,5 +73,3 @@ beta.1-to-beta.2 install/restart test before production operation is claimed.
 - Theme changes no longer reopen the main window and now apply live, improving
   Windows menu bar stability.
 - Dark theme gives the ChatPlus header wordmark a readable foreground color.
-
-No public release has been published.
