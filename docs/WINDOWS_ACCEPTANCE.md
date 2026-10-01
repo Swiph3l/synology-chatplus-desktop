@@ -283,3 +283,64 @@ gates. No credentials or private runtime details belong in those notes.
 **NOT READY FOR RC AUDIT**. Implementation and automated checks are complete for
 the requested UI/Discord scope, but the outstanding native/manual acceptance gates
 prevent an RC-ready classification. Do not perform an RC/final bump or release action.
+
+## 18. Development finalization status
+
+Finalization commits menu/removal, Mattermost and Synology icon work, with
+Save/removal overlap protection and Windows profile-identity validation. Current
+automated results are **56 frontend tests passed** and **62 Rust tests passed in
+each debug/release run, with one production-artifact test ignored in each**.
+Full results and dependency classifications are recorded in
+[DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md#development-finalization-and-stable-gate).
+
+No native app interaction or new screenshot was performed during finalization.
+Native Computer Use APIs are unavailable in this environment; prior local attempts
+also recorded an unavailable native pipe. Existing screenshots and observations
+remain evidence for the earlier builds identified above. They do not validate the
+new popup/removal behavior or final source state. No MANUAL PASS was provided;
+no unobserved check is promoted to PASS.
+
+| Required Windows acceptance         | Finalization status | Remaining evidence                                                    |
+| ----------------------------------- | ------------------- | --------------------------------------------------------------------- |
+| Single-instance behavior            | NOT TESTED          | Normal/minimized/tray/auxiliary/rapid-launch matrix                   |
+| Repeated launch restore             | NOT TESTED          | Restore state and keyboard focus                                      |
+| Tray restore                        | NOT TESTED          | Hide/restore and active child focus                                   |
+| Settings/About duplicate prevention | NOT TESTED          | Repeated launch and menu opening                                      |
+| Native menu after theme changes     | NOT TESTED          | Light/dark/System actions and restore lifecycle                       |
+| Settings Save/Close                 | NOT TESTED          | All-tab persistence, Close and failure/focus matrix; DOM tests pass   |
+| Service rail                        | NOT TESTED          | Current icons, input and native layout; earlier observations retained |
+| Context menu                        | NOT TESTED          | Appearance, keyboard, dismissal, positioning and native actions       |
+| Removal                             | NOT TESTED          | Both native paths, persistence/restart and retained account profile   |
+| Service switching                   | NOT TESTED          | Rapid switching, hidden-view reuse and authenticated accounts         |
+| Legacy migration                    | NOT TESTED          | Installed upgrade and cookie retention; model tests pass              |
+| Login/session retention             | NOT TESTED          | Reproduce/resolve stuck login and restart twice                       |
+| Synology ChatPlus                   | NOT TESTED          | Controlled live regression; earlier authenticated evidence is limited |
+| Synology Chat Experimental          | NOT TESTED          | Live login, SSO and retention                                         |
+| Slack Experimental                  | NOT TESTED          | Live login, SSO and retention                                         |
+| Discord Experimental                | NOT TESTED          | Two authenticated accounts and independent restart/removal            |
+| Mattermost Experimental             | NOT TESTED          | Custom-server login/SSO and two authenticated accounts                |
+| Notifications                       | NOT TESTED          | Controlled messages, focus/privacy/permission/tray/click matrix       |
+| Unread                              | NOT TESTED          | Real read/reload/reconnect/startup transitions                        |
+| DPI/layout                          | NOT TESTED          | Actual Windows 100%/125%/150% and native popup bounds                 |
+
+Services removal now persists immediately after confirmation and retains profiles;
+it does not save unrelated Settings drafts. Earlier references to staged removal
+describe the previous build. Tests establish the new model and mocked interactions,
+including Save/removal overlap, rather than native acceptance.
+
+Synology ChatPlus remains the primary supported provider with outstanding release
+acceptance. Synology Chat, Slack, Discord and Mattermost remain Experimental;
+desktop notifications/unread are disabled for all four. Live multi-account login,
+SSO and retention are not claimed. Profile validation rejects case-colliding IDs
+and Windows device names without renaming valid existing profiles.
+
+The section 2 issue matrix remains authoritative: **#14 through #19 KEEP OPEN**.
+The reported ChatPlus login incident, installed migration/profile retention and
+native matrices still block stable preparation. Development stays **0.5.0-beta.2**;
+no stable bump, release-preparation commit, tag, push or publication was performed.
+
+Fresh privacy-reviewed setup, General, Notifications, Updates, Services, About and
+service-rail captures from the final source need follow-up. No current screenshots
+were fabricated or substituted for native evidence.
+
+**NOT READY FOR v0.5.0**.

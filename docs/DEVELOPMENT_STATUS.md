@@ -3,7 +3,88 @@
 Development remains **0.5.0-beta.2**. No push, final bump, tag, release, signed
 release packaging or remote issue closure was performed.
 
-## Acceptance follow-up
+## Development finalization and stable gate
+
+Finalization started on main at **9275b42**, equal to origin/main, with no
+unpublished commits. The remaining diff contained menu/removal, Mattermost and
+Synology provider-icon work; no unrelated tracked files were found. Discord,
+per-instance profiles, Services styling and the updater channel fix were already
+committed and were not recommitted. Existing history remains intact.
+
+| Commit  | Responsibility                                                                                                                             |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| ffc6ad8 | Native service menu and confirmed immediate removal, Settings routing, draft preservation, Save/removal serialization and regression tests |
+| e9fc9ef | Reject Windows profile ID case collisions and reserved device names; preserve valid IDs and profile paths                                  |
+| 9ae25b0 | Experimental Mattermost Rust/frontend registration, custom origins, instance tests, icon and documentation                                 |
+| cb18686 | Distinct Synology ChatPlus/Chat rail icons and trademark notices                                                                           |
+
+Menu and removal share Settings destinations, confirmation and lifecycle
+interfaces, so they form one complete commit. Mattermost follows the shared
+implementation with its own tests/docs. Profile validation and icons are
+independent corrections. Every intermediate source tree received relevant tests
+before its commit; tests stay with the behavior they verify.
+
+### Full automated validation
+
+| Command                                                                           | Result                                                                          |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| npm ci                                                                            | PASS: 41 packages installed, 42 audited                                         |
+| npm run format:check                                                              | PASS                                                                            |
+| npm run typecheck                                                                 | PASS                                                                            |
+| npm test                                                                          | PASS: 56 passed, 0 failed, 0 skipped                                            |
+| npm run build                                                                     | PASS: TypeScript, Vite assets and theme bootstrap                               |
+| npm run check:release                                                             | PASS: development fixture excluded                                              |
+| cargo fmt --manifest-path src-tauri/Cargo.toml -- --check                         | PASS                                                                            |
+| cargo check --locked --manifest-path src-tauri/Cargo.toml                         | PASS                                                                            |
+| cargo test --locked --manifest-path src-tauri/Cargo.toml                          | PASS: 62 passed, 0 failed, 1 ignored                                            |
+| cargo test --release --locked --manifest-path src-tauri/Cargo.toml                | PASS: 62 passed, 0 failed, 1 ignored                                            |
+| npm audit                                                                         | PASS: zero vulnerabilities                                                      |
+| cargo audit --file src-tauri/Cargo.lock                                           | PASS: normal database/index refresh; seven existing policy-tracked warnings     |
+| cargo deny --manifest-path src-tauri/Cargo.toml --config deny.toml --locked check | Windows PASS; duplicate-crate and unmatched-license-allowance warnings retained |
+| node scripts/audit-linux.mjs                                                      | Windows-policy PASS; Linux REQUIRES REVIEW                                      |
+| Gitleaks                                                                          | PASS: redacted history, candidate tree and unreachable-object scans             |
+| Repository release-identity validation                                            | PASS: all six source/lockfile version values equal 0.5.0-beta.2                 |
+| git diff --check                                                                  | PASS                                                                            |
+
+Commands use npm.cmd because PowerShell disables npm.ps1, and the existing local
+Rust toolchain. The default audit cache had origin/ownership errors; the exact
+audit command then passed using a process-scoped, ignored workspace Cargo cache
+with normal RustSec/crates.io refreshes. No dependency policy, advisory ignore or
+signature check was weakened.
+
+The ignored Rust test, production_artifact_signature_verifies, requires a separate
+production artifact and its signature. Signed HTTPS updater fixture tests ran,
+including valid/bad signatures, channels, offline failure and cancellation.
+Existing updater documentation already states that Stable receives production
+releases only, Pre-release accepts beta/RC and newer stable versions, signatures
+and HTTPS are mandatory, and install/restart requires explicit action.
+
+### Dependency findings
+
+Whole-lockfile audit reports the seven findings tracked in
+[DEPENDENCY_POLICY.md](DEPENDENCY_POLICY.md): six unmaintained notices for
+proc-macro-error and the unic dependency family, plus glib 0.18.5 unsoundness
+RUSTSEC-2024-0429. The Linux wrapper confirms that exact exception and its absence
+from the Windows normal/build/dev graph. Linux distribution remains blocked
+pending review/fix. Windows cargo-deny passed advisories, bans, licenses and sources;
+no new Windows release-blocking security finding was reported.
+
+### Decision
+
+**NOT READY FOR v0.5.0**. Automated results do not resolve the previously reported
+authenticated ChatPlus login incident or establish installed migration,
+authenticated profile retention and the remaining native acceptance matrices.
+See the current [Windows status](WINDOWS_ACCEPTANCE.md#18-development-finalization-status).
+Issues #14 through #19 remain KEEP OPEN for their acceptance gaps.
+
+All version-bearing files remain 0.5.0-beta.2: package.json, both root values in
+package-lock.json, src-tauri/Cargo.toml, the chatplus-desktop Cargo.lock entry and
+src-tauri/tauri.conf.json. No stable changelog section, stable README positioning or
+chore: prepare v0.5.0 release commit was created. No tag, push, publication or issue
+closure occurred. The tree was clean after the four development commits; this
+documentation records the final gate result.
+
+## Acceptance follow-up (earlier evidence)
 
 The later [Windows acceptance report](WINDOWS_ACCEPTANCE.md) supersedes the native
 and screenshot limitations below where fresh evidence is explicitly recorded.

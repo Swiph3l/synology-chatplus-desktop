@@ -19,8 +19,10 @@ also verify labels and local URLs. Remote provider views have no native IPC gran
 The WebView2 bridge accepts bounded observations from the configured origin;
 it cannot execute desktop commands. Popups create no additional desktop windows.
 
-IDs reject traversal, duplicates and excessive length; at most 12 services are
-allowed. Additional services use isolated profile directories under app local data.
+IDs reject traversal, duplicates regardless of letter case, Windows device names
+and excessive length; at most 12 services are allowed. Valid stored ID spelling
+and profile paths stay unchanged. Additional services use isolated profile
+directories under app local data.
 The migrated `chatplus` ID retains the original default directory. Removing a
 service leaves its disk profile. Installed upgrade cookie retention is untested.
 
