@@ -275,6 +275,7 @@ pub fn get_providers(
         ProviderId::SynologyChatplus,
         ProviderId::SynologyChat,
         ProviderId::Slack,
+        ProviderId::Discord,
     ]
     .into_iter()
     .map(|id| id.definition())

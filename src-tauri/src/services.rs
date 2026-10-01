@@ -172,14 +172,12 @@ fn create(app: &AppHandle, service: &ServiceConfig) -> Result<(), String> {
             }
         });
     // The migrated primary service retains Tauri's original default data directory.
-    if service.id != "chatplus" {
-        builder = builder.data_directory(
-            app.path()
-                .app_local_data_dir()
-                .map_err(|_| "Could not resolve service profile.")?
-                .join("services")
-                .join(&service.id),
-        );
+    if let Some(profile) = service.profile_directory(
+        &app.path()
+            .app_local_data_dir()
+            .map_err(|_| "Could not resolve service profile.")?,
+    ) {
+        builder = builder.data_directory(profile);
     }
     if service.provider.definition().theme {
         builder = builder.initialization_script(format!(

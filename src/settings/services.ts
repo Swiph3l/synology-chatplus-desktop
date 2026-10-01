@@ -46,9 +46,16 @@ export function serviceEditor(
       }
       provider.value = service.provider;
       provider.addEventListener("change", () => {
+        const previous = providers[service.provider];
         service.provider = provider.value as ProviderId;
+        const next = providers[service.provider];
+        if (next.urlMode === "fixed" || previous.urlMode === "fixed") {
+          service.url = next.defaultUrl;
+          onUrl(service);
+        }
         service.notifications = service.provider === "synology-chatplus";
         render();
+        document.getElementById(`service-${service.id}-provider`)?.focus();
       });
       field("provider", "Provider", provider);
       const name = document.createElement("input");
@@ -59,19 +66,21 @@ export function serviceEditor(
         heading.textContent = name.value || "New service";
       });
       field("name", "Display name", name);
-      const url = document.createElement("input");
-      url.type = "url";
-      url.required = true;
-      url.value = service.url;
-      url.placeholder =
-        service.provider === "slack"
-          ? "https://app.slack.com/"
-          : "https://example.com/chat/";
-      url.addEventListener("input", () => {
-        service.url = url.value;
-        onUrl(service);
-      });
-      field("url", "Service URL", url);
+      if (definition.urlMode !== "fixed") {
+        const url = document.createElement("input");
+        url.type = "url";
+        url.required = true;
+        url.value = service.url;
+        url.placeholder =
+          definition.urlMode === "workspace"
+            ? definition.defaultUrl
+            : "https://example.com/chat/";
+        url.addEventListener("input", () => {
+          service.url = url.value;
+          onUrl(service);
+        });
+        field("url", definition.urlLabel, url);
+      }
       const options = document.createElement("div");
       options.className = "service-options";
       const toggle = (text: string, key: "enabled" | "notifications") => {

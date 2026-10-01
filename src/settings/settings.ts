@@ -11,6 +11,7 @@ import { applyTheme, bindShellTheme } from "../theme/theme";
 import { notifications } from "../app/notifications";
 import { updates } from "../app/updates";
 import { serviceEditor } from "./services";
+import { providers, type ServiceConfig } from "../app/providers";
 
 export async function renderSettings() {
   const app = document.querySelector<HTMLElement>("#app")!;
@@ -115,7 +116,25 @@ export async function renderSettings() {
     }, 2400);
   };
   input("server").value = original.serverUrl;
-  input("server").required = firstRun || Boolean(original.activeService);
+  const configureServerField = (service?: ServiceConfig) => {
+    const definition = providers[service?.provider ?? "synology-chatplus"];
+    const section = document.querySelector<HTMLElement>(".server-section")!;
+    section.hidden = !firstRun && definition.urlMode === "fixed";
+    input("server").required =
+      firstRun || (Boolean(service) && definition.urlMode !== "fixed");
+    if (!firstRun) {
+      section.querySelector("label")!.textContent = definition.urlLabel;
+      section.querySelector("legend")!.textContent =
+        `${definition.name} ${definition.urlMode === "workspace" ? "workspace" : "server"}`;
+      section.querySelector("small")!.textContent =
+        definition.urlMode === "workspace"
+          ? "Enter your workspace or web sign-in URL."
+          : "Enter the URL of your installation.";
+    }
+  };
+  configureServerField(
+    original.services.find((s) => s.id === original.activeService),
+  );
   document.getElementById("close-settings")!.addEventListener("click", () => {
     void invoke("close_settings");
   });
@@ -124,8 +143,10 @@ export async function renderSettings() {
       document.getElementById("service-editor")!,
       serviceDraft,
       (service) => {
-        if (service.id === original.activeService)
+        if (service.id === original.activeService) {
           input("server").value = service.url;
+          configureServerField(service);
+        }
       },
     );
     document.getElementById("add-service")!.addEventListener("click", add);
@@ -304,8 +325,10 @@ export async function renderSettings() {
   await listen<Settings>("settings-changed", ({ payload }) => {
     if (payload.activeService !== original.activeService) {
       input("server").value = payload.serverUrl;
-      input("server").required = Boolean(payload.activeService);
     }
+    configureServerField(
+      payload.services.find((s) => s.id === payload.activeService),
+    );
     original = payload;
     applyTheme(payload.theme);
     if (theme) {

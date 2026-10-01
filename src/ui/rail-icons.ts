@@ -4,6 +4,7 @@ const assets: Record<ProviderId, string> = {
   "synology-chatplus": "/chatplus.png",
   "synology-chat": "/providers/synology-chat.svg",
   slack: "/providers/slack.svg",
+  discord: "/providers/discord.svg",
 };
 
 export function providerIcon(provider: ProviderId) {

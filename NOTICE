@@ -9,3 +9,9 @@ Synology ChatPlus. It is not affiliated with, endorsed by, sponsored by,
 maintained by, or supported by Synology Inc.
 Synology and related product names and trademarks belong to their respective
 owners. Third-party dependencies retain their own copyrights and licenses.
+
+Slack and Discord names and marks belong to their respective owners. This
+application is not affiliated with or endorsed by Slack or Discord. The Discord
+symbol in public/providers/discord.svg is an unmodified asset from Discord's
+official brand page (https://discord.com/branding), used to identify the provider;
+it remains subject to Discord's brand guidelines and is not licensed as project code.

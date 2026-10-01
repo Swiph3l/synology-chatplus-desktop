@@ -36,6 +36,81 @@ const result = await build({
   ],
 });
 
+test("two Discord instances keep separate rail identities and configured-name tooltips", async () => {
+  const { window, document } = parseHTML(
+    '<html><body><main id="app"></main></body></html>',
+  );
+  const settings = {
+    activeService: "personal",
+    services: [
+      {
+        id: "personal",
+        provider: "discord",
+        name: "Personal Discord",
+        enabled: true,
+      },
+      {
+        id: "work",
+        provider: "discord",
+        name: "GameDev Discord",
+        enabled: true,
+      },
+      {
+        id: "chatplus",
+        provider: "synology-chatplus",
+        name: "Home ChatPlus",
+        enabled: true,
+      },
+    ],
+  };
+  const calls = [],
+    events = new Map();
+  const context = {
+    window,
+    document,
+    nativeInvoke: async (command, args) => {
+      calls.push({ command, args });
+      if (command === "get_settings") return settings;
+    },
+    nativeListen: async (event, callback) => {
+      events.set(event, callback);
+      return () => {};
+    },
+  };
+  runInNewContext(result.outputFiles[0].text, context);
+  await context.railUi.renderServices();
+  const buttons = [...document.querySelectorAll(".rail-services button")];
+  assert.equal(buttons.length, 3);
+  assert.match(buttons[0].title, /^Personal Discord/);
+  assert.match(buttons[1].title, /^GameDev Discord/);
+  assert.equal(
+    buttons[0].querySelector("img").src,
+    buttons[1].querySelector("img").src,
+  );
+  for (const button of buttons.slice(0, 2))
+    button.dispatchEvent(new window.Event("click"));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(
+    calls.filter((x) => x.command === "activate_service").map((x) => x.args.id),
+    ["personal", "work"],
+  );
+  events.get("services-changed")({
+    payload: { ...settings, activeService: "work" },
+  });
+  assert.equal(
+    document
+      .querySelector('[data-rail-key="personal"]')
+      .getAttribute("aria-pressed"),
+    "false",
+  );
+  assert.equal(
+    document
+      .querySelector('[data-rail-key="work"]')
+      .getAttribute("aria-pressed"),
+    "true",
+  );
+});
+
 test("service rail filters disabled services, routes activation and keeps unread per service", async () => {
   const { window, document } = parseHTML(
     '<html><body><main id="app"></main></body></html>',

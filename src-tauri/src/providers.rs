@@ -8,6 +8,7 @@ pub enum ProviderId {
     SynologyChatplus,
     SynologyChat,
     Slack,
+    Discord,
 }
 
 #[derive(Serialize)]
@@ -47,13 +48,27 @@ impl ProviderId {
                 notifications: false,
                 theme: false,
             },
+            Self::Discord => ProviderDefinition {
+                display_name: "Discord",
+                icon: "D",
+                experimental: true,
+                unread: false,
+                notifications: false,
+                theme: false,
+            },
         }
     }
     pub fn validate_url(self, value: &str) -> Result<String, String> {
+        if self == Self::Discord && value.trim().is_empty() {
+            return Ok("https://discord.com/app/".into());
+        }
         let normalized = crate::state::normalize_server(value)?;
         let url = Url::parse(&normalized).map_err(|_| "Invalid service URL.")?;
         if self == Self::Slack && !slack_origin(&url) {
             return Err("Use an HTTPS Slack workspace URL or https://app.slack.com/.".into());
+        }
+        if self == Self::Discord && !discord_origin(&url) {
+            return Err("Discord web sessions require https://discord.com/.".into());
         }
         Ok(normalized)
     }
@@ -61,9 +76,19 @@ impl ProviderId {
         if self == Self::Slack {
             return slack_origin(target);
         }
+        if self == Self::Discord {
+            return discord_origin(target);
+        }
         Url::parse(configured)
             .is_ok_and(|url| crate::navigation::same_server(target, &url.origin()))
     }
+}
+fn discord_origin(url: &Url) -> bool {
+    url.scheme() == "https"
+        && url.port_or_known_default() == Some(443)
+        && url.host_str() == Some("discord.com")
+        && url.username().is_empty()
+        && url.password().is_none()
 }
 fn slack_origin(url: &Url) -> bool {
     url.scheme() == "https"
@@ -84,6 +109,16 @@ pub struct ServiceConfig {
     pub enabled: bool,
     #[serde(default = "notifications_default")]
     pub notifications: bool,
+}
+impl ServiceConfig {
+    // The stable service ID is also its profile ID; provider type and display name
+    // never determine a storage partition. The migrated primary keeps its old path.
+    pub fn profile_directory(
+        &self,
+        app_local_data: &std::path::Path,
+    ) -> Option<std::path::PathBuf> {
+        (self.id != "chatplus").then(|| app_local_data.join("services").join(&self.id))
+    }
 }
 fn notifications_default() -> bool {
     true
@@ -146,12 +181,97 @@ mod tests {
     #[test]
     fn providers_do_not_share_dom_adapters() {
         assert!(ProviderId::SynologyChatplus.definition().unread);
-        for provider in [ProviderId::SynologyChat, ProviderId::Slack] {
+        for provider in [
+            ProviderId::SynologyChat,
+            ProviderId::Slack,
+            ProviderId::Discord,
+        ] {
             assert!(!provider.definition().unread);
             assert!(!provider.definition().notifications);
             assert!(!provider.definition().theme);
         }
         assert!(serde_json::from_str::<ProviderId>("\"browser\"").is_err());
+    }
+    #[test]
+    fn discord_configuration_and_auth_navigation_are_exact_origin_only() {
+        assert_eq!(
+            ProviderId::Discord.validate_url("").unwrap(),
+            "https://discord.com/app/"
+        );
+        assert_eq!(
+            serde_json::from_str::<ProviderId>("\"discord\"").unwrap(),
+            ProviderId::Discord
+        );
+        for value in [
+            "https://discord.com/app",
+            "https://discord.com/login",
+            "https://discord.com/channels/@me",
+        ] {
+            assert!(ProviderId::Discord.validate_url(value).is_ok());
+            assert!(
+                ProviderId::Discord.allows("https://discord.com/app/", &Url::parse(value).unwrap())
+            );
+        }
+        for value in [
+            "http://discord.com/app",
+            "https://discord.com:8443/app",
+            "https://discord.com.evil.example/",
+            "https://evil.discord.com/",
+            "https://discordapp.com/",
+            "https://discord.gg/",
+            "https://support.discord.com/",
+            "https://user:password@discord.com/",
+        ] {
+            assert!(ProviderId::Discord.validate_url(value).is_err());
+            assert!(!ProviderId::Discord
+                .allows("https://discord.com/app/", &Url::parse(value).unwrap()));
+        }
+        assert!(ProviderId::Discord
+            .validate_url("https://discord.com/app?token=anything")
+            .is_err());
+        assert!(ProviderId::Discord.allows(
+            "https://discord.com/app/",
+            &Url::parse("https://discord.com/login?redirect_to=%2Fapp").unwrap()
+        ));
+    }
+    #[test]
+    fn same_provider_accounts_keep_independent_stable_profiles() {
+        let personal = ServiceConfig {
+            id: "discord-personal".into(),
+            provider: ProviderId::Discord,
+            name: "Personal Discord".into(),
+            url: String::new(),
+            enabled: true,
+            notifications: true,
+        };
+        let mut work = personal.clone();
+        work.id = "discord-work".into();
+        work.name = "Work Discord".into();
+        let mut services = vec![personal, work];
+        normalize_services(&mut services).unwrap();
+        let root = std::path::Path::new("profiles");
+        let paths = services
+            .iter()
+            .map(|s| s.profile_directory(root))
+            .collect::<Vec<_>>();
+        assert_ne!(paths[0], paths[1]);
+        assert_eq!(
+            paths[0],
+            Some(root.join("services").join("discord-personal"))
+        );
+        assert!(services.iter().all(|s| !s.notifications));
+        services[0].name = "Renamed".into();
+        assert_eq!(services[0].profile_directory(root), paths[0]);
+        let saved = serde_json::to_vec(&services).unwrap();
+        let mut restarted: Vec<ServiceConfig> = serde_json::from_slice(&saved).unwrap();
+        normalize_services(&mut restarted).unwrap();
+        assert_eq!(restarted[1].profile_directory(root), paths[1]);
+        restarted.remove(0);
+        assert_eq!(restarted[0].profile_directory(root), paths[1]);
+        let mut legacy = services[0].clone();
+        legacy.id = "chatplus".into();
+        legacy.provider = ProviderId::SynologyChatplus;
+        assert_eq!(legacy.profile_directory(root), None);
     }
     #[test]
     fn slack_requires_exact_https_domain_boundary() {

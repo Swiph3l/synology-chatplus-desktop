@@ -80,7 +80,12 @@ test("service fields share full-width controls and associated labels", async () 
 });
 
 test("provider status and desktop-notification fields follow provider classification", () => {
-  for (const provider of ["synology-chatplus", "synology-chat", "slack"]) {
+  for (const provider of [
+    "synology-chatplus",
+    "synology-chat",
+    "slack",
+    "discord",
+  ]) {
     const { document } = fixture(provider);
     const experimental = provider !== "synology-chatplus";
     assert.equal(
@@ -97,7 +102,7 @@ test("provider status and desktop-notification fields follow provider classifica
     );
     assert.equal(
       document.querySelectorAll(".service-field input[type=url]").length,
-      1,
+      provider === "discord" ? 0 : 1,
     );
     assert.ok(
       [...document.querySelectorAll("option")].every(
@@ -119,6 +124,27 @@ test("provider status and desktop-notification fields follow provider classifica
       );
     }
   }
+});
+
+test("Discord uses name-only configuration and changing provider keeps service identity", () => {
+  const { window, document, services } = fixture("discord");
+  assert.equal(document.querySelectorAll(".service-control").length, 2);
+  const name = document.querySelector("input:not([type])");
+  name.value = "Personal Discord";
+  name.dispatchEvent(new window.Event("input"));
+  assert.equal(services[0].id, "first");
+  const provider = document.querySelector("select");
+  provider.value = "slack";
+  provider.dispatchEvent(new window.Event("change"));
+  assert.equal(services[0].id, "first");
+  assert.equal(services[0].name, "Personal Discord");
+  assert.equal(services[0].url, "https://app.slack.com/");
+  const next = document.querySelector("select");
+  next.value = "discord";
+  next.dispatchEvent(new window.Event("change"));
+  assert.equal(services[0].url, "https://discord.com/app/");
+  assert.equal(services[0].notifications, false);
+  assert.equal(document.querySelectorAll("input[type=url]").length, 0);
 });
 
 test("enabled edits stay in the service draft and removal requires confirmation", () => {
