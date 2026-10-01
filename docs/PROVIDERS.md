@@ -46,12 +46,19 @@ a remote server have no API here and are omitted. Embedded provider UI is untouc
 
 ## ChatPlus
 
+The service rail uses the blue [Synology ChatPlus provider icon](https://www.synology.com/img/dsm/chatplus/icon_banner_ChatPlus.png),
+bundled locally as `public/providers/synology-chatplus.png`. The desktop app's own
+branding asset remains separate.
+
 Primary/default provider. HTTP(S) URLs reject credentials, queries and fragments.
 Navigation/popups require the exact configured origin; external HTTP(S) links can
 use the default browser. Theme/unread scripts are injected only for ChatPlus.
 Sidebar markers produce boolean state without message/title scraping or private APIs.
 
 ## Synology Chat
+
+The service rail uses the green [Synology Chat provider icon](https://nascompares.com/wp-content/uploads/2018/08/Synology-Chat-logo.png),
+bundled locally as `public/providers/synology-chat.png`.
 
 Distinct experimental provider with an isolated profile. Synology documents a
 [browser client](https://www.synology.com/en-us/dsm/feature/chat) and a

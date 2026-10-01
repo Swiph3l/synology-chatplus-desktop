@@ -1,8 +1,8 @@
 import type { ProviderId } from "../app/providers";
 
 const assets: Record<ProviderId, string> = {
-  "synology-chatplus": "/chatplus.png",
-  "synology-chat": "/providers/synology-chat.svg",
+  "synology-chatplus": "/providers/synology-chatplus.png",
+  "synology-chat": "/providers/synology-chat.png",
   slack: "/providers/slack.svg",
   discord: "/providers/discord.svg",
   mattermost: "/providers/mattermost.svg",

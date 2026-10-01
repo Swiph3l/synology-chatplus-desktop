@@ -10,6 +10,11 @@ maintained by, or supported by Synology Inc.
 Synology and related product names and trademarks belong to their respective
 owners. Third-party dependencies retain their own copyrights and licenses.
 
+The Synology ChatPlus and Synology Chat provider icons are used to identify their
+services, remain Synology marks and are not licensed as project code. Sources:
+https://www.synology.com/img/dsm/chatplus/icon_banner_ChatPlus.png
+https://nascompares.com/wp-content/uploads/2018/08/Synology-Chat-logo.png
+
 Slack and Discord names and marks belong to their respective owners. This
 application is not affiliated with or endorsed by Slack or Discord. The Discord
 symbol in public/providers/discord.svg is an unmodified asset from Discord's
