@@ -29,15 +29,17 @@ experimental and have not been validated for the new child-WebView layout.
 
 ## Providers
 
-| Provider          | Status                   | Desktop integration                                                                                              |
-| ----------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| Synology ChatPlus | Primary/default          | Theme, sidebar unread and WebView2 notification adapters                                                         |
-| Synology Chat     | Experimental web session | Configuration, activation, persistent profile and exact-origin navigation; unread/native notifications disabled  |
-| Slack             | Experimental web session | HTTPS Slack origins, web authentication, activation and persistent profile; unread/native notifications disabled |
+| Provider          | Status                   | Desktop integration                                                                                                 |
+| ----------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| Synology ChatPlus | Primary/default          | Theme, sidebar unread and WebView2 notification adapters                                                            |
+| Synology Chat     | Experimental web session | Configuration, activation, persistent profile and exact-origin navigation; unread/native notifications disabled     |
+| Slack             | Experimental web session | HTTPS Slack origins, web authentication, activation and persistent profile; unread/native notifications disabled    |
+| Discord           | Experimental web session | Separate account profiles, fixed web-app entry and exact HTTPS Discord origin; unread/native notifications disabled |
 
 Synology Chat has a browser interface, making the shared WebView model feasible;
 its DOM is not assumed to match ChatPlus. Slack does not claim parity with Slack
-Desktop. Embedded authentication and cross-origin SSO remain unvalidated.
+Desktop. Discord also has no desktop-client parity claim. Embedded authentication
+and cross-origin SSO remain unvalidated.
 See [provider boundaries and limitations](docs/PROVIDERS.md).
 
 ## Setup and services
@@ -56,6 +58,12 @@ one from the narrow sidebar; there are no browser tabs or address bar. Sessions
 are created on first activation, then remain in memory while another service is
 shown. Additional services use separate profile directories. Removing a service
 closes its view but retains its disk profile.
+
+Multiple instances of the same provider have separate stable service IDs and
+profiles. Use custom names such as Personal Discord and GameDev Discord; tooltips
+identify each instance. Discord needs a display name rather than a custom server
+URL. Authentication stays in Discord's own web interface and may require manual
+MFA or CAPTCHA; the application never supplies credentials or reads private APIs.
 
 Existing single-server settings migrate automatically to a deterministic ChatPlus
 service, retaining preferences and the original default WebView profile path.

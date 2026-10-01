@@ -3,7 +3,7 @@
 `ProviderDefinition` declares presentation, URL/origin rules and capabilities.
 `ServiceConfig` stores provider, stable ID, name, URL, enabled state and notification
 preference. `ServiceSession` binds a configuration to a native child-WebView label.
-The registry accepts only ChatPlus, Synology Chat and Slack; it is not a plugin
+The registry accepts only ChatPlus, Synology Chat, Slack and Discord; it is not a plugin
 framework or general browser.
 
 ## Desktop boundaries
@@ -23,6 +23,18 @@ IDs reject traversal, duplicates and excessive length; at most 12 services are
 allowed. Additional services use isolated profile directories under app local data.
 The migrated `chatplus` ID retains the original default directory. Removing a
 service leaves its disk profile. Installed upgrade cookie retention is untested.
+
+The service ID is also its profile identity. It is independent of provider type
+and display name: multiple Discord, Slack or ChatPlus configurations use distinct
+`services/<id>` directories, and a rename keeps the same directory. No cookie,
+credential, token or profile-content copying is implemented. Removing one service
+does not delete any profile directory. The legacy `chatplus` ID is the only default
+profile exception; migration and repeat-start behavior are unchanged.
+
+Provider presentation declares whether a service needs a server URL, workspace
+URL or fixed entry URL. Discord's Services form is name-only, and its General tab
+does not show an irrelevant server field. Services use common controls and
+informational Experimental badges; removal is confirmed and applied on Save.
 
 ## ChatPlus
 
@@ -54,6 +66,35 @@ See Slack's [browser requirements](https://slack.com/help/articles/115002037526-
 and [sign-in documentation](https://slack.com/help/articles/212681477-Sign-in-to-Slack).
 WebView2 compatibility and workspace policies are untested; no Slack Desktop parity
 is claimed.
+
+## Discord
+
+Experimental web sessions start at `https://discord.com/app/`. Top-level navigation
+and same-origin popups permit only `https://discord.com` on port 443, with no URL
+credentials. Configurations also reject query parameters and fragments. Off-origin
+HTTP(S) links use the existing external-browser preference; no popup WebViews are
+created. There are no authentication-origin exceptions: arbitrary subdomains,
+`discordapp.com`, invitation domains and external identity providers are not
+embedded. External identity-provider cookie handoff is unavailable.
+
+Discord documents its [web login](https://support.discord.com/hc/en-us/articles/360057027354-How-to-Log-In-to-your-Discord-Account)
+and [browser requirements](https://support.discord.com/hc/en-us/articles/213491697-What-are-the-OS-system-requirements-for-Discord).
+WebView2 account policies, MFA, CAPTCHA, calls, uploads and embedded login success
+require live validation. Authentication is manual; no credentials, tokens, CAPTCHA
+bypasses or Discord private APIs are used. The bundled provider symbol comes from
+the [official brand assets](https://discord.com/branding) and retains their terms.
+
+Unread, native notifications and ChatPlus theme injection are disabled. There is
+no Discord DOM adapter. Tests cover strict origins, provider registration, two
+Discord configurations, stable separate profile paths, rename/restart/removal,
+name-only configuration and distinct rail activation/tooltips. A native development
+instance reached Discord's login prompt using its separate profile; that observation
+does not establish authenticated account persistence or multiple-account success.
+
+Manual acceptance requires two test accounts: sign into each instance, switch away
+and back, rename one, restart twice, disable/remove one, and confirm the other
+account/session survives. Keep credentials and all session/profile contents out of
+Git, logs, screenshots and diagnostic output.
 
 ## Migration
 
