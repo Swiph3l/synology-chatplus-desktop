@@ -128,19 +128,32 @@ pub fn normalize_services(services: &mut [ServiceConfig]) -> Result<(), String> 
         return Err("Configure at most 12 services.".into());
     }
     let mut ids = std::collections::HashSet::new();
-    for service in services {
+    // Validate every profile identity before changing any configuration. Windows
+    // treats these ASCII path components case-insensitively; keep stored spelling
+    // for valid IDs so this check never moves an existing profile.
+    for service in services.iter() {
         if service.id.is_empty()
             || service.id.len() > 64
             || !service
                 .id
                 .bytes()
                 .all(|b| b.is_ascii_alphanumeric() || b == b'-')
-            || !ids.insert(service.id.clone())
         {
-            return Err(
-                "Service IDs must be unique and contain only letters, numbers and hyphens.".into(),
-            );
+            return Err("Service IDs must contain only letters, numbers and hyphens.".into());
         }
+        let profile_id = service.id.to_ascii_lowercase();
+        if matches!(profile_id.as_str(), "con" | "prn" | "aux" | "nul")
+            || (profile_id.len() == 4
+                && (profile_id.starts_with("com") || profile_id.starts_with("lpt"))
+                && matches!(profile_id.as_bytes()[3], b'1'..=b'9'))
+        {
+            return Err("Service IDs must not use reserved Windows device names.".into());
+        }
+        if !ids.insert(profile_id) {
+            return Err("Service IDs must be unique regardless of letter case.".into());
+        }
+    }
+    for service in services {
         service.name = service.name.trim().chars().take(60).collect();
         if service.name.is_empty() {
             service.name = service.provider.definition().display_name.into();
@@ -155,6 +168,16 @@ pub fn normalize_services(services: &mut [ServiceConfig]) -> Result<(), String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn profile_service(id: &str) -> ServiceConfig {
+        ServiceConfig {
+            id: id.into(),
+            provider: ProviderId::Discord,
+            name: " Account ".into(),
+            url: String::new(),
+            enabled: true,
+            notifications: false,
+        }
+    }
     #[test]
     fn service_profiles_reject_traversal_and_duplicate_ids() {
         let service = ServiceConfig {
@@ -178,6 +201,101 @@ mod tests {
         normalize_services(&mut services).unwrap();
         assert!(!services[0].notifications);
     }
+    #[test]
+    fn service_profiles_reject_case_collisions_before_changing_configuration() {
+        let first = profile_service("Account");
+        let mut second = profile_service("account");
+        // A disabled account still owns its persistent identity.
+        second.enabled = false;
+        let mut services = vec![first, second];
+        let original = services.clone();
+        let root = std::path::Path::new("profiles");
+        assert_eq!(
+            services[0]
+                .profile_directory(root)
+                .unwrap()
+                .to_string_lossy()
+                .to_ascii_lowercase(),
+            services[1]
+                .profile_directory(root)
+                .unwrap()
+                .to_string_lossy()
+                .to_ascii_lowercase()
+        );
+        assert_eq!(
+            normalize_services(&mut services).unwrap_err(),
+            "Service IDs must be unique regardless of letter case."
+        );
+        assert_eq!(services, original);
+    }
+
+    #[test]
+    fn valid_profile_id_spelling_survives_normalization_rename_and_restart() {
+        let mut services = vec![
+            profile_service("Discord-Personal"),
+            profile_service("Discord-Work"),
+        ];
+        let root = std::path::Path::new("profiles");
+        let paths = services
+            .iter()
+            .map(|service| service.profile_directory(root))
+            .collect::<Vec<_>>();
+        normalize_services(&mut services).unwrap();
+        assert_eq!(services[0].id, "Discord-Personal");
+        assert_eq!(services[1].id, "Discord-Work");
+        assert_eq!(
+            paths[0],
+            Some(root.join("services").join("Discord-Personal"))
+        );
+        services[0].name = "Renamed account".into();
+        normalize_services(&mut services).unwrap();
+        let mut restarted: Vec<ServiceConfig> =
+            serde_json::from_slice(&serde_json::to_vec(&services).unwrap()).unwrap();
+        normalize_services(&mut restarted).unwrap();
+        assert_eq!(restarted, services);
+        assert_eq!(
+            restarted
+                .iter()
+                .map(|service| service.profile_directory(root))
+                .collect::<Vec<_>>(),
+            paths
+        );
+    }
+
+    #[test]
+    fn service_profiles_reject_windows_device_names_without_rejecting_valid_prefixes() {
+        let mut reserved = ["CON", "con", "PrN", "aUx", "nUl"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        for number in 1..=9 {
+            reserved.push(format!("COM{number}"));
+            reserved.push(format!("lpt{number}"));
+        }
+        for id in reserved {
+            let mut service = profile_service(&id);
+            let original = service.clone();
+            assert_eq!(
+                normalize_services(std::slice::from_mut(&mut service)).unwrap_err(),
+                "Service IDs must not use reserved Windows device names.",
+                "{id}"
+            );
+            assert_eq!(service, original);
+        }
+        for id in [
+            "COM10",
+            "lpt10",
+            "console",
+            "auxiliary",
+            "nul-account",
+            "COM1-personal",
+        ] {
+            let mut service = profile_service(id);
+            normalize_services(std::slice::from_mut(&mut service)).unwrap();
+            assert_eq!(service.id, id);
+        }
+    }
+
     #[test]
     fn providers_do_not_share_dom_adapters() {
         assert!(ProviderId::SynologyChatplus.definition().unread);
