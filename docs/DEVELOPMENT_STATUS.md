@@ -3,6 +3,24 @@
 Development remains **0.5.0-beta.2**. No push, final bump, tag, release, signed
 release packaging or remote issue closure was performed.
 
+## Acceptance follow-up
+
+The later [Windows acceptance report](WINDOWS_ACCEPTANCE.md) supersedes the native
+and screenshot limitations below where fresh evidence is explicitly recorded.
+The actual development app was inspected through WebView2's debugging interface
+and a targeted Win32 harness, despite the unavailable Computer Use native pipe.
+Two native regressions were fixed, followed by a focused rail/Services styling
+commit and separate experimental Discord commits. Current checks pass: 32 frontend
+tests and 47 Rust tests in each debug/release run, with one production-artifact test
+ignored in each. Fresh setup, Services and rail screenshots are privacy-reviewed.
+
+The reported authenticated session stuck at login is still an acceptance gate;
+two original-profile launches showed authenticated ChatPlus, but do not establish
+that the entire incident is resolved. Actual Windows 125%/150% DPI, live messages,
+two authenticated Discord accounts and the remaining native matrices are open.
+The recommendation remains **NOT READY FOR RC AUDIT**. All prior commits remain
+intact; the following sections retain the first-pass record for provenance.
+
 ## Branch and implementation
 
 Started clean on `beta/fixes` at `42e5e95`. `main` at `e67a3cb` contained every
