@@ -45,8 +45,9 @@ do not provide Authenticode, Apple notarization or remove SmartScreen warnings.
 
 Stable uses https://github.com/{owner}/{repository}/releases/latest/download/latest.json.
 Pre-release lists up to 100 published releases through GitHub's public API, chooses
-the highest eligible SemVer with a latest-prerelease.json asset. It never reads
-latest.json; stable releases normally supply only the Stable manifest.
+the highest eligible SemVer, including stable releases. Beta/RC tags use
+latest-prerelease.json; stable tags use latest.json. The release version determines
+the manifest, while the saved channel determines eligibility.
 Drafts and missing manifests are skipped. Review this bounded policy if retaining
 more than 100 recent releases. No token or HTML scraping is used.
 

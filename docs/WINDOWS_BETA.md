@@ -136,5 +136,6 @@ Camera, microphone and Synology Meet remain unconfirmed until runtime validated.
    updater before this test passes.
 
 A future stable `0.5.0` tag writes only `latest.json`; prereleases write only
-`latest-prerelease.json`. Each channel reads only its own manifest. To leave the
-beta feed for stable, the user selects Stable.
+`latest-prerelease.json`. Pre-release accepts beta/RC builds and newer stable releases, choosing the highest
+eligible SemVer. Stable accepts production releases only. The saved preference
+is never changed automatically.

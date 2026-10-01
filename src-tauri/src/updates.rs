@@ -178,12 +178,23 @@ fn select_release_manifest(
     config: &Configuration,
     channel: &UpdateChannel,
 ) -> Option<url::Url> {
-    // Pre-release must never read the stable manifest.
-    // TODO(Swiph3l): verify this against a clean beta.1 -> beta.2 install.
+    // Stable releases remain eligible for users who opted into prereleases.
+    let version = Version::parse(release.tag_name.trim_start_matches('v')).ok()?;
+    if matches!(channel, UpdateChannel::Stable) && !version.pre.is_empty() {
+        return None;
+    }
+    let release_channel = if version.pre.is_empty() {
+        UpdateChannel::Stable
+    } else {
+        UpdateChannel::PreRelease
+    };
     release
         .assets
         .into_iter()
-        .find(|a| a.name == manifest_name(channel) && https_asset(&a.browser_download_url, config))
+        .find(|a| {
+            a.name == manifest_name(&release_channel)
+                && https_asset(&a.browser_download_url, config)
+        })
         .map(|a| a.browser_download_url)
 }
 
@@ -232,7 +243,7 @@ async fn endpoint(
         })
         .filter(|(v, _)| accepts(&current, v, channel))
         .collect();
-    releases.sort_by(|a, b| b.0.cmp(&a.0));
+    releases.sort_by(|a, b| b.0.cmp_precedence(&a.0));
     for (_, release) in releases {
         if let Some(url) = select_release_manifest(release, config, channel) {
             return Ok(EndpointSelection::Found(url));
@@ -268,32 +279,30 @@ pub async fn check(app: &AppHandle, manual: bool) -> Result<Snapshot, String> {
         inner.verified_bytes = None;
     }
     emit(app);
-    let result =
-        async {
-            let endpoint =
-                match endpoint(&config, &channel).await? {
-                    EndpointSelection::Found(endpoint) => endpoint,
-                    EndpointSelection::MissingManifest => {
-                        return Ok((None, Some(
-                    "No eligible pre-release manifest was found for the selected channel."
-                        .to_string(),
-                )));
-                    }
-                };
-            let update = builder(
-                app,
-                endpoint,
-                config.updater_public_key.clone(),
-                channel.clone(),
-            )?
-            .check()
-            .await
-            .map_err(|_| {
-                "Unable to check for updates. Check your connection and try again.".to_string()
-            })?;
-            Ok((update, None))
-        }
-        .await;
+    let result = async {
+        let endpoint = match endpoint(&config, &channel).await? {
+            EndpointSelection::Found(endpoint) => endpoint,
+            EndpointSelection::MissingManifest => {
+                return Ok((
+                    None,
+                    Some("No eligible update was found for the selected channel.".to_string()),
+                ));
+            }
+        };
+        let update = builder(
+            app,
+            endpoint,
+            config.updater_public_key.clone(),
+            channel.clone(),
+        )?
+        .check()
+        .await
+        .map_err(|_| {
+            "Unable to check for updates. Check your connection and try again.".to_string()
+        })?;
+        Ok((update, None))
+    }
+    .await;
     let mut show = false;
     {
         let service = app.state::<Service>();
@@ -593,6 +602,59 @@ mod tests {
             &UpdateChannel::PreRelease
         ));
     }
+    #[test]
+    fn requested_channel_upgrade_matrix() {
+        for (current, candidates, channel, expected) in [
+            (
+                "0.5.0-beta.2",
+                vec!["0.5.0-beta.3", "0.5.0"],
+                UpdateChannel::PreRelease,
+                Some("0.5.0"),
+            ),
+            (
+                "0.5.0-beta.2",
+                vec!["0.5.0"],
+                UpdateChannel::Stable,
+                Some("0.5.0"),
+            ),
+            ("0.5.0", vec!["0.5.1-beta.1"], UpdateChannel::Stable, None),
+            (
+                "0.5.0",
+                vec!["0.5.1-beta.1"],
+                UpdateChannel::PreRelease,
+                Some("0.5.1-beta.1"),
+            ),
+            (
+                "0.5.1-rc.1",
+                vec!["0.5.1"],
+                UpdateChannel::PreRelease,
+                Some("0.5.1"),
+            ),
+        ] {
+            let current = Version::parse(current).unwrap();
+            let selected = candidates
+                .into_iter()
+                .map(|v| Version::parse(v).unwrap())
+                .filter(|v| accepts(&current, v, &channel))
+                .max_by(|a, b| a.cmp_precedence(b))
+                .map(|v| v.to_string());
+            assert_eq!(selected.as_deref(), expected);
+        }
+    }
+
+    #[test]
+    fn prerelease_users_read_stable_release_manifest() {
+        let config = configuration();
+        let release = release("v0.5.0", vec![asset("latest.json",
+            "https://github.com/Swiph3l/synology-chatplus-desktop/releases/download/v0.5.0/latest.json")]);
+        assert!(
+            select_release_manifest(release, &config, &UpdateChannel::PreRelease)
+                .unwrap()
+                .path()
+                .ends_with("latest.json")
+        );
+    }
+
     #[test]
     fn channel_policy_never_downgrades() {
         let current = Version::parse("0.1.0").unwrap();
