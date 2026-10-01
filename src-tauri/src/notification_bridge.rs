@@ -29,11 +29,9 @@ pub async fn permission_state(app: &tauri::AppHandle) -> String {
 pub async fn enable_permission(app: &tauri::AppHandle) -> Result<(), String> {
     #[cfg(windows)]
     {
-        use tauri::Manager;
         use webview2_com::Microsoft::Web::WebView2::Win32::*;
         use windows::core::{Interface, HSTRING};
-        let window = app
-            .get_webview_window("main")
+        let window = crate::services::active(app)
             .ok_or("Open ChatPlus first, then enable notifications.")?;
         let settings = crate::state::current(app);
         let service = settings.active().ok_or("Open a service first.")?;

@@ -248,8 +248,8 @@ pub fn enqueue(app: &AppHandle, action: Action) {
         }
     });
 }
-fn content(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
-    app.get_webview_window("main")
+fn content(app: &AppHandle) -> Result<tauri::Window, String> {
+    app.get_window("main")
         .ok_or_else(|| "Open ChatPlus first.".into())
 }
 pub fn dispatch(app: &AppHandle, action: Action) -> Result<(), String> {
@@ -324,16 +324,16 @@ pub fn dispatch(app: &AppHandle, action: Action) -> Result<(), String> {
         }
         #[cfg(debug_assertions)]
         Action::DevReload => app
-            .get_webview_window("fixture")
-            .or_else(|| app.get_webview_window("main"))
+            .get_webview("fixture")
+            .or_else(|| crate::services::active(app))
             .ok_or("Open a webview first.")?
             .reload()
             .map_err(|_| "Could not reload webview.".into()),
         #[cfg(debug_assertions)]
         Action::DevTools => {
             let w = app
-                .get_webview_window("fixture")
-                .or_else(|| app.get_webview_window("main"))
+                .get_webview("fixture")
+                .or_else(|| crate::services::active(app))
                 .ok_or("Open a webview first.")?;
             w.open_devtools();
             Ok(())

@@ -2,7 +2,7 @@ use crate::state::{self, Theme};
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 
-pub fn focus(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+pub fn focus(window: &tauri::Window) -> tauri::Result<()> {
     window.unminimize()?;
     window.show()?;
     window.set_focus()?;
@@ -15,23 +15,23 @@ pub fn focus(window: &tauri::WebviewWindow) -> tauri::Result<()> {
 }
 
 pub fn restore_existing(app: &AppHandle) -> Result<bool, String> {
-    if let Some(w) = app.get_webview_window("main") {
+    if let Some(w) = app.get_window("main") {
         focus(&w).map_err(|_| "Could not focus ChatPlus.".to_string())?;
         return Ok(true);
     }
     if let Some(w) = app.get_webview_window("settings") {
-        focus(&w).map_err(|_| "Could not focus setup.".to_string())?;
+        focus(&w.as_ref().window()).map_err(|_| "Could not focus setup.".to_string())?;
         return Ok(true);
     }
     if let Some(w) = app.get_webview_window("about") {
-        focus(&w).map_err(|_| "Could not focus About.".to_string())?;
+        focus(&w.as_ref().window()).map_err(|_| "Could not focus About.".to_string())?;
         return Ok(true);
     }
     Ok(false)
 }
 
 pub fn open(app: &AppHandle) -> Result<(), String> {
-    if let Some(w) = app.get_webview_window("main") {
+    if let Some(w) = app.get_window("main") {
         return focus(&w).map_err(|_| "Could not focus ChatPlus.".into());
     }
     let settings = state::current(app);
@@ -53,7 +53,7 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
     .map_err(|_| "Could not create desktop window.")?;
     crate::services::show(app)?;
     apply_theme(app)?;
-    focus(&window).map_err(|_| "Could not show ChatPlus.")?;
+    focus(&window.as_ref().window()).map_err(|_| "Could not show ChatPlus.")?;
     let handle = app.clone();
     let event_window = window.clone();
     window.on_window_event(move |event| match event {
@@ -103,7 +103,7 @@ pub fn apply_theme(app: &AppHandle) -> Result<(), String> {
             ))
             .map_err(|_| "Could not update page theme.")?;
     }
-    if let Some(w) = app.get_webview_window("main") {
+    if let Some(w) = app.get_window("main") {
         #[cfg(not(windows))]
         let theme = match settings.theme {
             Theme::System => None,
@@ -139,10 +139,12 @@ pub fn apply_theme(app: &AppHandle) -> Result<(), String> {
             ))
             .map_err(|_| "Could not apply page theme.")?;
         }
-        let _ = w.eval(&format!(
-            "document.documentElement.dataset.theme = {}",
-            serde_json::to_string(&settings.theme).unwrap()
-        ));
+        if let Some(rail) = app.get_webview("main") {
+            let _ = rail.eval(&format!(
+                "document.documentElement.dataset.theme = {}",
+                serde_json::to_string(&settings.theme).unwrap()
+            ));
+        }
     }
     Ok(())
 }

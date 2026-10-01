@@ -118,7 +118,7 @@ pub fn reconcile(app: &AppHandle, old: &state::Settings) -> Result<(), String> {
             crate::unread::remove(app, &service.id);
         }
     }
-    if app.get_webview_window("main").is_none() {
+    if app.get_window("main").is_none() {
         crate::window::open(app)?;
     }
     show(app)

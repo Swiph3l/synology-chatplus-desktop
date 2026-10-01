@@ -114,7 +114,7 @@ fn main() {
             {
                 // Swiph3l: ChatPlus Desktop must run as a single instance.
                 // Allow secondary single-instance launches to exit when no window exists.
-                if !app.webview_windows().is_empty() {
+                if !app.windows().is_empty() {
                     api.prevent_exit();
                 }
             }

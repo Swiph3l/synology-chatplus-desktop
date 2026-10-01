@@ -36,7 +36,7 @@ fn open(
     resizable: bool,
 ) -> tauri::Result<()> {
     if let Some(window) = app.get_webview_window(label) {
-        return crate::window::focus(&window);
+        return crate::window::focus(&window.as_ref().window());
     }
     let theme = state::current(app).theme;
     let bootstrap=format!("(()=>{{const apply=()=>{{if(!document.documentElement)return false;document.documentElement.dataset.theme={};return true}};if(!apply()){{const observer=new MutationObserver(()=>{{if(apply())observer.disconnect()}});observer.observe(document,{{childList:true}})}}}})()",serde_json::to_string(&theme).unwrap());
@@ -57,7 +57,7 @@ fn open(
         window.set_min_size(Some(tauri::LogicalSize::new(420., size.1.min(480.))))?;
     }
     theme_window(&window, &theme)?;
-    crate::window::focus(&window)
+    crate::window::focus(&window.as_ref().window())
 }
 pub fn settings(app: &AppHandle) -> tauri::Result<()> {
     let first_run = state::current(app).services.is_empty();

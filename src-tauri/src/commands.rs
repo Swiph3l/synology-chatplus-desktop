@@ -7,8 +7,11 @@ use tauri::Manager;
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
 fn local(window: &tauri::WebviewWindow, labels: &[&str]) -> Result<(), String> {
-    if !labels.contains(&window.label())
-        || !navigation::local_settings(&window.url().map_err(|_| "Not permitted.")?)
+    local_view(window.as_ref(), labels)
+}
+fn local_view(view: &tauri::Webview, labels: &[&str]) -> Result<(), String> {
+    if !labels.contains(&view.label())
+        || !navigation::local_settings(&view.url().map_err(|_| "Not permitted.")?)
     {
         return Err("Not permitted.".into());
     }
@@ -67,11 +70,8 @@ pub fn send_test_notification(
     crate::desktop_notifications::send_test(&app, sound)
 }
 #[tauri::command]
-pub fn get_settings(
-    window: tauri::WebviewWindow,
-    app: tauri::AppHandle,
-) -> Result<Settings, String> {
-    local(&window, &["settings", "main"])?;
+pub fn get_settings(window: tauri::Webview, app: tauri::AppHandle) -> Result<Settings, String> {
+    local_view(&window, &["settings", "main"])?;
     Ok(state::current(&app))
 }
 #[tauri::command]
@@ -100,7 +100,8 @@ pub async fn save_settings(
     crate::services::reconcile(&app, &old)?;
     window::apply_theme(&app)?;
     // Swiph3l: Keep Settings visible after Save so users can continue editing multiple options.
-    window::focus(&window).map_err(|_| "Settings saved, but Settings could not be focused.".into())
+    window::focus(&window.as_ref().window())
+        .map_err(|_| "Settings saved, but Settings could not be focused.".into())
 }
 #[tauri::command]
 pub fn get_about_info(
@@ -219,14 +220,14 @@ pub fn dismiss_update(window: tauri::WebviewWindow) -> Result<(), String> {
 }
 #[tauri::command]
 pub fn get_shell_theme(
-    window: tauri::WebviewWindow,
+    window: tauri::Webview,
     app: tauri::AppHandle,
 ) -> Result<state::Theme, String> {
     let mut labels = vec!["main", "settings", "about", "license", "update"];
     if cfg!(debug_assertions) {
         labels.push("fixture");
     }
-    local(&window, &labels)?;
+    local_view(&window, &labels)?;
     Ok(state::current(&app).theme)
 }
 #[cfg(debug_assertions)]
@@ -243,19 +244,16 @@ pub async fn developer_action(
 
 #[tauri::command]
 pub async fn activate_service(
-    window: tauri::WebviewWindow,
+    window: tauri::Webview,
     app: tauri::AppHandle,
     id: String,
 ) -> Result<(), String> {
-    local(&window, &["main"])?;
+    local_view(&window, &["main"])?;
     crate::services::activate(&app, &id)
 }
 #[tauri::command]
-pub async fn open_settings(
-    window: tauri::WebviewWindow,
-    app: tauri::AppHandle,
-) -> Result<(), String> {
-    local(&window, &["main"])?;
+pub async fn open_settings(window: tauri::Webview, app: tauri::AppHandle) -> Result<(), String> {
+    local_view(&window, &["main"])?;
     shell::settings(&app).map_err(|_| "Could not open Settings.".into())
 }
 
@@ -269,9 +267,9 @@ pub async fn close_settings(window: tauri::WebviewWindow) -> Result<(), String> 
 
 #[tauri::command]
 pub fn get_providers(
-    window: tauri::WebviewWindow,
+    window: tauri::Webview,
 ) -> Result<Vec<crate::providers::ProviderDefinition>, String> {
-    local(&window, &["settings", "main"])?;
+    local_view(&window, &["settings", "main"])?;
     use crate::providers::ProviderId;
     Ok([
         ProviderId::SynologyChatplus,

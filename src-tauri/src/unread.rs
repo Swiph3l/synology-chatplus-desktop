@@ -104,7 +104,7 @@ pub fn publish_for(
 pub fn refresh(app: &AppHandle) {
     let unread = current(app);
     let settings = crate::state::current(app);
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(window) = app.get_window("main") {
         let _ = window.set_title(&title(&unread, settings.unread_title));
         crate::desktop_notifications::taskbar(&window, &unread);
         let _ = app.emit_to("main", "service-unread", observations(app));

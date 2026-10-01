@@ -182,7 +182,7 @@ pub fn deliver_for(app: &AppHandle, id: &str, title: &str, body: &str, tag: &str
         return false;
     }
     let focused = settings.active_service.as_deref() == Some(id)
-        && app.get_webview_window("main").is_some_and(|w| {
+        && app.get_window("main").is_some_and(|w| {
             w.is_focused().unwrap_or(false)
                 && w.is_visible().unwrap_or(false)
                 && !w.is_minimized().unwrap_or(true)
@@ -362,7 +362,7 @@ pub fn icons(app: &AppHandle) {
         overlay: tauri::image::Image::new_owned(overlay, 32, 32),
     });
 }
-pub fn taskbar(window: &tauri::WebviewWindow, unread: &crate::unread::Unread) {
+pub fn taskbar(window: &tauri::Window, unread: &crate::unread::Unread) {
     #[cfg(windows)]
     {
         let icon = unread
