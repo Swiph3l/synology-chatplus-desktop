@@ -3,44 +3,66 @@ import { listen } from "@tauri-apps/api/event";
 import { getSettings, type Settings } from "../app/settings";
 import { providers } from "../app/providers";
 import { bindShellTheme } from "../theme/theme";
+import { providerIcon, railIcon } from "./rail-icons";
 export async function renderServices() {
   document.body.classList.add("services-page");
+  const app = document.getElementById("app")!;
+  app.replaceChildren();
   await bindShellTheme();
   let unread: Record<string, { hasUnread: boolean }> = {};
   let settings = await getSettings();
   const render = () => {
-    const app = document.getElementById("app")!;
+    const focused = document.activeElement as HTMLElement | null;
+    const focusKey = app.contains(focused)
+      ? focused?.dataset.railKey
+      : undefined;
     const rail = document.createElement("nav");
     rail.className = "service-rail";
-    rail.setAttribute("aria-label", "Services");
+    rail.setAttribute("aria-label", "ChatPlus Desktop services");
+    const brand = document.createElement("div");
+    brand.className = "rail-brand";
+    brand.title = "ChatPlus Desktop · Application navigation";
+    brand.setAttribute("aria-label", "ChatPlus Desktop");
+    brand.append(railIcon("desktop"));
+    rail.append(brand);
+    const services = document.createElement("div");
+    services.className = "rail-services";
     for (const service of settings.services.filter((s) => s.enabled)) {
       const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.railKey = service.id;
       const provider = providers[service.provider];
-      button.textContent = provider.icon;
-      button.title = `${service.name}${provider.experimental ? " (Experimental)" : ""}`;
-      button.setAttribute("aria-label", button.title);
+      button.append(providerIcon(service.provider));
+      button.title = `${service.name} · ${provider.name}${provider.experimental ? " (Experimental)" : ""}`;
+      const hasUnread = unread[service.id]?.hasUnread ?? false;
+      button.setAttribute(
+        "aria-label",
+        `${button.title}${hasUnread ? ", unread messages" : ""}`,
+      );
       button.setAttribute(
         "aria-pressed",
         String(service.id === settings.activeService),
       );
-      button.classList.toggle(
-        "has-unread",
-        unread[service.id]?.hasUnread ?? false,
-      );
+      button.classList.toggle("has-unread", hasUnread);
       button.addEventListener("click", () => {
         void invoke("activate_service", { id: service.id }).catch(() => {
           document.getElementById("rail-status")!.textContent =
             "Could not open service.";
         });
       });
-      rail.append(button);
+      services.append(button);
     }
-    for (const [text, title] of [
-      ["+", "Add service"],
-      ["⚙", "Settings"],
-    ]) {
+    rail.append(services);
+    const actions = document.createElement("div");
+    actions.className = "rail-actions";
+    for (const [kind, title] of [
+      ["add", "Add service"],
+      ["settings", "Settings"],
+    ] as const) {
       const button = document.createElement("button");
-      button.textContent = text;
+      button.type = "button";
+      button.dataset.railKey = kind;
+      button.append(railIcon(kind));
       button.title = title;
       button.setAttribute("aria-label", title);
       button.addEventListener("click", () => {
@@ -49,12 +71,22 @@ export async function renderServices() {
             "Could not open Settings.";
         });
       });
-      rail.append(button);
+      actions.append(button);
     }
+    rail.append(actions);
     const status = document.createElement("p");
     status.id = "rail-status";
     status.setAttribute("role", "status");
+    status.className = "rail-status";
     app.replaceChildren(rail, status);
+    if (focusKey) {
+      const target = [
+        ...rail.querySelectorAll<HTMLButtonElement>("button"),
+      ].find((button) => button.dataset.railKey === focusKey);
+      (target ?? actions.querySelector("button"))?.focus({
+        preventScroll: true,
+      });
+    }
   };
   await listen<Settings>("services-changed", ({ payload }) => {
     settings = payload;

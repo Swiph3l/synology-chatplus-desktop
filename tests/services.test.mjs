@@ -77,6 +77,11 @@ test("service rail filters disabled services, routes activation and keeps unread
       return () => {};
     },
   };
+  let focused = null;
+  Object.defineProperty(document, "activeElement", { get: () => focused });
+  window.HTMLElement.prototype.focus = function () {
+    focused = this;
+  };
   runInNewContext(result.outputFiles[0].text, context);
   await context.railUi.renderServices();
   let buttons = [...document.querySelectorAll("button")];
@@ -84,14 +89,25 @@ test("service rail filters disabled services, routes activation and keeps unread
   assert.equal(buttons[0].getAttribute("aria-pressed"), "true");
   assert.match(buttons[1].title, /Experimental/);
   assert.equal(
-    document.querySelector("img"),
+    document.querySelector('img[src="x"]'),
     null,
-    "names are text, never markup",
+    "names are never markup",
+  );
+  assert.equal(document.querySelectorAll(".provider-icon").length, 2);
+  assert.notEqual(
+    buttons[0].querySelector("img").src,
+    buttons[1].querySelector("img").src,
+  );
+  assert.match(buttons[1].title, /Slack/);
+  assert.deepEqual(
+    [...document.querySelectorAll(".rail-actions button")].map((x) => x.title),
+    ["Add service", "Settings"],
   );
   buttons[1].dispatchEvent(new window.Event("click"));
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(calls.at(-1).command, "activate_service");
   assert.equal(calls.at(-1).args.id, "b");
+  buttons[1].focus();
   events.get("service-unread")({
     payload: { a: { hasUnread: true }, b: { hasUnread: false } },
   });
@@ -100,6 +116,12 @@ test("service rail filters disabled services, routes activation and keeps unread
   });
   buttons = [...document.querySelectorAll("button")];
   assert.ok(buttons[0].classList.contains("has-unread"));
+  assert.match(buttons[0].getAttribute("aria-label"), /unread messages/);
   assert.equal(buttons[1].getAttribute("aria-pressed"), "true");
   assert.ok(!buttons[1].classList.contains("has-unread"));
+  assert.equal(
+    document.activeElement.dataset.railKey,
+    "b",
+    "unread and active-state rendering keep keyboard focus",
+  );
 });
