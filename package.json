@@ -26,7 +26,7 @@
     "linkedom": "^0.18.13",
     "prettier": "^3.8.0",
     "typescript": "~5.9.3",
-    "vite": "^7.3.0"
+    "vite": "^8.3.1"
   },
   "description": "Unofficial community desktop client for Synology ChatPlus.",
   "author": "Swiph3l",
