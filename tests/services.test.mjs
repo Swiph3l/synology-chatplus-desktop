@@ -200,3 +200,205 @@ test("service rail filters disabled services, routes activation and keeps unread
     "unread and active-state rendering keep keyboard focus",
   );
 });
+
+async function contextFixture() {
+  const { window, document } = parseHTML(
+    '<html><body><main id="app"></main><p id="outside">Outside</p></body></html>',
+  );
+  const calls = [],
+    events = new Map(),
+    pending = [];
+  const settings = {
+    activeService: "first",
+    services: [
+      {
+        id: "first",
+        provider: "synology-chatplus",
+        name: "First service",
+        enabled: true,
+      },
+      {
+        id: "second",
+        provider: "discord",
+        name: "Second service",
+        enabled: true,
+      },
+    ],
+  };
+  let focused = null,
+    railFocused = true,
+    fail = false;
+  Object.defineProperty(document, "activeElement", { get: () => focused });
+  document.hasFocus = () => railFocused;
+  window.HTMLElement.prototype.focus = function () {
+    focused = this;
+  };
+  window.HTMLElement.prototype.getBoundingClientRect = function () {
+    return { right: 48, top: this.dataset.railKey === "second" ? 104 : 64 };
+  };
+  const context = {
+    window,
+    document,
+    nativeInvoke: async (command, args) => {
+      calls.push({ command, args });
+      if (command === "get_settings") return settings;
+      if (command === "show_service_context_menu") {
+        if (fail) throw new Error("Fixture failure");
+        await new Promise((resolve) => pending.push(resolve));
+      }
+    },
+    nativeListen: async (event, callback) => {
+      events.set(event, callback);
+      return () => {};
+    },
+  };
+  runInNewContext(result.outputFiles[0].text, context);
+  await context.railUi.renderServices();
+  const dispatch = (element, type, props = {}) => {
+    const event = new window.Event(type, { bubbles: true, cancelable: true });
+    Object.assign(event, props);
+    element.dispatchEvent(event);
+    return event;
+  };
+  return {
+    document,
+    calls,
+    events,
+    settings,
+    dispatch,
+    button: (id) => document.querySelector(`[data-rail-key="${id}"]`),
+    menus: () =>
+      calls.filter((call) => call.command === "show_service_context_menu"),
+    dismiss: (index = pending.length - 1) => pending[index](),
+    moveFocusOutside: () => {
+      railFocused = false;
+      document.getElementById("outside").focus();
+    },
+    fail: () => {
+      fail = true;
+    },
+    flush: () => new Promise((resolve) => setImmediate(resolve)),
+  };
+}
+
+test("right-click suppresses only service icon menus and targets the clicked service without activating it", async () => {
+  const f = await contextFixture();
+  f.events.get("service-unread")({ payload: { first: { hasUnread: true } } });
+  const event = f.dispatch(
+    f.button("second").querySelector("img"),
+    "contextmenu",
+    { clientX: 32, clientY: 125 },
+  );
+  assert.equal(event.defaultPrevented, true);
+  assert.equal(f.menus()[0].args.id, "second");
+  assert.equal(f.menus()[0].args.x, 32);
+  assert.equal(f.menus()[0].args.y, 125);
+  assert.equal(f.button("second").getAttribute("aria-haspopup"), "menu");
+  assert.equal(f.button("first").getAttribute("aria-pressed"), "true");
+  assert.ok(f.button("first").classList.contains("has-unread"));
+  assert.equal(
+    f.calls.filter((call) => call.command === "activate_service").length,
+    0,
+  );
+  for (const element of [
+    f.document.body,
+    f.document.querySelector(".rail-brand"),
+    f.document.querySelector(".rail-actions button"),
+  ]) {
+    assert.equal(
+      f.dispatch(element, "contextmenu", { clientX: 20, clientY: 20 })
+        .defaultPrevented,
+      false,
+    );
+  }
+  assert.equal(f.menus().length, 1);
+  f.dismiss();
+  await f.flush();
+});
+
+test("keyboard context menu uses the current icon rectangle, including a scrolled rail", async () => {
+  const f = await contextFixture();
+  const button = f.button("second");
+  button.getBoundingClientRect = () => ({ right: 46, top: 21 });
+  assert.equal(
+    f.dispatch(button, "keydown", { key: "F10", shiftKey: true })
+      .defaultPrevented,
+    true,
+  );
+  assert.equal(f.menus()[0].args.id, "second");
+  assert.equal(f.menus()[0].args.x, 46);
+  assert.equal(f.menus()[0].args.y, 21, "uses visible rect, not scroll offset");
+  f.dismiss();
+  await f.flush();
+  assert.equal(
+    f.dispatch(button, "keydown", { key: "ContextMenu" }).defaultPrevented,
+    true,
+  );
+  assert.equal(f.menus().length, 2);
+  f.dismiss();
+  await f.flush();
+});
+
+test("native-menu dismissal restores a replaced trigger but never steals outside focus", async () => {
+  const f = await contextFixture();
+  f.dispatch(f.button("first"), "contextmenu", { clientX: 25, clientY: 70 });
+  // Native menu handles Escape/outside click; the rail must leave these events untouched.
+  assert.equal(
+    f.dispatch(f.button("first"), "keydown", { key: "Escape" })
+      .defaultPrevented,
+    false,
+  );
+  assert.equal(
+    f.dispatch(f.document.getElementById("outside"), "click").defaultPrevented,
+    false,
+  );
+  f.events.get("service-unread")({ payload: { first: { hasUnread: true } } });
+  f.dismiss();
+  await f.flush();
+  assert.equal(f.document.activeElement, f.button("first"));
+  f.dispatch(f.button("second"), "contextmenu", { clientX: 25, clientY: 110 });
+  f.moveFocusOutside();
+  f.dismiss();
+  await f.flush();
+  assert.equal(f.document.activeElement.id, "outside");
+});
+
+test("right-click on another service supersedes context and stale completion cannot steal its focus", async () => {
+  const f = await contextFixture();
+  f.dispatch(f.button("first"), "contextmenu", { clientX: 25, clientY: 70 });
+  f.dispatch(f.button("second"), "contextmenu", { clientX: 25, clientY: 110 });
+  assert.deepEqual(
+    f.menus().map((call) => call.args.id),
+    ["first", "second"],
+  );
+  f.dismiss(0);
+  await f.flush();
+  assert.equal(f.document.activeElement, f.button("second"));
+  f.dismiss(1);
+  await f.flush();
+});
+
+test("a failed native popup reports an accessible error without changing active/unread state", async () => {
+  const f = await contextFixture();
+  f.fail();
+  f.dispatch(f.button("second"), "contextmenu", { clientX: 25, clientY: 110 });
+  await f.flush();
+  assert.match(
+    f.document.getElementById("rail-status").textContent,
+    /Could not open the service menu/,
+  );
+  assert.equal(f.button("first").getAttribute("aria-pressed"), "true");
+});
+
+test("saved display-name changes refresh the rail immediately with stable icon, ID and unread state", async () => {
+  const f = await contextFixture();
+  const icon = f.button("first").querySelector("img").src;
+  f.events.get("service-unread")({ payload: { first: { hasUnread: true } } });
+  const settings = structuredClone(f.settings);
+  settings.services[0].name = "Renamed service";
+  f.events.get("services-changed")({ payload: settings });
+  assert.match(f.button("first").title, /^Renamed service/);
+  assert.equal(f.button("first").querySelector("img").src, icon);
+  assert.equal(f.button("first").getAttribute("aria-pressed"), "true");
+  assert.ok(f.button("first").classList.contains("has-unread"));
+});

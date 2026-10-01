@@ -44,13 +44,13 @@ function fixture(provider = "synology-chatplus") {
     },
   ];
   let confirmation = false;
-  window.confirm = () => confirmation;
   const context = { window, document, crypto: { randomUUID: () => "unique" } };
   runInNewContext(result.outputFiles[0].text, context);
   const add = context.servicesUi.serviceEditor(
     document.getElementById("editor"),
     services,
     () => {},
+    async () => confirmation,
   );
   return {
     window,
@@ -147,7 +147,7 @@ test("Discord uses name-only configuration and changing provider keeps service i
   assert.equal(document.querySelectorAll("input[type=url]").length, 0);
 });
 
-test("enabled edits stay in the service draft and removal requires confirmation", () => {
+test("enabled edits stay in the service draft and removal requires confirmation", async () => {
   const { window, document, services, add, confirm } = fixture();
   const enabled = document.querySelector(".service-options input");
   enabled.checked = false;
@@ -159,9 +159,11 @@ test("enabled edits stay in the service draft and removal requires confirmation"
   assert.match(remove.getAttribute("aria-label"), /Test service/);
   assert.ok(remove.getAttribute("aria-describedby"));
   remove.dispatchEvent(new window.Event("click"));
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(services.length, 2, "cancel keeps both configurations");
   confirm(true);
   remove.dispatchEvent(new window.Event("click"));
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(services.length, 1);
   assert.equal(
     services[0].id,

@@ -178,6 +178,26 @@ body.services-page {
   white-space: nowrap;
 }
 
+.confirmation-dialog {
+  width: 400px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 32px);
+  padding: 20px;
+  margin: auto;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px #0004;
+}
+.confirmation-dialog::backdrop {
+  background: #0007;
+}
+.confirmation-dialog .actions {
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
 main {
   max-width: 580px;
   margin: auto;
@@ -279,6 +299,10 @@ textarea,
   gap: 8px;
   margin-bottom: 12px;
 }
+.service-config:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
 .experimental-badge {
   padding: 1px 6px;
   border: 1px solid var(--border);
@@ -319,12 +343,14 @@ textarea,
 .service-removal small {
   margin: 0 0 10px;
 }
-.service-removal button.danger {
+.service-removal button.danger,
+.confirmation-dialog button.danger {
   color: var(--danger);
   border-color: var(--danger);
   background: transparent;
 }
-.service-removal button.danger:hover {
+.service-removal button.danger:hover,
+.confirmation-dialog button.danger:hover {
   filter: none;
   background: color-mix(in srgb, var(--danger) 8%, var(--surface));
 }

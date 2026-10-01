@@ -8,12 +8,15 @@ export function serviceEditor(
   container: HTMLElement,
   services: ServiceConfig[],
   onUrl: (service: ServiceConfig) => void,
+  onRemove: (service: ServiceConfig) => Promise<boolean>,
 ) {
   const render = () => {
     container.replaceChildren();
     for (const service of services) {
       const row = document.createElement("fieldset");
       row.className = "service-config";
+      row.id = `service-${service.id}-settings`;
+      row.tabIndex = -1;
       const legend = document.createElement("legend");
       const heading = document.createElement("span");
       heading.textContent = service.name || "New service";
@@ -86,6 +89,7 @@ export function serviceEditor(
       const toggle = (text: string, key: "enabled" | "notifications") => {
         const checkbox = document.createElement("input");
         checkbox.type = "checkbox";
+        checkbox.id = `service-${service.id}-${key}`;
         checkbox.checked = service[key];
         checkbox.addEventListener("change", () => {
           service[key] = checkbox.checked;
@@ -120,22 +124,35 @@ export function serviceEditor(
       const removalHelp = document.createElement("small");
       removalHelp.id = `service-${service.id}-removal-help`;
       removalHelp.textContent =
-        "Removes this service from the configuration when you save. Its stored profile is retained.";
+        "Removes this service from the desktop configuration after confirmation. Its stored profile is retained.";
       const remove = document.createElement("button");
       remove.type = "button";
+      remove.id = `service-${service.id}-remove`;
       remove.className = "secondary danger";
       remove.textContent = "Remove service";
       remove.setAttribute("aria-label", `Remove ${service.name || "service"}`);
       remove.setAttribute("aria-describedby", removalHelp.id);
-      remove.addEventListener("click", () => {
-        if (
-          !window.confirm(
-            `Remove ${service.name || "this service"} from the configuration? Changes take effect when you save.`,
-          )
-        )
-          return;
-        services.splice(services.indexOf(service), 1);
-        render();
+      remove.addEventListener("click", async () => {
+        if (remove.disabled) return;
+        const restoreFocus = document.activeElement === remove;
+        remove.disabled = true;
+        try {
+          if (!(await onRemove(service))) return;
+          const index = services.indexOf(service);
+          if (index >= 0) services.splice(index, 1);
+          render();
+          const next = services[Math.min(index, services.length - 1)];
+          (next
+            ? document.getElementById(`service-${next.id}-provider`)
+            : document.getElementById("add-service")
+          )?.focus();
+        } finally {
+          if (remove.isConnected) {
+            remove.disabled = false;
+            if (restoreFocus && document.hasFocus())
+              remove.focus({ preventScroll: true });
+          }
+        }
       });
       removal.append(removalTitle, removalHelp, remove);
       row.append(removal);

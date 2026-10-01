@@ -34,7 +34,15 @@ profile exception; migration and repeat-start behavior are unchanged.
 Provider presentation declares whether a service needs a server URL, workspace
 URL or fixed entry URL. Discord's Services form is name-only, and its General tab
 does not show an irrelevant server field. Services use common controls and
-informational Experimental badges; removal is confirmed and applied on Save.
+informational Experimental badges. Removal is confirmed and persisted immediately;
+it retains the stored profile and does not save unrelated form edits.
+
+The external rail's context menu reuses the desktop's native Tauri menu system.
+It offers Open, local Rename/Service settings, and confirmed Remove service.
+ChatPlus additionally offers per-service desktop notification mute/unmute and its
+existing notification settings control. These are desktop preferences, not provider
+server administration. Mark-read, provider-side mute, members/invitations and leaving
+a remote server have no API here and are omitted. Embedded provider UI is untouched.
 
 ## ChatPlus
 

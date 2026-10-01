@@ -100,9 +100,122 @@ pub fn activate(app: &AppHandle, id: &str) -> Result<(), String> {
     state::persist(app, settings)?;
     show(app)
 }
-pub fn reconcile(app: &AppHandle, old: &state::Settings) -> Result<(), String> {
+pub fn save(app: &AppHandle, settings: state::Settings) -> Result<(), String> {
     let lifecycle = app.state::<Lifecycle>();
     let _transition = lifecycle.0.lock().unwrap_or_else(|e| e.into_inner());
+    // Persist and reconcile as one transition, including immediate removal and mute.
+    let old = state::current(app);
+    state::persist(app, settings)?;
+    reconcile_current(app, &old)
+}
+
+pub(crate) fn update_notification_config(
+    settings: &mut state::Settings,
+    id: &str,
+    enabled: bool,
+) -> Result<(), String> {
+    let service = settings
+        .services
+        .iter_mut()
+        .find(|service| service.id == id && service.enabled)
+        .ok_or("Choose an enabled configured service.")?;
+    if !service.provider.definition().notifications {
+        return Err("Desktop notifications are not supported for this provider.".into());
+    }
+    service.notifications = enabled;
+    Ok(())
+}
+pub fn set_notifications(app: &AppHandle, id: &str, enabled: bool) -> Result<(), String> {
+    let lifecycle = app.state::<Lifecycle>();
+    let _transition = lifecycle.0.lock().unwrap_or_else(|e| e.into_inner());
+    // Read under the transition lock so a stale menu cannot resurrect a removed service.
+    let mut settings = state::current(app);
+    update_notification_config(&mut settings, id, enabled)?;
+    state::persist(app, settings)
+}
+
+fn remove_configuration(settings: &mut state::Settings, id: &str) -> Result<(), String> {
+    let index = settings
+        .services
+        .iter()
+        .position(|service| service.id == id)
+        .ok_or("Service is no longer configured.")?;
+    settings.services.remove(index);
+    // Do not recreate the legacy service when removing the last configuration.
+    settings.service_schema = 1;
+    settings.migrate_services()?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod removal_tests {
+    use super::*;
+    use crate::providers::ProviderId;
+    fn settings() -> state::Settings {
+        let mut settings = state::Settings {
+            service_schema: 1,
+            active_service: Some("first".into()),
+            services: ["first", "second"]
+                .into_iter()
+                .map(|id| ServiceConfig {
+                    id: id.into(),
+                    provider: ProviderId::SynologyChatplus,
+                    name: id.into(),
+                    url: "https://example.com/chat/".into(),
+                    enabled: true,
+                    notifications: true,
+                })
+                .collect(),
+            ..Default::default()
+        };
+        settings.migrate_services().unwrap();
+        settings
+    }
+    #[test]
+    fn removal_reselects_active_preserves_other_profile_and_survives_restart() {
+        let mut settings = settings();
+        let profile = settings.services[1].profile_directory(std::path::Path::new("profiles"));
+        remove_configuration(&mut settings, "first").unwrap();
+        assert_eq!(settings.active_service.as_deref(), Some("second"));
+        assert_eq!(settings.services.len(), 1);
+        assert_eq!(
+            settings.services[0].profile_directory(std::path::Path::new("profiles")),
+            profile
+        );
+        let mut restarted: state::Settings =
+            serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        restarted.migrate_services().unwrap();
+        assert_eq!(restarted.services.len(), 1);
+        assert_eq!(restarted.services[0].id, "second");
+        assert!(remove_configuration(&mut restarted, "first").is_err());
+    }
+    #[test]
+    fn last_service_removal_never_recreates_legacy_configuration() {
+        let mut settings = settings();
+        remove_configuration(&mut settings, "second").unwrap();
+        assert_eq!(settings.active_service.as_deref(), Some("first"));
+        settings.service_schema = 0;
+        remove_configuration(&mut settings, "first").unwrap();
+        assert!(settings.services.is_empty());
+        assert!(settings.active_service.is_none());
+        assert!(settings.server_url.is_empty());
+        assert_eq!(settings.service_schema, 1);
+        settings.migrate_services().unwrap();
+        assert!(settings.services.is_empty());
+    }
+}
+
+pub fn remove(app: &AppHandle, id: &str) -> Result<(), String> {
+    let lifecycle = app.state::<Lifecycle>();
+    let _transition = lifecycle.0.lock().unwrap_or_else(|e| e.into_inner());
+    let old = state::current(app);
+    let mut settings = old.clone();
+    remove_configuration(&mut settings, id)?;
+    state::persist(app, settings)?;
+    reconcile_current(app, &old)
+}
+
+fn reconcile_current(app: &AppHandle, old: &state::Settings) -> Result<(), String> {
     let settings = state::current(app);
     for service in &old.services {
         if !settings.services.iter().any(|s| {

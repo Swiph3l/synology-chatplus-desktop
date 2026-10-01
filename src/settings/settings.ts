@@ -12,6 +12,7 @@ import { notifications } from "../app/notifications";
 import { updates } from "../app/updates";
 import { serviceEditor } from "./services";
 import { providers, type ServiceConfig } from "../app/providers";
+import { confirmServiceRemoval } from "../ui/service-removal";
 
 export async function renderSettings() {
   const app = document.querySelector<HTMLElement>("#app")!;
@@ -27,6 +28,7 @@ export async function renderSettings() {
   }
   const firstRun = !original.services.length;
   const serviceDraft = structuredClone(original.services);
+  const notificationDraftEdits = new Set<string>();
   document.body.classList.toggle("setup-page", firstRun);
   app.innerHTML = `
     <header class="page-header"><img class="brand" src="/chatplus.png" alt="" width="32" height="32"><h1>${firstRun ? "ChatPlus Desktop" : "Settings"}</h1></header>
@@ -92,6 +94,19 @@ export async function renderSettings() {
   const status = document.getElementById("status")!;
   const button = document.querySelector<HTMLButtonElement>("#save")!;
   const saveFeedback = document.getElementById("save-feedback")!;
+  let persistencePending = false;
+  const setPersistencePending = (pending: boolean) => {
+    persistencePending = pending;
+    button.disabled = pending;
+    const add = document.getElementById(
+      "add-service",
+    ) as HTMLButtonElement | null;
+    if (add) add.disabled = pending;
+    for (const remove of document.querySelectorAll<HTMLButtonElement>(
+      ".service-removal button",
+    ))
+      remove.disabled = pending;
+  };
   let saveFeedbackTimer: ReturnType<typeof setTimeout> | undefined;
   const clearSaveFeedback = () => {
     if (saveFeedbackTimer) {
@@ -148,8 +163,49 @@ export async function renderSettings() {
           configureServerField(service);
         }
       },
+      async (service) => {
+        if (persistencePending) return false;
+        setPersistencePending(true);
+        try {
+          if (!(await confirmServiceRemoval(service.name))) return false;
+          if (original.services.some((item) => item.id === service.id)) {
+            await invoke("remove_service", { id: service.id, confirmed: true });
+          }
+          status.textContent =
+            "Service removed. Its stored profile is retained.";
+          return true;
+        } catch (error) {
+          status.textContent =
+            typeof error === "string" ? error : "Could not remove service.";
+          // Persistence can succeed while closing a native view fails. Reflect the
+          // saved configuration and retain the restart warning rather than resurrecting it.
+          try {
+            const saved = await getSettings();
+            if (!saved.services.some((item) => item.id === service.id))
+              return true;
+          } catch {
+            /* Keep the draft if the persisted state cannot be verified. */
+          }
+          return false;
+        } finally {
+          setPersistencePending(false);
+        }
+      },
     );
-    document.getElementById("add-service")!.addEventListener("click", add);
+    document.getElementById("add-service")!.addEventListener("click", () => {
+      if (!persistencePending) add();
+    });
+    document
+      .getElementById("service-editor")!
+      .addEventListener("change", (event) => {
+        const control = event.target as HTMLInputElement;
+        const service = serviceDraft.find(
+          (item) => control.id === `service-${item.id}-notifications`,
+        );
+        if (service) notificationDraftEdits.add(service.id);
+        // Provider changes can replace the row while a save is in flight.
+        if (persistencePending) setPersistencePending(true);
+      });
     input("server").addEventListener("input", () => {
       const active = serviceDraft.find((s) => s.id === original.activeService);
       if (active) active.url = input("server").value;
@@ -323,23 +379,75 @@ export async function renderSettings() {
     }
   };
   await listen<Settings>("settings-changed", ({ payload }) => {
+    // A context-menu mute updates the saved preference. Keep untouched drafts in sync,
+    // but retain a user's explicit unsaved checkbox edit.
+    for (const draft of serviceDraft) {
+      const before = original.services.find(
+        (service) => service.id === draft.id,
+      );
+      const after = payload.services.find((service) => service.id === draft.id);
+      if (
+        before &&
+        after &&
+        draft.provider === after.provider &&
+        !notificationDraftEdits.has(draft.id) &&
+        draft.notifications === before.notifications
+      )
+        draft.notifications = after.notifications;
+      const checkbox = document.getElementById(
+        `service-${draft.id}-notifications`,
+      ) as HTMLInputElement | null;
+      if (checkbox) checkbox.checked = draft.notifications;
+    }
     if (payload.activeService !== original.activeService) {
-      input("server").value = payload.serverUrl;
+      input("server").value =
+        serviceDraft.find((service) => service.id === payload.activeService)
+          ?.url ?? payload.serverUrl;
     }
     configureServerField(
       payload.services.find((s) => s.id === payload.activeService),
     );
-    original = payload;
-    applyTheme(payload.theme);
     if (theme) {
-      theme.value = payload.theme;
-      input("autostart").checked = payload.autostart;
-    }
+      // Immediate service actions must not discard unrelated General edits.
+      if (theme.value === original.theme) theme.value = payload.theme;
+      if (input("autostart").checked === original.autostart)
+        input("autostart").checked = payload.autostart;
+      applyTheme(theme.value as Theme);
+    } else applyTheme(payload.theme);
+    original = payload;
   });
   await listen("operation-error", () => {
     void showError();
   });
   await showError();
+  const showServiceSettings = async () => {
+    const target = await invoke<{
+      id: string;
+      field: "settings" | "name" | "notifications" | "remove";
+    } | null>("take_service_settings_target");
+    if (!target) return;
+    const control = document.getElementById(
+      `service-${target.id}-${target.field}`,
+    );
+    if (!control) {
+      status.textContent =
+        "This service is not available in your current draft. Reopen Settings to refresh it.";
+      return;
+    }
+    document.querySelector<HTMLButtonElement>('[data-tab="services"]')?.click();
+    document
+      .getElementById(`service-${target.id}-settings`)
+      ?.scrollIntoView({ block: "start" });
+    control.focus({ preventScroll: true });
+    if (target.field === "name") (control as HTMLInputElement).select();
+    if (target.field === "remove") (control as HTMLButtonElement).click();
+  };
+  await listen("service-settings-requested", () => {
+    void showServiceSettings().catch(() => {
+      status.textContent = "Could not open service settings.";
+    });
+  });
+  await showServiceSettings();
   document.getElementById("about")?.addEventListener("click", () => {
     void invoke("show_about").catch(() => {
       status.textContent = "Could not open About.";
@@ -347,8 +455,9 @@ export async function renderSettings() {
   });
   document.querySelector("form")!.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (persistencePending) return;
     const restoreSaveFocus = document.activeElement === button;
-    button.disabled = true;
+    setPersistencePending(true);
     status.textContent = "";
     clearSaveFeedback();
     try {
@@ -389,6 +498,7 @@ export async function renderSettings() {
             }
           : {}),
       });
+      notificationDraftEdits.clear();
       // Swiph3l: Saving no longer closes this page, so users can tweak several sections without reopening Settings.
       showSaveFeedback(
         firstRun
@@ -399,7 +509,7 @@ export async function renderSettings() {
       status.textContent =
         error instanceof Error ? error.message : String(error);
     } finally {
-      button.disabled = false;
+      setPersistencePending(false);
       if (restoreSaveFocus) button.focus();
     }
   });

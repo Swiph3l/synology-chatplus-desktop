@@ -11,6 +11,31 @@ export async function renderServices() {
   await bindShellTheme();
   let unread: Record<string, { hasUnread: boolean }> = {};
   let settings = await getSettings();
+  let contextRequest = 0;
+  const openContextMenu = async (
+    button: HTMLButtonElement,
+    id: string,
+    x: number,
+    y: number,
+  ) => {
+    const request = ++contextRequest;
+    button.focus({ preventScroll: true });
+    try {
+      await invoke("show_service_context_menu", { id, x, y });
+    } catch {
+      document.getElementById("rail-status")!.textContent =
+        "Could not open the service menu.";
+    } finally {
+      // Native menus own arrow keys, Escape, outside-click dismissal and accessibility.
+      // Restore a replaced trigger only if focus is still in this rail, not in Settings/content.
+      if (request === contextRequest && document.hasFocus()) {
+        const trigger = [
+          ...app.querySelectorAll<HTMLButtonElement>("button"),
+        ].find((item) => item.dataset.railKey === id);
+        trigger?.focus({ preventScroll: true });
+      }
+    }
+  };
   const render = () => {
     const focused = document.activeElement as HTMLElement | null;
     const focusKey = app.contains(focused)
@@ -31,6 +56,7 @@ export async function renderServices() {
       const button = document.createElement("button");
       button.type = "button";
       button.dataset.railKey = service.id;
+      button.setAttribute("aria-haspopup", "menu");
       const provider = providers[service.provider];
       button.append(providerIcon(service.provider));
       button.title = `${service.name} · ${provider.name}${provider.experimental ? " (Experimental)" : ""}`;
@@ -49,6 +75,27 @@ export async function renderServices() {
           document.getElementById("rail-status")!.textContent =
             "Could not open service.";
         });
+      });
+      button.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        const rect = button.getBoundingClientRect();
+        const keyboard = event.clientX === 0 && event.clientY === 0;
+        void openContextMenu(
+          button,
+          service.id,
+          keyboard ? rect.right : event.clientX,
+          keyboard ? rect.top : event.clientY,
+        );
+      });
+      button.addEventListener("keydown", (event) => {
+        if (
+          event.key !== "ContextMenu" &&
+          !(event.shiftKey && event.key === "F10")
+        )
+          return;
+        event.preventDefault();
+        const rect = button.getBoundingClientRect();
+        void openContextMenu(button, service.id, rect.right, rect.top);
       });
       services.append(button);
     }

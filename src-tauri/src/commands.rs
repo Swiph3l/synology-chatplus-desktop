@@ -91,13 +91,10 @@ pub fn get_status(
 pub async fn save_settings(
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,
-    mut settings: Settings,
+    settings: Settings,
 ) -> Result<(), String> {
     local(&window, &["settings"])?;
-    settings.migrate_services()?;
-    let old = state::current(&app);
-    state::persist(&app, settings.clone())?;
-    crate::services::reconcile(&app, &old)?;
+    crate::services::save(&app, settings)?;
     window::apply_theme(&app)?;
     // Swiph3l: Keep Settings visible after Save so users can continue editing multiple options.
     window::focus(&window.as_ref().window())
@@ -255,6 +252,43 @@ pub async fn activate_service(
 pub async fn open_settings(window: tauri::Webview, app: tauri::AppHandle) -> Result<(), String> {
     local_view(&window, &["main"])?;
     shell::settings(&app).map_err(|_| "Could not open Settings.".into())
+}
+
+#[tauri::command]
+pub async fn show_service_context_menu(
+    window: tauri::Webview,
+    app: tauri::AppHandle,
+    id: String,
+    x: f64,
+    y: f64,
+) -> Result<(), String> {
+    local_view(&window, &["main"])?;
+    crate::menu::service_popup(&app, &id, x, y)
+}
+
+#[tauri::command]
+pub fn take_service_settings_target(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+) -> Result<Option<crate::menu::ServiceSettingsTarget>, String> {
+    local(&window, &["settings"])?;
+    Ok(crate::menu::take_service_settings_target(&app))
+}
+
+#[tauri::command]
+pub async fn remove_service(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    id: String,
+    confirmed: bool,
+) -> Result<(), String> {
+    local(&window, &["settings"])?;
+    if !confirmed {
+        return Err("Confirm service removal first.".into());
+    }
+    crate::services::remove(&app, &id)?;
+    window::focus(&window.as_ref().window())
+        .map_err(|_| "Service removed, but Settings could not be focused.".into())
 }
 
 #[tauri::command]
