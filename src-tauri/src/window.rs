@@ -5,7 +5,13 @@ use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 pub fn focus(window: &tauri::WebviewWindow) -> tauri::Result<()> {
     window.unminimize()?;
     window.show()?;
-    window.set_focus()
+    window.set_focus()?;
+    if window.label() == "main" {
+        if let Some(view) = crate::services::active(window.app_handle()) {
+            view.set_focus()?;
+        }
+    }
+    Ok(())
 }
 
 pub fn restore_existing(app: &AppHandle) -> Result<bool, String> {

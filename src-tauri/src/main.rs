@@ -92,6 +92,7 @@ fn main() {
             app.manage(connection::ConnectionState::default());
             app.manage(updates::Service::default());
             app.manage(unread::Service::default());
+            app.manage(services::Lifecycle::default());
             app.manage(desktop_notifications::Service::default());
             desktop_notifications::icons(app.handle());
             menu::create(app.handle())?;

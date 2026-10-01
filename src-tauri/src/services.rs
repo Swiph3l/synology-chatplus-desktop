@@ -3,6 +3,9 @@ use crate::{providers::ServiceConfig, state};
 use tauri::{AppHandle, Emitter, Manager, Webview, WebviewBuilder, WebviewUrl};
 use tauri_plugin_opener::OpenerExt;
 
+#[derive(Default)]
+pub struct Lifecycle(std::sync::Mutex<()>);
+
 pub struct ServiceSession {
     pub config: ServiceConfig,
     pub webview_label: String,
@@ -86,6 +89,8 @@ pub fn show(app: &AppHandle) -> Result<(), String> {
         .map_err(|_| "Could not focus service.".into())
 }
 pub fn activate(app: &AppHandle, id: &str) -> Result<(), String> {
+    let lifecycle = app.state::<Lifecycle>();
+    let _transition = lifecycle.0.lock().unwrap_or_else(|e| e.into_inner());
     let mut settings = state::current(app);
     if !settings.services.iter().any(|s| s.id == id && s.enabled) {
         return Err("Choose an enabled configured service.".into());
@@ -95,6 +100,8 @@ pub fn activate(app: &AppHandle, id: &str) -> Result<(), String> {
     show(app)
 }
 pub fn reconcile(app: &AppHandle, old: &state::Settings) -> Result<(), String> {
+    let lifecycle = app.state::<Lifecycle>();
+    let _transition = lifecycle.0.lock().unwrap_or_else(|e| e.into_inner());
     let settings = state::current(app);
     for service in &old.services {
         if !settings.services.iter().any(|s| {
