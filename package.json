@@ -21,7 +21,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.0",
-    "@types/node": "^22.20.2",
+    "@types/node": "^26.6.3",
     "esbuild": "^0.28.1",
     "linkedom": "^0.18.13",
     "prettier": "^3.8.0",
