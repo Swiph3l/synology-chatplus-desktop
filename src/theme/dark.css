@@ -258,6 +258,33 @@
 :root[data-chatplus-theme="dark"] ::placeholder {
   color: #7f8997 !important;
 }
+
+/* Reaction controls have their own light surface outside the toolbar container. */
+:root[data-chatplus-theme="dark"]
+  body.eos-scope
+  [data-testid="reaction-button"] {
+  background-color: #191d23 !important;
+  border: 1px solid #343c48 !important;
+  color: #edf1f7 !important;
+}
+:root[data-chatplus-theme="dark"]
+  body.eos-scope
+  [data-testid="reaction-button"]:hover {
+  background-color: #20252c !important;
+  border-color: #69a6ff !important;
+}
+:root[data-chatplus-theme="dark"]
+  body.eos-scope
+  [data-testid="reaction-button"][aria-pressed="true"] {
+  background-color: #20344f !important;
+  border-color: #69a6ff !important;
+}
+:root[data-chatplus-theme="dark"]
+  body.eos-scope
+  [data-testid="reaction-button"]:focus-visible {
+  outline: 2px solid #69a6ff;
+  outline-offset: 2px;
+}
 :root[data-chatplus-theme="dark"] ::-webkit-scrollbar {
   width: 10px;
   height: 10px;

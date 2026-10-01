@@ -6,6 +6,34 @@ import "../scripts/build-theme.mjs";
 const script = await readFile("src-tauri/theme-bootstrap.js", "utf8");
 const css = await readFile("src/theme/dark.css", "utf8");
 
+test("reaction surfaces cover idle, hover, selected and keyboard focus only in dark ChatPlus", () => {
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(
+    ([, selector]) => selector.includes('[data-testid="reaction-button"]'),
+  );
+  assert.equal(rules.length, 4);
+  for (const [, selector] of rules) {
+    assert.match(
+      selector,
+      /:root\[data-chatplus-theme="dark"\]\s+body\.eos-scope/,
+    );
+  }
+  assert.match(rules[0][2], /color: #edf1f7 !important/);
+  assert.ok(rules.some(([, selector]) => selector.includes(":hover")));
+  assert.ok(
+    rules.some(([, selector]) => selector.includes('[aria-pressed="true"]')),
+  );
+  assert.ok(
+    rules.some(
+      ([, selector, declarations]) =>
+        selector.includes(":focus-visible") &&
+        declarations.includes("outline:"),
+    ),
+  );
+  assert.ok(
+    rules.every(([, , declarations]) => !declarations.includes("fill:")),
+  );
+});
+
 test("form surface overrides stay inside dark EOS and scope native textarea fallback", () => {
   const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)];
   const formRules = rules.filter(([, selectors]) =>
