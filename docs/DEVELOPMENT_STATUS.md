@@ -1,4 +1,14 @@
-# Development validation — 2026-10-01
+# Development validation — 2026-10-04
+
+The current **0.5.0-beta.3** development follow-up implements notification/unread
+lifecycle corrections, guarded automatic updates, six-section settings,
+English/Polish/Spanish resources and a compact application footer. See the
+[implementation and validation report](MAINTAINER_FOLLOWUP.md) for current test
+results, commands, code changes and commits. The new
+[Windows acceptance matrix](WINDOWS_ACCEPTANCE.md#19-2026-10-04-lifecycle-settings-and-footer-acceptance)
+remains **PENDING**. No release, tag or version bump was performed.
+
+## Historical validation — 2026-10-01
 
 This report records the completed development pass at **9a123c2**, before the
 **0.5.0-beta.3** prerelease preparation. Its beta.2 versions and validation results

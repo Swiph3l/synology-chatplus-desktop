@@ -37,9 +37,12 @@ suppresses the WebView's duplicate display before submitting one native notifica
 Only notification permission requests for that origin can use the explicit saved
 preference. Camera and microphone permissions retain their normal behavior.
 
-The current policy suppresses incoming toasts while the main window is focused and
-briefly during navigation/startup. Minimized, hidden or unfocused windows may receive
-new events. Unread totals never generate toasts themselves. Background push while
+The current policy suppresses incoming toasts for the selected service while the
+main window is visible, focused and not minimized. Other services can notify while
+the main window is foreground; minimized, hidden or unfocused windows may receive
+new events. A trusted live browser notification is not dropped merely because it
+arrived shortly after navigation or startup. Unread totals never generate toasts
+themselves. Background push while
 the application is completely closed is not implemented. Unsupported runtimes do
 not gain a second native delivery path.
 
@@ -53,7 +56,10 @@ conversations. Other platforms currently have no native unread bridge.
 
 ChatPlus's flashing document title contains notification previews and resets on
 focus, so it is deliberately not an unread/read source. Focus alone never clears
-the desktop state, and observing existing indicators does not generate toasts.
+the desktop state. Empty indicators require trusted provider input and a current
+native foreground generation before they can acknowledge cached unread. New
+incoming messages invalidate earlier gestures. Missing UI and background marker
+removal retain unread, and observing existing indicators does not generate toasts.
 Real incoming-message/read transitions still require the end-to-end checks below.
 
 ## Safe end-to-end procedure
@@ -80,12 +86,15 @@ formatting, origin validation and notification policy.
 Only ChatPlus enables native unread/notification adapters. Events validate their
 own service's origin and current enabled/capability preferences. Previously activated
 inactive views can notify; never-activated views cannot. Toast clicks select the
-source service before restoring the window. Test toasts restore the active service.
+source service after restoring/showing/focusing the existing main window on its UI
+thread. Test toasts restore the active service. Activation itself never marks read.
 
-Duplicate fingerprints remain in memory for five seconds, independently of cooldown,
-and include service identity. Navigation pauses delivery without clearing fingerprints
-or unread. Identical legitimate content within that window can be suppressed; no
-guaranteed provider message ID is available.
+Duplicate event identities remain in memory independently of conversation cooldown
+and include service identity. Distinct messages with identical content are eligible
+for delivery. The configurable conversation cooldown remains intentional delivery
+policy; use No cooldown to check legitimate repeated messages. Navigation retains
+cached unread. Failed native submissions release their delivery reservations so a
+retry is possible.
 
 Title/tray/taskbar aggregate enabled services' cached boolean observations; rail dots
 are per service. Clearing one service cannot clear another. Removing, disabling or

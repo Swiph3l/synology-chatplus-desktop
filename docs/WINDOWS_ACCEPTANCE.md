@@ -349,3 +349,107 @@ service-rail captures from the final source need follow-up. No current screensho
 were fabricated or substituted for native evidence.
 
 **NOT READY FOR v0.5.0**.
+
+## 19. 2026-10-04 lifecycle, settings and footer acceptance
+
+This checklist applies to the current **0.5.0-beta.3 development source**. Earlier
+results above remain historical. All native rows in this section are **PENDING**;
+unit tests and browser fixtures do not establish native Windows acceptance.
+See [the implementation notes](MAINTAINER_FOLLOWUP.md).
+
+### Notifications and acknowledgement
+
+Use a dedicated private test conversation and a second authorized local test
+account. Do not put message contents, server URLs or credentials in evidence.
+Configure two supported ChatPlus service instances, activate both once, enable
+global and per-service notifications, and set cooldown to **No cooldown** for
+the duplicate-delivery cases. Start with no unread markers.
+
+1. Keep ChatPlus foreground on service A. Send a message to service B. Verify
+   only B gains an unread dot and one Windows notification appears.
+2. Select A, minimize ChatPlus, then send a message to A. Verify A's dot remains
+   after waiting and after switching to B; selection must not acknowledge it.
+   Verify a Windows notification appears while minimized.
+3. Minimize ChatPlus again, send to non-selected B, and verify B's dot remains
+   alongside A's unread; verify one Windows notification for B.
+4. Send several messages to A, including identical title/body content in quick
+   succession. Verify separate legitimate events are delivered once each at
+   cooldown zero and do not create a duplicate notification storm.
+5. Send to both services. Verify independent dots and aggregate title/tray/taskbar
+   unread. Read A using actual provider interaction; B must stay unread.
+6. Restore/focus ChatPlus and select an unread service without interacting with
+   its conversation. Verify unread persists. Then actually read/acknowledge the
+   conversation and verify its dot and aggregate state update.
+7. Click a notification from B with A selected. Repeat while ChatPlus is
+   foreground, background, minimized and hidden by **Close to tray**.
+8. Verify the existing main window is shown/unminimized/focused and B opens with
+   keyboard input working. Verify no extra process/window and no unread clear
+   caused solely by activation. Repeat after B is removed/disabled: it must not
+   be recreated.
+9. Repeat focused-conversation delivery, reload/reconnect, cooldown 30/60/90,
+   notification mute, sound off, each privacy mode, Windows permission denial
+   and Do Not Disturb. Focused active viewing should avoid redundant toasts;
+   background selection must not suppress them. Submission success alone does
+   not prove that Windows displayed a banner.
+
+Record Windows/WebView2 versions, app revision, preferences and observed
+transitions. Keep the reported login/profile-retention gates open until separate
+authenticated acceptance resolves them.
+
+### Updates
+
+Use controlled, correctly signed release fixtures; do not install unverified
+artifacts or publish a release merely to run this checklist.
+
+1. Enable automatic checking and relaunch. Verify the main UI becomes usable
+   before the asynchronous startup request finishes; confirm one startup check.
+2. Relaunch after a recent successful check. Verify a new startup check still
+   occurs. Disable automatic checking, relaunch and verify no scheduled request.
+3. While a check is pending, request a manual check. Verify there is only one
+   request and the Updates section shows its state. Use instrumented/fake-clock
+   scheduler tests for the six-hour boundary; do not wait six hours in unit tests.
+4. On Stable, expose a newer beta/RC and verify it is excluded. Expose a newer
+   stable version and verify it is accepted.
+5. On Pre-release, verify beta.3 → beta.4, beta.4 → 0.5.0 and 0.5.0 → 0.5.1
+   ordering. Change channel during a pending request/download; verify an old
+   result cannot overwrite the new channel or become installable.
+6. Choose **Check for Updates** manually and verify progress, installed version,
+   result and release notes in the Updates section.
+7. Disconnect networking or return a temporary endpoint error. Verify startup
+   stays responsive, no repeated/intrusive dialog opens, an appropriate status
+   appears and a later retry succeeds.
+8. Test no-update: show **Up to date** in Updates/footer with no automatic popup.
+9. Test update-available: show a non-blocking footer indication; opening Updates
+   does not start download/installation automatically.
+10. Test download/cancel, bad signature rejection and confirmed install/restart
+    with a controlled signed build. Cancel confirmation and verify no install;
+    accept it and verify the expected newer running version after restart.
+
+### Settings, localization and footer
+
+Repeat at **1366×768** and **1920×1080**, then at the native **900×600 minimum**.
+Also repeat with actual Windows monitor scaling **100%, 125%, 150%**; browser
+emulation does not establish native child-WebView geometry or DPI acceptance.
+
+1. Open every Settings section. Verify navigation and Save/Close stay visible,
+   only the panel scrolls, and there is no clipping or horizontal page overflow.
+2. Use Tab/Shift+Tab, arrow keys, Home/End and activation keys through section
+   navigation and enabled actions. Verify visible focus and predictable order.
+3. Edit General/Notifications/Updates/Services, change sections and save. Reopen
+   and restart to verify persistence. Confirm/cancel service removal and verify
+   unrelated drafts survive without being silently saved.
+4. Select **English**, **Polski**, **Español** in turn. Verify settings, service
+   management, dialogs/errors, update states, About, footer, native menus and
+   tray are translated. The embedded providers, changelog source text and legal
+   license text retain their own language.
+5. Verify the footer is consistently 30 logical pixels high below service content
+   and remains visible when resizing/switching services. Long status text must
+   truncate without moving version/actions. Verify enabled hover/focus states.
+6. Verify Console and Donate are muted, disabled and expose **Coming soon**
+   tooltips; keyboard navigation skips them. Verify Report issue opens the
+   existing GitHub Issues page and About opens the About Settings section.
+7. Simulate checking/current/available/offline/notification-error states. Verify
+   compact localized status and enabled update-status navigation where applicable.
+8. Open Changelog offline: recent versions/categories remain available and safe
+   text rendering cannot execute embedded markup. Verify About's independent
+   community and Synology non-affiliation/trademark notices and local license.
