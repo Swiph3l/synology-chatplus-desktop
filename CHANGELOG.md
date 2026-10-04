@@ -2,6 +2,49 @@
 
 All notable changes will be documented here. Versions follow Semantic Versioning.
 
+## 0.5.0-beta.4
+
+### Fixed
+
+- Retain each service's cached unread through minimize/background, selection and
+  logically focused WebView transitions. Read acknowledgement now requires native
+  foreground visibility, actual conversation input and current provider read proof.
+- Require matching provider conversation evidence before native toast suppression;
+  selected services and unknown/failed renderer queries permit conservative delivery.
+- Separate native arrivals from visibility/read generations, exclude pending
+  arrivals from early acknowledgements and require fresh, exact event-view proof
+  before reading a native arrival. Content mutations cannot acknowledge it.
+- Keep native notification completion on the owning WebView apartment; callback,
+  timeout and synchronous failure cannot complete/deliver the same event twice.
+  Preview/tag/deferral failures retain trusted arrivals using safe fallbacks.
+- Preserve saved per-service mute preferences when enabling provider support or
+  changing provider. Distinct legitimate browser events retain separate identities
+  even with identical notification contents.
+
+### Changed
+
+- Add independent unread/native notification support for Synology Chat and Discord
+  alongside Synology ChatPlus, without injecting ChatPlus styling into either.
+- Audit provider-specific boolean unread evidence: ChatPlus tab indicators,
+  Synology Chat ordinary-unread versus mention badges, and Discord guild/DM
+  navigation. Partial, virtualized and mention-only zero surfaces remain unknown.
+- Project native foreground into Discord's public focus API and Synology Chat's
+  public visibility API to prevent minimized WebViews acting as visible readers.
+- Add provider, content/arrival race, mute and native delivery regressions. Preserve
+  the existing restore-before-origin-service toast activation path and updater.
+
+This candidate's implementation and automated checks do not establish live
+Windows acceptance. All three providers' notifications, minimized active
+conversation behavior, unread persistence, native toasts and toast activation
+remain **PENDING**, as does native Settings/footer visual inspection. Conservative
+unknown read evidence can retain unread. Synology native-arrival unread can remain
+after reading until restart reobserves provider state because no exact notification
+tag mapping is audited. Incomplete Discord navigation can also retain the dot.
+Automatic read-clear parity is not claimed.
+See [the beta.4 report](docs/BETA4_RELIABILITY.md) and
+[Windows acceptance matrix](docs/WINDOWS_ACCEPTANCE.md#20-2026-10-04-beta4-provider-reliability-acceptance).
+No release tag or publication is implied.
+
 ## 0.5.0-beta.3
 
 Changes since 0.5.0-beta.2:
