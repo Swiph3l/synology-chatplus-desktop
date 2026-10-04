@@ -1,9 +1,10 @@
 # Windows acceptance — 2026-10-01 follow-up
 
-This report preserves observations and development validation from before the
-**0.5.0-beta.3** prerelease preparation. Beta.2 references identify those earlier
-builds; the current target is [v0.5.0-beta.3](WINDOWS_BETA.md). Preparing that
-prerelease does not complete any outstanding native acceptance gate below.
+This report preserves observations and development validation through the
+**0.5.0-beta.3** prerelease preparation. Beta.2/beta.3 references identify those
+earlier builds. The current target is [v0.5.0-beta.4](WINDOWS_BETA.md), with its
+explicit pending provider matrix in [section 20](#20-2026-10-04-beta4-provider-reliability-acceptance).
+Preparing this candidate does not complete any outstanding native acceptance gate.
 
 Recommendation: **NOT READY FOR RC AUDIT**.
 
@@ -453,3 +454,89 @@ emulation does not establish native child-WebView geometry or DPI acceptance.
 8. Open Changelog offline: recent versions/categories remain available and safe
    text rendering cannot execute embedded markup. Verify About's independent
    community and Synology non-affiliation/trademark notices and local license.
+
+## 20. 2026-10-04 beta.4 provider reliability acceptance
+
+This is the current **0.5.0-beta.4 candidate** checklist. The user requested
+completion of implementation, automated regressions and a locally launchable
+development build, with real Windows acceptance left for their manual testing.
+No authenticated provider session or working native automation session was
+available in this pass. Earlier observations apply only to their recorded builds.
+
+| Provider          | Foreground | Background | Minimized | Unread persists | Toast   | Toast click |
+| ----------------- | ---------- | ---------- | --------- | --------------- | ------- | ----------- |
+| Synology ChatPlus | PENDING    | PENDING    | PENDING   | PENDING         | PENDING | PENDING     |
+| Synology Chat     | PENDING    | PENDING    | PENDING   | PENDING         | PENDING | PENDING     |
+| Discord           | PENDING    | PENDING    | PENDING   | PENDING         | PENDING | PENDING     |
+
+Automated DOM, native state and notification-policy tests **do not** establish
+Windows banner delivery, genuine provider read transitions or toast activation.
+Record application revision, Windows/WebView2 version and provider/server version
+alongside results. Keep credentials, message contents and private URLs out of Git.
+
+**Known candidate read-clear limitation:** Synology notification tags have no
+audited exact mapping, so native-arrival unread can remain after genuine reading
+until restart reobserves provider state. Incomplete/selected/muted/private/request
+Discord navigation can similarly keep the dot. Record these outcomes explicitly;
+automatic read-clear parity and stable release readiness are not claimed.
+
+### Controlled provider matrix
+
+Use dedicated test accounts and conversations. Activate each service once to
+create its WebView. Explicitly enable global and per-service desktop notifications
+and the provider's own browser notification preference/permission. Previously
+saved per-service mute preferences remain unchanged. Select **No cooldown** when
+testing duplicate and consecutive messages. Check Windows notifications and Do
+Not Disturb separately; successful submission does not prove a visible banner.
+
+Repeat every step for **each of the three providers**:
+
+1. Foreground, selected: test a message in the actually viewed conversation and
+   in a different conversation. Selection alone must not suppress the latter.
+   A matching visibly read Discord message can suppress a redundant toast;
+   Synology's unverified conversation tags use conservative delivery.
+2. Foreground, different service selected: expect an unread dot on the originating
+   service and one native toast, subject to saved preferences.
+3. Background, selected and non-selected: expect the same unread/toast behavior.
+4. Minimized, selected: leave the active conversation open, send a new message,
+   and wait through provider marker removal/focus changes. Verify the unread dot
+   persists and a native Windows toast is delivered even if the WebView remains
+   logically focused. Repeat with a different service selected.
+5. Restore/select without reading: verify unread persists. Interact with the actual
+   latest conversation, then verify a genuine empty provider state clears it.
+   Test historical scroll position, conversation/header/sidebar clicks, reload,
+   reconnect, missing/virtualized sidebar and conversation replacement.
+6. Make two different providers unread simultaneously. Read one; verify the
+   other's dot and aggregate title/tray/taskbar state remain unread. Repeat with
+   two separate instances of the same provider.
+7. Mute one service and send to it and an unmuted service. The muted service may
+   remain unread but must not toast; the other must retain its saved behavior.
+8. Send distinct consecutive messages and identical-content messages with
+   cooldown zero. Verify each real browser event is delivered once; repeated DOM
+   mutations and duplicate native callbacks must not replay it.
+9. Click the originating service's toast while another service is selected.
+   Repeat foreground, background, minimized and close-to-tray. Verify the existing
+   main window is shown, unminimized and focused **before** selecting the origin;
+   verify keyboard input works and no second process/window appears. Activation
+   itself must not acknowledge unread. Removed/disabled services must not return.
+10. Repeat privacy modes, sound disabled, permission denial, provider-side mute,
+    network reconnect and Windows Do Not Disturb. Test Discord DM-only/no-guild
+    and virtualized guild layouts explicitly: unknown aggregate state currently
+    retains cached unread rather than manufacturing a global zero.
+
+### Local development build and Settings inspection
+
+See [BETA4_RELIABILITY.md](BETA4_RELIABILITY.md) for the build path, exact commands
+and automated results. Close other ChatPlus instances before launching the
+candidate so single-instance activation cannot reopen an older build. The build
+uses existing application profiles; no profile copying or migration is required.
+
+Visually inspect all six Settings sections and the persistent 30-pixel footer at
+1366×768, then 1920×1080 and native 100%/125%/150% scaling. Check EN/PL/ES,
+keyboard navigation, Save/Close, notifications for all three target providers,
+muted Console/Donate with Coming soon tooltips, Report issue and About. These
+native visual checks are **PENDING**; prior browser fixture results are historical.
+
+The updater implementation is unchanged in beta.4. Existing signed updater,
+installed profile/login-retention and stable-release acceptance gates remain open.
+No tag, publication, installer release or stable release is implied by this build.

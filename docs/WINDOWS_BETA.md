@@ -1,12 +1,14 @@
 # Windows public beta preparation
 
-The 2026-10-01 prerelease preparation targets **0.5.0-beta.3**. Preparation does not
-push, tag or publish a release. Before a future RC, complete the [multi-service acceptance
-checks](DEVELOPMENT_STATUS.md), profile migration checks and actual-build screenshot
-capture. Pre-release accepts newer stable releases as well as beta/RC builds;
+The 2026-10-04 reliability candidate targets **0.5.0-beta.4**. Preparation does not
+push, tag or publish a release. Complete the [three-provider Windows acceptance
+matrix](WINDOWS_ACCEPTANCE.md#20-2026-10-04-beta4-provider-reliability-acceptance),
+profile migration checks and actual-build screenshot capture before release.
+See [the candidate report and local build](BETA4_RELIABILITY.md).
+Pre-release accepts newer stable releases as well as beta/RC builds;
 the saved channel is never changed automatically.
 
-Target: `v0.5.0-beta.3`, Windows x64 NSIS. Public Beta is the intended release
+Target: `v0.5.0-beta.4`, Windows x64 NSIS. Public Beta is the intended release
 status, not a claim that this working tree has been published. Linux and macOS are
 **Experimental**, are excluded from this release and do not block its Windows gate.
 ChatPlus Desktop is unofficial, independent from Synology Inc., and GPL-3.0-only.
@@ -44,8 +46,8 @@ Secrets. The release preflight rejects a disabled updater, missing/malformed pub
 key or missing private key. Never use fixture keys for production. Confirm that
 the public key matches the signing key by the signed download test below.
 
-Automatic checks remain opt-in, after ten seconds with a configured server, at most
-once per six hours. Select **Pre-release** in Settings; the default channel remains
+Automatic checks remain opt-in: each launch checks asynchronously after ten seconds,
+then approximately every six hours while enabled. Select **Pre-release** in Settings; the default channel remains
 Stable. Manual checking is available in Settings/menu. No preference defaults or
 branding are changed by this release preparation.
 
@@ -58,7 +60,7 @@ branding are changed by this release preparation.
 3. Review Dependabot/security findings. An agent's inability to read Security API
    is not itself a release blocker. Windows dependency policy applies; Linux-only
    issues and lack of Authenticode are not Windows beta blockers.
-4. After explicit release approval, create and push `v0.5.0-beta.3` yourself.
+4. After explicit release approval, create and push `v0.5.0-beta.4` yourself.
    Version validation must match package.json, package-lock.json root entries,
    Cargo.toml, Cargo.lock and tauri.conf.json exactly.
 5. The tag workflow requires the matching main checks, signs and builds Windows,
@@ -76,9 +78,9 @@ id-token write and attestations write for the draft job.
 The NSIS EXE is also the Tauri v2 Windows updater payload; no second updater archive
 is required. The collector gives it a deterministic distribution name:
 
-- `windows-x86_64--ChatPlus-Desktop_0.5.0-beta.3_x64.exe` (standalone application)
-- `windows-x86_64--ChatPlus-Desktop_0.5.0-beta.3_x64-setup.exe`
-- `windows-x86_64--ChatPlus-Desktop_0.5.0-beta.3_x64-setup.exe.sig`
+- `windows-x86_64--ChatPlus-Desktop_0.5.0-beta.4_x64.exe` (standalone application)
+- `windows-x86_64--ChatPlus-Desktop_0.5.0-beta.4_x64-setup.exe`
+- `windows-x86_64--ChatPlus-Desktop_0.5.0-beta.4_x64-setup.exe.sig`
 - `windows-x86_64--target.json`
 - `windows-x86_64--npm.cdx.json`
 - `windows-x86_64--rust.cdx.json`
@@ -93,9 +95,9 @@ the installer hash. SHA256SUMS is generated after signing/collection from actual
 final file bytes, including the EXE, sidecar, manifests and SBOMs.
 
 ```powershell
-Get-FileHash -Algorithm SHA256 -LiteralPath '.\windows-x86_64--ChatPlus-Desktop_0.5.0-beta.3_x64-setup.exe'
-Get-AuthenticodeSignature -LiteralPath '.\windows-x86_64--ChatPlus-Desktop_0.5.0-beta.3_x64-setup.exe'
-gh attestation verify '.\windows-x86_64--ChatPlus-Desktop_0.5.0-beta.3_x64-setup.exe' -R Swiph3l/synology-chatplus-desktop
+Get-FileHash -Algorithm SHA256 -LiteralPath '.\windows-x86_64--ChatPlus-Desktop_0.5.0-beta.4_x64-setup.exe'
+Get-AuthenticodeSignature -LiteralPath '.\windows-x86_64--ChatPlus-Desktop_0.5.0-beta.4_x64-setup.exe'
+gh attestation verify '.\windows-x86_64--ChatPlus-Desktop_0.5.0-beta.4_x64-setup.exe' -R Swiph3l/synology-chatplus-desktop
 ```
 
 Compare the EXE hash to its own SHA256SUMS entry. Inspect extracted NSIS contents,
@@ -123,12 +125,12 @@ Use a clean VM and a controlled private server; never publish credentials or cap
 
 Camera, microphone and Synology Meet remain unconfirmed until runtime validated.
 
-## Signed beta.2 to beta.3 acceptance
+## Signed beta.3 to beta.4 acceptance
 
-Repeat the signed upgrade sequence below from a production-key beta.2 installation
-to beta.3, using the same signing key and `0.5.0-beta.3` in the manifest and assets.
+Repeat the signed upgrade sequence below from a production-key beta.3 installation
+to beta.4, using the same signing key and `0.5.0-beta.4` in the manifest and assets.
 Verify the installed version, settings migration, retained login and isolated
-service profiles. Stable must not discover beta.3; Pre-release must discover it
+service profiles. Stable must not discover beta.4; Pre-release must discover it
 when eligible and must also accept newer stable versions. Record actual results;
 automated validation does not establish installed upgrade or native acceptance.
 

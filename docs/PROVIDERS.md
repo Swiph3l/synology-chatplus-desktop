@@ -41,10 +41,57 @@ it retains the stored profile and does not save unrelated form edits.
 
 The external rail's context menu reuses the desktop's native Tauri menu system.
 It offers Open, local Rename/Service settings, and confirmed Remove service.
-ChatPlus additionally offers per-service desktop notification mute/unmute and its
-existing notification settings control. These are desktop preferences, not provider
+ChatPlus, Synology Chat and Discord additionally offer per-service desktop notification
+mute/unmute and the notification settings control. These are desktop preferences, not provider
 server administration. Mark-read, provider-side mute, members/invitations and leaving
-a remote server have no API here and are omitted. Embedded provider UI is untouched.
+a remote server have no API here and are omitted. Provider administration and
+provider-side notification preferences remain in the embedded application.
+
+## Unread and notification capabilities
+
+| Provider          | Unread adapter | Native browser-notification bridge | ChatPlus theme injection |
+| ----------------- | -------------- | ---------------------------------- | ------------------------ |
+| Synology ChatPlus | Enabled        | Enabled                            | Enabled                  |
+| Synology Chat     | Enabled        | Enabled                            | Disabled                 |
+| Discord           | Enabled        | Enabled                            | Disabled                 |
+| Slack             | Disabled       | Disabled                           | Disabled                 |
+| Mattermost        | Disabled       | Disabled                           | Disabled                 |
+
+Enabled capabilities describe implemented Windows integration, not completed live
+acceptance. Each service still needs its own saved notification preference and the
+global Desktop notifications preference enabled. Earlier saved `notifications: false`
+values are preserved; enabling a newly supported capability does not silently unmute
+existing configurations. Provider-side settings and Windows permission/policy still
+control whether a browser notification is emitted and displayed.
+
+Adapters publish boolean unread with unavailable counts. Provider mention badges,
+duplicate Starred/Favorites rows, collapsed groups and virtualized lists cannot be
+summed into a trustworthy total. Missing or ambiguous provider UI is unknown and
+retains the service's cache. Selecting/showing/focusing a service does not acknowledge
+read. Empty provider evidence must coincide with trusted interaction in its actual
+conversation, at latest, and the current native foreground generation. New arrivals
+revoke earlier gestures. Reading one service cannot clear another service's state.
+An arrival also records the current conversation-content context. An empty pane
+cannot acknowledge an unverified incoming native event, even after a native view
+query completes. Only exact originating-message view proof can release that native
+read barrier; unrelated content mutations, pane replacement and route changes are
+insufficient. ChatPlus and Synology Chat lack audited tag mapping, so their cached
+native-arrival unread can remain after reading until restart reobserves provider
+state. This candidate read-clear limitation is explicit; live acceptance is pending.
+Each trusted gesture recomputes exact proofs rather than reusing an earlier query or
+rejected gesture. Native foreground/generation validation confirms only the proven
+subset before the renderer retires its tags. Individual event reads can progress
+while another event remains unread or the provider aggregate is unknown. A proof-only
+packet from an unknown aggregate cannot change the provider unread boolean; full
+clearing still requires known provider zero, no unproven observed native arrivals
+and an unsaturated retained history.
+
+Native foreground requires a visible, non-minimized main window that is actually
+active, plus the selected service. This alone is insufficient to suppress a browser
+notification: the adapter must also identify the originating conversation/message
+as currently viewed at latest. Unknown identity, unavailable DOM and failed queries
+permit notification delivery. Toast activation restores the existing host before
+selecting the source service; it does not guess provider conversation routes.
 
 ## ChatPlus
 
@@ -55,8 +102,16 @@ branding asset remains separate.
 **Primary / Supported** provider and the default for migrated single-server settings.
 HTTP(S) URLs reject credentials, queries and fragments.
 Navigation/popups require the exact configured origin; external HTTP(S) links can
-use the default browser. Theme/unread scripts are injected only for ChatPlus.
-Sidebar markers produce boolean state without message/title scraping or private APIs.
+use the default browser. ChatPlus alone receives the project-authored theme.
+Its separate unread adapter observes tab indicators from existing authenticated-layout evidence
+(`sidebar-tab-item-*` / `tab-item-indicator`). A real visible conversation scroller
+at bottom and trusted interaction provide read evidence; a selected tab or flashing
+document title does not. Sidebar markers produce boolean state without message/title
+scraping or private APIs. The audited notification event has no reliable conversation
+tag mapping, so ChatPlus conservatively delivers actual incoming browser notifications
+even when the selected service is foreground.
+The current private ChatPlus web bundle has not been independently audited; live
+marker, upstream focus/read and notification behavior remain manual acceptance gates.
 
 ## Synology Chat
 
@@ -66,10 +121,35 @@ bundled locally as `public/providers/synology-chat.png`.
 Distinct experimental provider with an isolated profile. Synology documents a
 [browser client](https://www.synology.com/en-us/dsm/feature/chat) and a
 [matching desktop interface](https://kb.synology.com/en-global/DSM/help/ChatClient/chatclient?version=6).
-A WebView foundation is feasible by inference from those documents, not a live NAS
-test. Its exact-origin navigation does not reuse ChatPlus DOM or theme selectors.
-Unread and native notifications are disabled pending independent adapter validation.
-Login, uploads, calls and external SSO are untested.
+A dedicated adapter uses Synology Chat's independently audited server templates,
+including channel-list highlights and group unread badges; it does not reuse
+ChatPlus selectors or styling. Starred duplicates channel rows and channel badges
+can count mentions, so the adapter publishes a boolean rather than a total.
+Read evidence checks the actual `#channels/<id>` conversation, its visible message
+pane and transformed FleXcroll content end/newest-message control. Partial or
+unrecognized aggregate UI remains unknown.
+
+The source audit inspected the official
+[Chat 2.2.0-1432 server package](https://global.synologydownload.com/download/Package/spk/Chat/2.2.0-1432/Chat-x86_64-2.2.0-1432.spk),
+SHA-256 `72d406e88f09875c0fdf006d5828fb34f0101445eacff68e1fbd33155cb6f19e`.
+Its public ActiveDetector reads `document.hidden` and visibility changes to activate
+the client/server session. LastViewAtUpdater uses that active state when marking a
+bottom-positioned current conversation read. The dedicated adapter projects native
+foreground into public `document.hidden`/`visibilityState` and emits visibility changes
+when effective visibility changes, preventing a logically visible background WebView
+from enabling upstream read activity. It does not access private provider state.
+
+The compiled server's active-session-to-notification creation decision remains
+unverified, so this source-backed read workaround establishes no native or live toast
+success. Newer Chat 2.4.7/ChatPlus 1.0 packages could not be inspected as ordinary
+archives; current server markup and behavior remain manual acceptance gates. No
+vendor package or source bundle is redistributed.
+
+Unread and the native browser-notification bridge are enabled. The audited browser
+notifications have no reliable conversation tag; generic titles/sender names cannot
+justify foreground suppression. Provider notification preferences remain authoritative.
+Authenticated message/read, toast and click acceptance, login, uploads, calls and
+external SSO remain pending controlled Windows testing.
 
 ## Slack
 
@@ -102,8 +182,65 @@ require live validation. Authentication is manual; no credentials, tokens, CAPTC
 bypasses or Discord private APIs are used. The bundled provider symbol comes from
 the [official brand assets](https://discord.com/branding) and retains their terms.
 
-Unread, native notifications and ChatPlus theme injection are disabled. There is
-no Discord DOM adapter. Tests cover strict origins, provider registration, two
+Unread and native notifications are enabled through a dedicated Discord adapter;
+ChatPlus theme injection remains disabled. The adapter observes Discord's own
+guild/folder/Favorites and unread-DM navigation, using scoped semantic markers and
+complete aggregate metadata. Home badges also include Nitro offers/activity and
+are excluded. Guild hover/selection shares the unread pill appearance, so the pill
+alone cannot establish unread or zero. Audited guild accessibility labels can be
+compared with their actual `data-dnd-name` without assuming an English UI; media
+status badges retain unknown when the label is ambiguous.
+
+Complete guild groups and expanded-folder children must expose consistent set-size
+and position metadata before asserting global zero. The ordinary private sidebar
+must also be visible and expose complete row metadata, without selected/hovered/muted
+DM rows or a message-request/spam row. The unread-DM group and private-row pills are
+mention-based: ordinary muted DM unread can be absent from both. Ordinary private
+rows also exclude requests/spam. An empty DM aggregate while viewing another guild
+therefore cannot clear cached unread. Current public sidebar special rows can omit
+position metadata; these layouts remain unknown rather than filling those gaps.
+Selected/hovered collapsed folders, ambiguous media labels and accounts without any
+guild aggregate metadata also remain unknown. Such states can retain a cached dot
+after reading until stronger provider evidence is available. Mention numbers overlap aggregate markers,
+so counts remain unavailable. Document titles are not a read/unread source.
+
+Discord's public browser blur handler only reports unfocused if `document.hasFocus()`
+is false; its focus handler always reports focused. A WebView can remain logically
+focused while the Windows host is minimized. The adapter therefore floors the public
+`document.hasFocus()` result by native foreground state and dispatches public window
+blur/focus only on actual host transitions. Misleading background focus is intercepted;
+generation-only updates do not repeatedly refocus Discord or trigger read acknowledgements.
+No private store/webpack API is called. Provider-side disabled notifications, DND and
+mute remain in force; the desktop does not synthesize toasts from unread DOM.
+
+Discord notification tags are message snowflakes. Suppression requires that exact
+message row in the actual route's visible latest viewport, with no history/error bar;
+a channel ID, similar title or offscreen row is insufficient. Conversation content
+context uses the newest actual rendered message identity independently of bottom
+scroll position; inserting older virtualized rows does not invent incoming content.
+Trusted conversation
+scroll/editor interaction can provide read context; header/sidebar activation cannot.
+Retained background event tags can be retried during a later trusted conversation
+interaction. Each individual proof must still match its actual visible latest message
+row and receive native confirmation. A positive or unknown provider aggregate can
+permit this partial progress while preserving its unread boolean; unmatched events
+and unknown aggregate state still prevent a global clear. The desktop cannot infer
+a read from an unrelated content change.
+
+The audit used Discord's publicly served production assets:
+
+| Source                                                                        | Audited behavior                                                                                                                                                                                                                                                           | SHA-256                                                            |
+| ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| [web.24a0dd4254453b09.js](https://discord.com/assets/web.24a0dd4254453b09.js) | Modules 346142/350723/531685 public focus state; 592329 browser notification eligibility/tag; 112943 guild navigation; 131677/573163 mention-only DM aggregate; 593065 private-list row metadata; 715069 muted/selected DM rendering; 645959/309199 request/spam exclusion | `d141f126a87e0e4c49898f95c71b467641fe7e26022da5abcec663c104f3afcb` |
+| [739c29133b0fdbcc.js](https://discord.com/assets/739c29133b0fdbcc.js)         | `chat-messages-<channel>-<message>` identity, rendered message scroller, two-pixel bottom tolerance and `hasMoreAfter` history distinction                                                                                                                                 | `e44441443c591cc4cb98e001c9f542c1e4ce27490e30b24b72999eea349c22cc` |
+
+These public implementation details can change. Structural mismatches remain unknown;
+authenticated Windows behavior still needs manual acceptance. Discord's
+[notification controls](https://discord.com/blog/how-to-manage-your-discord-desktop-notifications)
+explain provider-side server/channel mute, desktop preferences and DND behavior.
+
+Tests cover dedicated adapter evidence/unknown states, focus projection, latest-view
+and message matching, strict origins, provider registration, two
 Discord configurations, stable separate profile paths, rename/restart/removal,
 name-only configuration and distinct rail activation/tooltips. A native development
 instance reached Discord's login prompt using its separate profile; that observation

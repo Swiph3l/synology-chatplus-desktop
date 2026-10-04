@@ -1,12 +1,17 @@
 # Development validation — 2026-10-04
 
-The current **0.5.0-beta.3** development follow-up implements notification/unread
-lifecycle corrections, guarded automatic updates, six-section settings,
-English/Polish/Spanish resources and a compact application footer. See the
-[implementation and validation report](MAINTAINER_FOLLOWUP.md) for current test
-results, commands, code changes and commits. The new
-[Windows acceptance matrix](WINDOWS_ACCEPTANCE.md#19-2026-10-04-lifecycle-settings-and-footer-acceptance)
-remains **PENDING**. No release, tag or version bump was performed.
+The current **0.5.0-beta.4** candidate focuses on provider-specific notification
+and unread reliability for Synology ChatPlus, Synology Chat and Discord. See
+[BETA4_RELIABILITY.md](BETA4_RELIABILITY.md) for the implementation, source audit,
+automated validation, review and local development build. The explicit
+[three-provider Windows matrix](WINDOWS_ACCEPTANCE.md#20-2026-10-04-beta4-provider-reliability-acceptance)
+remains **PENDING**, including real toast delivery, read persistence and activation.
+No release, tag or publication was performed.
+
+The preceding **0.5.0-beta.3** follow-up introduced guarded automatic updates,
+six-section settings, English/Polish/Spanish resources and the compact footer.
+Its [report](MAINTAINER_FOLLOWUP.md) and section 19 acceptance checklist remain
+historical evidence. The updater implementation is unchanged by beta.4.
 
 ## Historical validation — 2026-10-01
 

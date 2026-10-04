@@ -23,24 +23,26 @@ application bundles are redistributed.
 - A signature-verified updater with explicit installation/restart confirmation.
 - About and license windows; version and diagnostics derive from build metadata.
 
-The current prerelease target is **0.5.0-beta.3**. Windows x64 is the supported development target.
+The current prerelease target is **0.5.0-beta.4**, focused on unread and notification
+reliability. Windows x64 is the supported development target.
 Real-server and installed Windows validation remain release gates. Linux/macOS are
 experimental and have not been validated for the new child-WebView layout.
 
 ## Providers
 
-| Provider          | Status              | Desktop integration                                                                                                 |
-| ----------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Synology ChatPlus | Primary / Supported | Theme, sidebar unread and WebView2 notification adapters                                                            |
-| Synology Chat     | Experimental        | Configuration, activation, persistent profile and exact-origin navigation; unread/native notifications disabled     |
-| Slack             | Experimental        | HTTPS Slack origins, web authentication, activation and persistent profile; unread/native notifications disabled    |
-| Discord           | Experimental        | Separate account profiles, fixed web-app entry and exact HTTPS Discord origin; unread/native notifications disabled |
-| Mattermost        | Experimental        | Custom HTTP(S) server, separate account profiles and exact configured origin; unread/native notifications disabled  |
+| Provider          | Status              | Desktop integration                                                                                                |
+| ----------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Synology ChatPlus | Primary / Supported | Theme, sidebar unread and WebView2 notification adapters                                                           |
+| Synology Chat     | Experimental        | Separate Synology Chat unread adapter, WebView2 notifications and persistent profile                               |
+| Slack             | Experimental        | HTTPS Slack origins, web authentication, activation and persistent profile; unread/native notifications disabled   |
+| Discord           | Experimental        | Dedicated Discord unread/focus adapter, WebView2 notifications and separate account profiles                       |
+| Mattermost        | Experimental        | Custom HTTP(S) server, separate account profiles and exact configured origin; unread/native notifications disabled |
 
-Synology Chat has a browser interface, making the shared WebView model feasible;
-its DOM is not assumed to match ChatPlus. Slack does not claim parity with Slack
-Desktop. Discord also has no desktop-client parity claim. Embedded authentication
-and cross-origin SSO remain unvalidated.
+ChatPlus, Synology Chat and Discord have independently implemented unread adapters;
+authenticated Windows notification/read acceptance remains pending for all three.
+Slack and Mattermost desktop unread/notifications remain disabled. Slack and Discord
+have no desktop-client parity claim. Embedded authentication and cross-origin SSO
+remain unvalidated.
 See [provider boundaries and limitations](docs/PROVIDERS.md).
 
 ## Setup and services
@@ -58,8 +60,8 @@ Settings > Services adds, renames, enables or removes configured services. Selec
 one from the narrow service rail; there are no browser tabs or address bar. Sessions
 are created on first activation, then remain in memory while another service is
 shown. Additional services use separate profile directories. The rail's context menu
-offers Open, Rename/Service settings and confirmed Remove service; ChatPlus also
-offers desktop notification controls. Removal is persisted immediately, closes the
+offers Open, Rename/Service settings and confirmed Remove service. ChatPlus, Synology
+Chat and Discord also offer desktop notification mute/unmute. Removal is persisted immediately, closes the
 view and retains its disk profile without saving unrelated Settings edits.
 
 Multiple instances of the same provider have separate stable service IDs and
@@ -80,20 +82,47 @@ installed upgrade still requires Windows verification.
 
 ## Notifications and unread
 
-Supported WebView2 runtimes intercept browser notifications, validate the configured
-origin and suppress duplicate browser display before native delivery. The active
-focused service is suppressed; other running services can notify while unfocused,
-minimized or hidden. Clicking a toast activates its source service. There is no
-background push after the application exits.
+Supported Windows WebView2 runtimes intercept browser notifications for ChatPlus,
+Synology Chat and Discord, validate the source origin and suppress duplicate browser
+display before native delivery. Enable global Desktop notifications and the desired
+service's Desktop notifications preference. Previously saved disabled service
+preferences stay disabled after upgrade; explicitly enable those services as needed.
+The provider's own notification settings and Windows permissions also apply.
+
+Selecting a service or logically focusing its WebView cannot suppress a toast or
+clear unread while ChatPlus is backgrounded/minimized. Suppression requires actual
+native foreground visibility plus reliable evidence that the originating conversation
+is being viewed at latest; unknown conversation identity permits delivery. Clicking
+a toast restores, unminimizes and focuses the existing main window before selecting
+the originating service. The host does not derive conversation navigation from an
+unverified notification tag or create another application process/window. There is
+no background push after the application exits.
 
 Preview modes are Full, Sender/chat and Generic. Save feedback never sends a Windows
 notification. **Send test notification** is separate. Windows permission and Do Not
 Disturb can suppress banners. Notification content and service URLs are not logged.
 
-ChatPlus sidebar markers publish boolean unread state. Missing sidebar UI and
-reconnects retain the last observation; focus alone cannot clear it. Flashing titles,
-message text and rendered rows are not unread sources. Exact message counts and
-totals across hidden/muted conversations are unavailable.
+Each supported provider owns independent boolean unread state. Dedicated adapters
+observe provider-specific sidebar/aggregate markers. Missing, incomplete or ambiguous
+UI retains the cached state; focus, service switching and notification activation
+alone cannot clear it. Clearing requires provider empty/read evidence and a real
+conversation interaction in the current native foreground generation. Flashing
+titles and message text are not unread sources; exact counts are unavailable.
+Native arrivals also revoke earlier gestures. An empty pane cannot acknowledge an
+unverified native arrival; exact originating-message view proof is required to
+release that read barrier. ChatPlus and Synology Chat lack audited event-tag mapping,
+so their native-arrival dot can remain after reading until restart reobserves provider
+state. This candidate limitation has not passed live read-clear acceptance.
+Exact individual reads can progress while the provider aggregate remains unread or
+unknown. Only native-confirmed proofs retire event tags; the service dot still needs
+known provider zero and no remaining unproven native arrival before clearing.
+Discord cannot assert global
+zero from an empty mention-only DM group: missing/incomplete private-sidebar metadata,
+muted/selected/hovered DMs and message-request/spam scope remain unknown. These
+limitations need controlled Windows acceptance; the desktop does not guess unread
+state through private provider APIs.
+Automated regressions cover these rules, while authenticated foreground, background,
+minimized, toast and toast-click checks remain pending Windows acceptance.
 See [notification testing](docs/NOTIFICATIONS.md).
 
 ## Updates
