@@ -53,6 +53,9 @@ body.services-page {
   margin: 0;
   max-width: none;
   height: 100dvh;
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) 30px;
 }
 .services-page main[aria-busy="true"] > p {
   display: none;
@@ -65,6 +68,9 @@ body.services-page {
   padding: 8px 7px;
   border-right: 1px solid var(--border);
   background: var(--surface);
+  grid-column: 1;
+  grid-row: 1;
+  min-height: 0;
 }
 .rail-brand {
   display: grid;
@@ -175,15 +181,86 @@ body.services-page {
   border: 2px solid var(--surface);
   border-radius: 50%;
 }
-.rail-status {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
+.app-footer {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  height: 30px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 0;
+  padding: 0 10px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 11px;
+}
+.footer-version {
+  flex-shrink: 0;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.footer-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.app-footer button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 24px;
+  height: 24px;
+  padding: 1px 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+}
+.app-footer button:hover:enabled {
+  filter: none;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+.app-footer button:disabled {
+  opacity: 0.4;
+  cursor: default;
+  filter: none;
+}
+.app-footer button:focus-visible {
+  outline-offset: -1px;
+}
+.footer-status-region {
+  flex: 1;
+  min-width: 0;
+}
+.app-footer .footer-status {
+  width: 100%;
+  justify-content: flex-start;
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+.app-footer .footer-status:disabled {
+  opacity: 1;
+}
+.footer-icon,
+.footer-icon svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+@media (max-width: 1000px) {
+  .app-footer {
+    gap: 8px;
+  }
+  .footer-actions {
+    gap: 2px;
+  }
 }
 
 .confirmation-dialog {

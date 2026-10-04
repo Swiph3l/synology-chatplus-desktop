@@ -6,6 +6,17 @@ use tauri_plugin_opener::OpenerExt;
 #[derive(Default)]
 pub struct Lifecycle(std::sync::Mutex<()>);
 
+const RAIL_WIDTH: f64 = 56.;
+// Swiph3l: Native provider WebViews cover the shell, so this must match the 30px CSS footer height.
+const FOOTER_HEIGHT: f64 = 30.;
+
+fn service_size(width: f64, height: f64) -> tauri::LogicalSize<f64> {
+    tauri::LogicalSize::new(
+        (width - RAIL_WIDTH).max(1.),
+        (height - FOOTER_HEIGHT).max(1.),
+    )
+}
+
 pub struct ServiceSession {
     pub config: ServiceConfig,
     pub webview_label: String,
@@ -52,12 +63,12 @@ pub fn layout(app: &AppHandle) {
     let width = size.width as f64 / scale;
     let height = size.height as f64 / scale;
     if let Some(rail) = app.get_webview("main") {
-        let _ = rail.set_size(tauri::LogicalSize::new(56., height));
+        let _ = rail.set_size(tauri::LogicalSize::new(width, height));
     }
     for service in state::current(app).services {
         if let Some(view) = app.get_webview(&label(&service.id)) {
-            let _ = view.set_position(tauri::LogicalPosition::new(56., 0.));
-            let _ = view.set_size(tauri::LogicalSize::new((width - 56.).max(1.), height));
+            let _ = view.set_position(tauri::LogicalPosition::new(RAIL_WIDTH, 0.));
+            let _ = view.set_size(service_size(width, height));
         }
     }
 }
@@ -172,6 +183,15 @@ mod removal_tests {
         };
         settings.migrate_services().unwrap();
         settings
+    }
+    #[test]
+    fn native_service_geometry_reserves_footer_and_stays_positive_at_any_scale() {
+        for scale in [1., 1.25, 1.5, 2.] {
+            let size = service_size(1366. / scale, 768. / scale);
+            assert_eq!(size.width, 1366. / scale - RAIL_WIDTH);
+            assert_eq!(size.height, 768. / scale - FOOTER_HEIGHT);
+        }
+        assert_eq!(service_size(10., 10.), tauri::LogicalSize::new(1., 1.));
     }
     #[test]
     fn removal_reselects_active_preserves_other_profile_and_survives_restart() {
@@ -327,11 +347,15 @@ fn create(app: &AppHandle, service: &ServiceConfig) -> Result<(), String> {
             include_str!("../theme-bootstrap.js")
         ));
     }
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let size = window
+        .inner_size()
+        .map_err(|_| "Could not measure desktop window.")?;
     let view = window
         .add_child(
             builder,
-            tauri::LogicalPosition::new(56., 0.),
-            tauri::LogicalSize::new(1224., 850.),
+            tauri::LogicalPosition::new(RAIL_WIDTH, 0.),
+            service_size(size.width as f64 / scale, size.height as f64 / scale),
         )
         .map_err(|_| "Could not create service WebView. Check WebView2 installation.")?;
     crate::platform::observe_connection(app, &view, &service.id)

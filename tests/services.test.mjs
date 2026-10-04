@@ -154,12 +154,13 @@ test("service rail filters disabled services, routes activation and keeps unread
   };
   let focused = null;
   Object.defineProperty(document, "activeElement", { get: () => focused });
+  document.hasFocus = () => true;
   window.HTMLElement.prototype.focus = function () {
     focused = this;
   };
   runInNewContext(result.outputFiles[0].text, context);
   await context.railUi.renderServices();
-  let buttons = [...document.querySelectorAll("button")];
+  let buttons = [...document.querySelectorAll(".service-rail button")];
   assert.equal(buttons.length, 4);
   assert.equal(buttons[0].getAttribute("aria-pressed"), "true");
   assert.match(buttons[1].title, /Experimental/);
@@ -189,7 +190,7 @@ test("service rail filters disabled services, routes activation and keeps unread
   events.get("services-changed")({
     payload: { ...settings, activeService: "b" },
   });
-  buttons = [...document.querySelectorAll("button")];
+  buttons = [...document.querySelectorAll(".service-rail button")];
   assert.ok(buttons[0].classList.contains("has-unread"));
   assert.match(buttons[0].getAttribute("aria-label"), /unread messages/);
   assert.equal(buttons[1].getAttribute("aria-pressed"), "true");
@@ -273,6 +274,9 @@ async function contextFixture() {
     moveFocusOutside: () => {
       railFocused = false;
       document.getElementById("outside").focus();
+    },
+    blurShell: () => {
+      railFocused = false;
     },
     fail: () => {
       fail = true;
@@ -376,6 +380,21 @@ test("right-click on another service supersedes context and stale completion can
   assert.equal(f.document.activeElement, f.button("second"));
   f.dismiss(1);
   await f.flush();
+});
+
+test("unread refresh never steals focus from a provider while the shell retains a stale activeElement", async () => {
+  const f = await contextFixture();
+  const oldButton = f.button("first");
+  oldButton.focus();
+  f.blurShell();
+  f.events.get("service-unread")({ payload: { first: { hasUnread: true } } });
+  assert.equal(
+    f.document.activeElement,
+    oldButton,
+    "no focus() call is made by the inactive shell",
+  );
+  assert.notEqual(f.button("first"), oldButton);
+  assert.ok(f.button("first").classList.contains("has-unread"));
 });
 
 test("a failed native popup reports an accessible error without changing active/unread state", async () => {
