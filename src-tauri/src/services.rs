@@ -81,9 +81,11 @@ pub fn show(app: &AppHandle) -> Result<(), String> {
         }
     }
     layout(app);
+    crate::unread::sync_presentation(app);
     let _ = app.emit_to("main", "services-changed", &settings);
     crate::unread::refresh(app);
     crate::connection::refresh(app);
+    // Swiph3l: Switching services preserves provider unread; focus alone is never a read acknowledgement.
     active(app)
         .ok_or("Service unavailable.")?
         .set_focus()
@@ -103,7 +105,7 @@ pub fn activate(app: &AppHandle, id: &str) -> Result<(), String> {
 pub fn save(app: &AppHandle, settings: state::Settings) -> Result<(), String> {
     let lifecycle = app.state::<Lifecycle>();
     let _transition = lifecycle.0.lock().unwrap_or_else(|e| e.into_inner());
-    // Persist and reconcile as one transition, including immediate removal and mute.
+    // Swiph3l: Persist and reconcile under one lock so removal cannot race service activation or mute.
     let old = state::current(app);
     state::persist(app, settings)?;
     reconcile_current(app, &old)
@@ -128,7 +130,7 @@ pub(crate) fn update_notification_config(
 pub fn set_notifications(app: &AppHandle, id: &str, enabled: bool) -> Result<(), String> {
     let lifecycle = app.state::<Lifecycle>();
     let _transition = lifecycle.0.lock().unwrap_or_else(|e| e.into_inner());
-    // Read under the transition lock so a stale menu cannot resurrect a removed service.
+    // Swiph3l: Read under the transition lock so a stale menu cannot resurrect a removed service.
     let mut settings = state::current(app);
     update_notification_config(&mut settings, id, enabled)?;
     state::persist(app, settings)
@@ -141,7 +143,7 @@ fn remove_configuration(settings: &mut state::Settings, id: &str) -> Result<(), 
         .position(|service| service.id == id)
         .ok_or("Service is no longer configured.")?;
     settings.services.remove(index);
-    // Do not recreate the legacy service when removing the last configuration.
+    // Swiph3l: Mark the schema migrated before removing the last service or legacy settings recreate it.
     settings.service_schema = 1;
     settings.migrate_services()?;
     Ok(())
@@ -302,7 +304,7 @@ fn create(app: &AppHandle, service: &ServiceConfig) -> Result<(), String> {
         })
         .on_page_load(move |_, payload| {
             if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
-                crate::desktop_notifications::pause_tracking_for(&load_app, &load_id);
+                crate::unread::invalidate_presentation(&load_app, &load_id);
                 crate::connection::set_for(
                     &load_app,
                     &load_id,
@@ -310,7 +312,7 @@ fn create(app: &AppHandle, service: &ServiceConfig) -> Result<(), String> {
                 );
             }
         });
-    // The migrated primary service retains Tauri's original default data directory.
+    // Swiph3l: The migrated primary service retains its original profile so existing logins survive migration.
     if let Some(profile) = service.profile_directory(
         &app.path()
             .app_local_data_dir()

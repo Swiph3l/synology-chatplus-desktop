@@ -6,15 +6,15 @@ use std::{
     sync::Mutex,
     time::{Duration, Instant},
 };
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
 #[derive(Default)]
 pub struct Service(pub Mutex<Tracking>);
 #[derive(Default)]
 pub struct Tracking {
     pub bridge_available: bool,
-    pub active_after: HashMap<String, Instant>,
     duplicates: HashMap<u64, Instant>,
+    retryable: HashMap<u64, Instant>,
     recent: HashMap<u64, Instant>,
     pub last_status: String,
 }
@@ -49,35 +49,35 @@ pub fn permission(app: &AppHandle) -> Permission {
         NativeState::Enabled => (
             "enabled",
             true,
-            "Windows notifications are available for ChatPlus Desktop.",
+            crate::i18n::t(app, "notification.permissionEnabled"),
         ),
         NativeState::NotRegistered => (
             "not-registered",
             false,
-            "ChatPlus Desktop is not yet registered as a Windows notification sender.",
+            crate::i18n::t(app, "notification.permissionNotRegistered"),
         ),
         NativeState::Blocked => (
             "blocked",
             false,
-            "Windows notifications are disabled for ChatPlus Desktop.",
+            crate::i18n::t(app, "notification.permissionBlocked"),
         ),
         NativeState::Unavailable => (
             "unavailable",
             true,
-            "Windows notification status is unavailable right now.",
+            crate::i18n::t(app, "notification.permissionUnavailable"),
         ),
     };
     let mut granted = native_granted;
     if matches!(plugin_state, Some(tauri::plugin::PermissionState::Denied)) {
         granted = false;
-        message = "Windows notifications are blocked by system policy for this app.";
+        message = crate::i18n::t(app, "notification.permissionPolicyBlocked");
     };
     Permission {
         webview_state: "unknown".into(),
         granted,
         state: state.into(),
         bridge_available: available,
-        message: message.into(),
+        message,
     }
 }
 pub fn request_permission(app: &AppHandle) -> Result<Permission, String> {
@@ -87,12 +87,12 @@ pub fn request_permission(app: &AppHandle) -> Result<Permission, String> {
     ) {
         app.notification()
             .request_permission()
-            .map_err(|_| "Could not request notification permission.")?;
+            .map_err(|_| crate::i18n::t(app, "notification.permissionRequestFailed"))?;
     }
     Ok(permission(app))
 }
 pub fn send_test(app: &AppHandle, sound: bool) -> Result<(), String> {
-    // Explicit local user action: independent of unread, focus and tracking state.
+    // Swiph3l: The user's explicit test must work independently of provider unread, focus suppression and cooldown.
     let mut permission = permission(app);
     if !permission.granted {
         permission = request_permission(app)?;
@@ -103,7 +103,7 @@ pub fn send_test(app: &AppHandle, sound: bool) -> Result<(), String> {
     show(
         app,
         "ChatPlus Desktop",
-        "Notifications are working.",
+        &crate::i18n::t(app, "notification.testBody"),
         sound,
         None,
     )
@@ -139,7 +139,12 @@ fn native_state(app: &AppHandle) -> NativeState {
         NativeState::Enabled
     }
 }
-pub fn preview(mode: &NotificationPreview, title: &str, body: &str) -> (String, String) {
+pub fn preview(
+    mode: &NotificationPreview,
+    title: &str,
+    body: &str,
+    language: &crate::state::Language,
+) -> (String, String) {
     let clean = |value: &str, limit| {
         value
             .chars()
@@ -149,31 +154,28 @@ pub fn preview(mode: &NotificationPreview, title: &str, body: &str) -> (String, 
     };
     match mode {
         NotificationPreview::Full => (clean(title, 160), clean(body, 500)),
-        NotificationPreview::Sender => (clean(title, 160), "New message".into()),
-        NotificationPreview::Generic => {
-            ("ChatPlus Desktop".into(), "You have a new message.".into())
-        }
+        NotificationPreview::Sender => (
+            clean(title, 160),
+            crate::i18n::text(language, "notification.newMessage"),
+        ),
+        NotificationPreview::Generic => (
+            "ChatPlus Desktop".into(),
+            crate::i18n::text(language, "notification.genericBody"),
+        ),
     }
 }
-pub fn should_notify(enabled: bool, granted: bool, focused: bool, active: bool) -> bool {
-    enabled && granted && !focused && active
+pub fn should_notify(enabled: bool, granted: bool, focused: bool) -> bool {
+    enabled && granted && !focused
 }
-pub fn begin_tracking_for(app: &AppHandle, id: &str) {
-    let service = app.state::<Service>();
-    let mut state = service.0.lock().unwrap_or_else(|e| e.into_inner());
-    state
-        .active_after
-        .insert(id.into(), Instant::now() + Duration::from_secs(2));
-}
-pub fn pause_tracking_for(app: &AppHandle, id: &str) {
-    app.state::<Service>()
-        .0
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .active_after
-        .remove(id);
-}
-pub fn deliver_for(app: &AppHandle, id: &str, title: &str, body: &str, tag: &str) -> bool {
+pub fn deliver_for(
+    app: &AppHandle,
+    id: &str,
+    title: &str,
+    body: &str,
+    tag: &str,
+    identity: &str,
+    first_observation: bool,
+) -> bool {
     let settings = crate::state::current(app);
     let Some(config) = settings.services.iter().find(|s| s.id == id && s.enabled) else {
         return false;
@@ -181,48 +183,41 @@ pub fn deliver_for(app: &AppHandle, id: &str, title: &str, body: &str, tag: &str
     if !config.notifications || !config.provider.definition().notifications {
         return false;
     }
-    let focused = settings.active_service.as_deref() == Some(id)
-        && app.get_window("main").is_some_and(|w| {
-            w.is_focused().unwrap_or(false)
-                && w.is_visible().unwrap_or(false)
-                && !w.is_minimized().unwrap_or(true)
-        });
-    let active = app
-        .state::<Service>()
-        .0
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .active_after
-        .get(id)
-        .is_some_and(|at| Instant::now() >= *at);
+    let focused =
+        settings.active_service.as_deref() == Some(id) && crate::window::is_foreground(app);
+    // Swiph3l: A trusted live browser notification is already an incoming event; a post-navigation delay silently drops real messages.
     if !should_notify(
         settings.desktop_notifications,
         permission(app).granted,
         focused,
-        active,
     ) {
         return false;
     }
     // Swiph3l: Cooldown suppresses repeated toasts only; unread state must always update.
     // Swiph3l: First toast is immediate, regardless of the selected cooldown.
     let key = conversation_key(&format!("{id}:{tag}"));
+    let duplicate = conversation_key(&format!("{id}:{identity}"));
+    let at = Instant::now();
     {
         let service = app.state::<Service>();
         let mut tracking = service.0.lock().unwrap_or_else(|e| e.into_inner());
-        let duplicate = conversation_key(&format!("{id}:{tag}:{title}:{body}"));
-        if duplicate_suppressed(&mut tracking, duplicate, Instant::now()) {
-            return false;
-        }
-        if cooldown_suppressed(
+        if !reserve_delivery(
             &mut tracking,
+            duplicate,
             key,
-            Instant::now(),
+            at,
             settings.notification_cooldown,
+            first_observation,
         ) {
             return false;
         }
     }
-    let (title, body) = preview(&settings.notification_preview, title, body);
+    let (title, body) = preview(
+        &settings.notification_preview,
+        title,
+        body,
+        &settings.language,
+    );
     let result = show(
         app,
         &title,
@@ -230,18 +225,57 @@ pub fn deliver_for(app: &AppHandle, id: &str, title: &str, body: &str, tag: &str
         settings.notification_sound,
         Some(id.to_string()),
     );
-    app.state::<Service>()
-        .0
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .last_status = if result.is_ok() {
-        "Notification submitted to the system."
-    } else {
-        "The system could not display the notification."
+    let service = app.state::<Service>();
+    let mut tracking = service.0.lock().unwrap_or_else(|e| e.into_inner());
+    if result.is_err() {
+        // Swiph3l: Failed native delivery must release only its own reservation so a retry is possible without undoing a newer event.
+        release_failed_delivery(&mut tracking, duplicate, key, at);
+        let _ = app.emit_to("main", "notification-issue", ());
     }
-    .into();
+    if result.is_ok() {
+        tracking.retryable.remove(&duplicate);
+    }
+    tracking.last_status = if result.is_ok() {
+        crate::i18n::t(app, "notification.submitSuccess")
+    } else {
+        crate::i18n::t(app, "notification.submitFailed")
+    };
 
     result.is_ok()
+}
+
+fn reserve_delivery(
+    tracking: &mut Tracking,
+    duplicate: u64,
+    conversation: u64,
+    at: Instant,
+    cooldown: u16,
+    first_observation: bool,
+) -> bool {
+    tracking
+        .retryable
+        .retain(|_, failed| at.duration_since(*failed) < Duration::from_secs(5));
+    // Swiph3l: Repeated callbacks are never new messages; only a previously failed native submission may retry delivery.
+    if !first_observation && !tracking.retryable.contains_key(&duplicate) {
+        return false;
+    }
+    !duplicate_suppressed(tracking, duplicate, at)
+        && !cooldown_suppressed(tracking, conversation, at, cooldown)
+}
+
+fn release_failed_delivery(
+    tracking: &mut Tracking,
+    duplicate: u64,
+    conversation: u64,
+    at: Instant,
+) {
+    if tracking.duplicates.get(&duplicate) == Some(&at) {
+        tracking.duplicates.remove(&duplicate);
+    }
+    if tracking.recent.get(&conversation) == Some(&at) {
+        tracking.recent.remove(&conversation);
+    }
+    tracking.retryable.insert(duplicate, at);
 }
 
 fn cooldown_suppressed(tracking: &mut Tracking, key: u64, now: Instant, cooldown: u16) -> bool {
@@ -283,9 +317,7 @@ fn show(
     sound: bool,
     service_id: Option<String>,
 ) -> Result<(), String> {
-    // The official plugin handles permission policy. Its current desktop API
-    // drops click handlers and errors, so Windows uses its Tauri WinRT backend
-    // directly for activation and explicit silence; no second toast is sent.
+    // Swiph3l: The desktop plugin drops activation callbacks/errors; use its WinRT backend once for routing and explicit silence.
     use tauri_winrt_notification::{Sound, Toast};
     let handle = app.clone();
     Toast::new(&app.config().identifier)
@@ -295,26 +327,31 @@ fn show(
         .on_activated(move |_| {
             let app = handle.clone();
             let id = service_id.clone();
-            std::thread::spawn(move || {
-                if let Some(id) = id {
-                    let _ = crate::services::activate(&app, &id);
-                }
-                let _ = crate::window::open(&app);
+            let dispatcher = app.clone();
+            let _ = dispatcher.run_on_main_thread(move || {
+                // Swiph3l: WinRT activation is off-thread; restore and WebView activation must run on the existing UI thread.
+                let _ = crate::window::activate_notification(&app, id.as_deref());
             });
             Ok(())
         })
         .show()
-        .map_err(|_| "Could not show Windows notification.".into())
+        .map_err(|_| crate::i18n::t(app, "notification.showWindowsFailed"))
 }
 #[cfg(not(windows))]
-fn show(app: &AppHandle, title: &str, body: &str, sound: bool) -> Result<(), String> {
+fn show(
+    app: &AppHandle,
+    title: &str,
+    body: &str,
+    sound: bool,
+    _service_id: Option<String>,
+) -> Result<(), String> {
     let mut builder = app.notification().builder().title(title).body(body);
     if sound {
         builder = builder.sound("message-new-instant");
     }
     builder
         .show()
-        .map_err(|_| "Could not show notification.".into())
+        .map_err(|_| crate::i18n::t(app, "notification.showFailed"))
 }
 pub struct Icons {
     pub normal: tauri::image::Image<'static>,
@@ -407,14 +444,20 @@ mod tests {
     #[test]
     fn privacy_modes_never_leak_body_when_hidden() {
         assert_eq!(
-            preview(&NotificationPreview::Full, "Sender - chat", "private text"),
+            preview(
+                &NotificationPreview::Full,
+                "Sender - chat",
+                "private text",
+                &crate::state::Language::En
+            ),
             ("Sender - chat".into(), "private text".into())
         );
         assert_eq!(
             preview(
                 &NotificationPreview::Sender,
                 "Sender - chat",
-                "private text"
+                "private text",
+                &crate::state::Language::En,
             ),
             ("Sender - chat".into(), "New message".into())
         );
@@ -422,22 +465,103 @@ mod tests {
             preview(
                 &NotificationPreview::Generic,
                 "Sender - chat",
-                "private text"
+                "private text",
+                &crate::state::Language::En,
             ),
             ("ChatPlus Desktop".into(), "You have a new message.".into())
         );
     }
     #[test]
-    fn permission_focus_and_startup_gate_notifications() {
-        assert!(should_notify(true, true, false, true));
-        assert!(!should_notify(true, true, true, true));
-        for values in [
-            (false, true, false, true),
-            (true, false, false, true),
-            (true, true, false, false),
-        ] {
-            assert!(!should_notify(values.0, values.1, values.2, values.3));
+    fn permission_and_real_foreground_gate_notifications_without_a_startup_delay() {
+        assert!(should_notify(true, true, false));
+        assert!(!should_notify(true, true, true));
+        for values in [(false, true, false), (true, false, false)] {
+            assert!(!should_notify(values.0, values.1, values.2));
         }
+    }
+
+    #[test]
+    fn distinct_message_events_with_identical_content_are_not_deduplicated() {
+        let mut tracking = Tracking::default();
+        let at = Instant::now();
+        let first = conversation_key("service:browser-event:timestamp-1");
+        let next = conversation_key("service:browser-event:timestamp-2");
+        assert!(!duplicate_suppressed(&mut tracking, first, at));
+        assert!(duplicate_suppressed(
+            &mut tracking,
+            first,
+            at + Duration::from_secs(1)
+        ));
+        assert!(!duplicate_suppressed(
+            &mut tracking,
+            next,
+            at + Duration::from_secs(1)
+        ));
+        assert!(
+            !duplicate_suppressed(&mut tracking, first, at + Duration::from_secs(5)),
+            "duplicate callbacks do not extend the history window"
+        );
+    }
+
+    #[test]
+    fn failed_delivery_can_retry_without_releasing_a_newer_conversation_reservation() {
+        let mut tracking = Tracking::default();
+        let at = Instant::now();
+        assert!(!duplicate_suppressed(&mut tracking, 1, at));
+        assert!(!cooldown_suppressed(&mut tracking, 2, at, 30));
+        release_failed_delivery(&mut tracking, 1, 2, at);
+        assert!(!duplicate_suppressed(&mut tracking, 1, at));
+        assert!(!cooldown_suppressed(&mut tracking, 2, at, 30));
+        let newer = at + Duration::from_secs(1);
+        tracking.recent.insert(2, newer);
+        release_failed_delivery(&mut tracking, 1, 2, at);
+        assert_eq!(tracking.recent.get(&2), Some(&newer));
+    }
+    #[test]
+    fn duplicate_event_delivery_requires_a_failed_reservation_even_after_delivery_history_expires()
+    {
+        let mut tracking = Tracking::default();
+        let at = Instant::now();
+        assert!(reserve_delivery(&mut tracking, 1, 2, at, 0, true));
+        assert!(!reserve_delivery(
+            &mut tracking,
+            1,
+            2,
+            at + Duration::from_secs(6),
+            0,
+            false
+        ));
+        assert!(
+            !reserve_delivery(&mut tracking, 3, 2, at + Duration::from_secs(6), 0, false),
+            "a muted or focus-suppressed original event cannot become a new notification later"
+        );
+        assert!(reserve_delivery(
+            &mut tracking,
+            3,
+            2,
+            at + Duration::from_secs(6),
+            0,
+            true
+        ));
+        let failed = at + Duration::from_secs(6);
+        release_failed_delivery(&mut tracking, 3, 2, failed);
+        assert!(reserve_delivery(
+            &mut tracking,
+            3,
+            2,
+            failed + Duration::from_secs(1),
+            0,
+            false
+        ));
+        tracking.retryable.remove(&3);
+        assert!(!reserve_delivery(
+            &mut tracking,
+            3,
+            2,
+            failed + Duration::from_secs(7),
+            0,
+            false
+        ));
     }
 
     #[test]
@@ -504,9 +628,13 @@ mod tests {
 }
 
 fn duplicate_suppressed(tracking: &mut Tracking, key: u64, at: Instant) -> bool {
-    // WebView may repeat an event even when conversation cooldown is disabled.
+    // Swiph3l: Keep a bounded event-identity history independent of user cooldown; duplicate callbacks do not extend their lifetime.
     tracking
         .duplicates
         .retain(|_, seen| at.duration_since(*seen) < Duration::from_secs(5));
-    tracking.duplicates.insert(key, at).is_some()
+    if tracking.duplicates.contains_key(&key) {
+        return true;
+    }
+    tracking.duplicates.insert(key, at);
+    false
 }

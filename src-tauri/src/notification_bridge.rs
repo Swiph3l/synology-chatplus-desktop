@@ -1,4 +1,36 @@
 //! Browser notification events through WebView2; no remote Tauri IPC capability.
+#[cfg(any(windows, test))]
+const EVENT_HISTORY_LIMIT: usize = 256;
+
+#[cfg(any(windows, test))]
+struct EventHistory<T> {
+    events: std::collections::VecDeque<(T, u64)>,
+    next: u64,
+}
+#[cfg(any(windows, test))]
+impl<T> Default for EventHistory<T> {
+    fn default() -> Self {
+        Self {
+            events: Default::default(),
+            next: 0,
+        }
+    }
+}
+#[cfg(any(windows, test))]
+impl<T: PartialEq> EventHistory<T> {
+    fn observe(&mut self, event: T) -> (u64, bool) {
+        if let Some((_, token)) = self.events.iter().find(|(seen, _)| *seen == event) {
+            return (*token, false);
+        }
+        self.next += 1;
+        self.events.push_back((event, self.next));
+        if self.events.len() > EVENT_HISTORY_LIMIT {
+            self.events.pop_front();
+        }
+        (self.next, true)
+    }
+}
+
 pub async fn permission_state(app: &tauri::AppHandle) -> String {
     #[cfg(windows)]
     {
@@ -136,6 +168,7 @@ pub fn attach(
                             unread.has_unread,
                             unread.source,
                             &unread.reason,
+                            unread.acknowledgement,
                         );
                     }
                 }
@@ -148,14 +181,17 @@ pub fn attach(
         };
         let notify_app = app.clone();
         let notify_service = service.clone();
+        static NEXT_BRIDGE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let bridge_id = NEXT_BRIDGE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        // Swiph3l: Keep bounded canonical COM references on their WebView apartment so recycled pointers cannot merge distinct message events.
+        let mut seen = EventHistory::<windows::core::IUnknown>::default();
         let registered = extended
             .add_NotificationReceived(
                 &NotificationReceivedEventHandler::create(Box::new(move |_, args| {
                     let Some(args) = args else {
                         return Ok(());
                     };
-                    // Own the event before any delivery attempt, including disabled/suppressed events.
-                    // WebView must not also display an unfiltered duplicate notification.
+                    // Swiph3l: Own even muted/suppressed events or WebView2 also displays an unfiltered duplicate toast.
                     args.SetHandled(true)?;
                     let mut sender = PWSTR::null();
                     args.SenderOrigin(&mut sender)?;
@@ -167,6 +203,17 @@ pub fn attach(
                         return Ok(());
                     }
                     let notification = args.Notification()?;
+                    let (token, first_observation) =
+                        seen.observe(notification.cast::<windows::core::IUnknown>()?);
+                    let identity = format!("{bridge_id}:{token}");
+                    // Swiph3l: Duplicate callbacks must not resurrect acknowledged unread; native retry reservations remain a separate lifecycle.
+                    if notify_service.provider.definition().unread {
+                        crate::unread::incoming_for(
+                            &notify_app,
+                            &notify_service.id,
+                            first_observation,
+                        );
+                    }
                     let mut value = PWSTR::null();
                     notification.Title(&mut value)?;
                     let title = CoTaskMemPWSTR::from(value).to_string();
@@ -182,6 +229,8 @@ pub fn attach(
                         &title,
                         &body,
                         &tag,
+                        &identity,
+                        first_observation,
                     ) {
                         let _ = notification.ReportShown();
                     }
@@ -223,8 +272,7 @@ pub fn attach(
                     && permission_service.provider.definition().notifications
                     && trusted_origin(&permission_service.url, &uri)
                     && notifications::permission(&permission_app).granted;
-                // The explicit saved desktop-notification preference authorizes this origin only.
-                // Camera/microphone and other requests retain the normal WebView behavior.
+                // Swiph3l: The saved notification preference authorizes only this configured origin; other permission kinds retain WebView policy.
                 args.SetState(if allow {
                     COREWEBVIEW2_PERMISSION_STATE_ALLOW
                 } else {
@@ -242,6 +290,7 @@ struct UnreadObservation {
     count: Option<u32>,
     source: crate::unread::Source,
     reason: String,
+    acknowledgement: Option<u64>,
 }
 
 fn parse_unread(json: &str) -> Option<UnreadObservation> {
@@ -254,6 +303,7 @@ fn parse_unread(json: &str) -> Option<UnreadObservation> {
         has_unread: Option<bool>,
         source: Option<String>,
         reason: Option<String>,
+        acknowledgement: Option<u64>,
     }
 
     if json.len() > 512 {
@@ -278,6 +328,7 @@ fn parse_unread(json: &str) -> Option<UnreadObservation> {
         count: None,
         source,
         reason,
+        acknowledgement: value.acknowledgement,
     })
 }
 #[cfg(not(windows))]
@@ -292,6 +343,32 @@ pub fn attach(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn browser_event_identity_is_retained_and_history_is_bounded() {
+        #[derive(PartialEq)]
+        struct Identity(u64);
+        let mut history = EventHistory::default();
+        let first = std::rc::Rc::new(Identity(1));
+        let weak = std::rc::Rc::downgrade(&first);
+        assert_eq!(history.observe(first.clone()), (1, true));
+        assert_eq!(history.observe(first.clone()), (1, false));
+        drop(first);
+        assert!(
+            weak.upgrade().is_some(),
+            "retaining identity prevents allocator reuse while an event remains deduplicated"
+        );
+        for id in 2..=EVENT_HISTORY_LIMIT as u64 {
+            assert_eq!(history.observe(std::rc::Rc::new(Identity(id))), (id, true));
+        }
+        assert!(weak.upgrade().is_some());
+        let next = EVENT_HISTORY_LIMIT as u64 + 1;
+        assert_eq!(
+            history.observe(std::rc::Rc::new(Identity(next))),
+            (next, true)
+        );
+        assert!(weak.upgrade().is_none());
+        assert_eq!(history.events.len(), EVENT_HISTORY_LIMIT);
+    }
     #[test]
     fn unread_messages_are_boolean_only() {
         assert_eq!(
@@ -317,6 +394,23 @@ mod tests {
         ] {
             assert!(parse_unread(value).is_none());
         }
+    }
+    #[test]
+    fn provider_read_acknowledgements_require_a_numeric_presentation_generation() {
+        assert_eq!(
+            parse_unread(r#"{"chatplusUnread":1,"hasUnread":false,"acknowledgement":7}"#)
+                .map(|value| value.acknowledgement),
+            Some(Some(7))
+        );
+        assert_eq!(
+            parse_unread(r#"{"chatplusUnread":1,"hasUnread":false}"#)
+                .map(|value| value.acknowledgement),
+            Some(None)
+        );
+        assert!(
+            parse_unread(r#"{"chatplusUnread":1,"hasUnread":false,"acknowledgement":"7"}"#)
+                .is_none()
+        );
     }
     #[test]
     fn events_require_exact_configured_origin() {

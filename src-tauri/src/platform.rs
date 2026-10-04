@@ -29,10 +29,9 @@ pub fn observe_connection(
                     let mut success = Default::default();
                     args.IsSuccess(&mut success)?;
                     let state = if success.as_bool() {
-                        crate::desktop_notifications::begin_tracking_for(&handler_app, &handler_id);
+                        crate::unread::sync_presentation(&handler_app);
                         Connection::Connected
                     } else {
-                        crate::desktop_notifications::pause_tracking_for(&handler_app, &handler_id);
                         let mut status = Default::default();
                         args.WebErrorStatus(&mut status)?;
                         if status == COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED {

@@ -529,12 +529,19 @@ pub fn dispatch(app: &AppHandle, action: Action) -> Result<(), String> {
             )
             .map_err(|_| "Could not change fullscreen.".into())
         }
-        Action::Minimize => content(app)?
-            .minimize()
-            .map_err(|_| "Could not minimize ChatPlus.".into()),
-        Action::Hide => content(app)?
-            .hide()
-            .map_err(|_| "Could not hide ChatPlus.".into()),
+        Action::Minimize | Action::Hide => {
+            let window = content(app)?;
+            match action {
+                Action::Minimize => window
+                    .minimize()
+                    .map_err(|_| "Could not minimize ChatPlus."),
+                _ => window.hide().map_err(|_| "Could not hide ChatPlus."),
+            }?;
+            // Swiph3l: Native events can coalesce during a rapid hide/restore;
+            // revoke read gestures immediately rather than relying on a later focus event.
+            crate::unread::sync_presentation(app);
+            Ok(())
+        }
         Action::Github => project::open(app, Link::Github),
         Action::Issues => project::open(app, Link::Issues),
         Action::Star => project::open(app, Link::Star),

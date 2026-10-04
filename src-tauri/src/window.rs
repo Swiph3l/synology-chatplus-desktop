@@ -2,6 +2,21 @@ use crate::state::{self, Theme};
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 
+pub fn is_foreground(app: &AppHandle) -> bool {
+    app.get_window("main").is_some_and(|window| {
+        foreground_state(
+            window.is_focused().unwrap_or(false),
+            window.is_visible().unwrap_or(false),
+            window.is_minimized().unwrap_or(true),
+        )
+    })
+}
+
+fn foreground_state(focused: bool, visible: bool, minimized: bool) -> bool {
+    // Swiph3l: Native focus can remain reported during minimize/hide; suppression and read acknowledgement require all three facts.
+    focused && visible && !minimized
+}
+
 pub fn focus(window: &tauri::Window) -> tauri::Result<()> {
     window.unminimize()?;
     window.show()?;
@@ -10,8 +25,26 @@ pub fn focus(window: &tauri::Window) -> tauri::Result<()> {
         if let Some(view) = crate::services::active(window.app_handle()) {
             view.set_focus()?;
         }
+        crate::unread::sync_presentation(window.app_handle());
     }
     Ok(())
+}
+
+pub fn activate_notification(app: &AppHandle, service_id: Option<&str>) -> Result<(), String> {
+    // Swiph3l: Restore the native frame before focusing its provider; a toast click routes the existing instance and never marks it read.
+    open(app)?;
+    let settings = state::current(app);
+    if let Some(id) = notification_destination(&settings, service_id) {
+        crate::services::activate(app, id)?;
+    }
+    Ok(())
+}
+
+fn notification_destination<'a>(
+    settings: &state::Settings,
+    service_id: Option<&'a str>,
+) -> Option<&'a str> {
+    service_id.filter(|id| settings.services.iter().any(|s| s.id == *id && s.enabled))
 }
 
 pub fn restore_existing(app: &AppHandle) -> Result<bool, String> {
@@ -45,7 +78,8 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
     )
     .visible(false)
     .title("ChatPlus Desktop")
-    .inner_size(1280., 850.)
+    // Swiph3l: Leave room for the native title/menu frame on 1366x768 laptops; saved window geometry still restores normally.
+    .inner_size(1280., 680.)
     .min_inner_size(900., 600.)
     .theme(settings.theme.native())
     .on_navigation(crate::navigation::local_settings)
@@ -62,6 +96,7 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
             if state::current(&handle).close_to_tray {
                 if event_window.hide().is_ok() {
                     api.prevent_close();
+                    crate::unread::sync_presentation(&handle);
                 }
             } else {
                 handle.exit(0);
@@ -72,8 +107,13 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
                 && event_window.is_minimized().unwrap_or(false) =>
         {
             let _ = event_window.hide();
+            crate::unread::sync_presentation(&handle);
         }
-        WindowEvent::Resized(_) => crate::services::layout(&handle),
+        WindowEvent::Resized(_) => {
+            crate::services::layout(&handle);
+            crate::unread::sync_presentation(&handle);
+        }
+        WindowEvent::Focused(_) => crate::unread::sync_presentation(&handle),
         WindowEvent::ThemeChanged(theme)
             if matches!(state::current(&handle).theme, Theme::System) =>
         {
@@ -87,6 +127,44 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
         _ => {}
     });
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_visibility_distinguishes_foreground_from_minimized_hidden_and_background() {
+        assert!(foreground_state(true, true, false));
+        assert!(!foreground_state(true, true, true));
+        assert!(!foreground_state(true, false, false));
+        assert!(!foreground_state(false, true, false));
+    }
+
+    #[test]
+    fn notification_activation_targets_its_origin_and_ignores_removed_services() {
+        let mut settings = state::Settings::default();
+        settings.services = ["selected", "origin"]
+            .into_iter()
+            .map(|id| crate::providers::ServiceConfig {
+                id: id.into(),
+                provider: crate::providers::ProviderId::SynologyChatplus,
+                name: id.into(),
+                url: "https://example.com/chat/".into(),
+                enabled: true,
+                notifications: true,
+            })
+            .collect();
+        settings.active_service = Some("selected".into());
+        assert_eq!(
+            notification_destination(&settings, Some("origin")),
+            Some("origin")
+        );
+        assert_eq!(notification_destination(&settings, Some("missing")), None);
+        assert_eq!(notification_destination(&settings, None), None);
+        settings.services[1].enabled = false;
+        assert_eq!(notification_destination(&settings, Some("origin")), None);
+    }
 }
 pub fn apply_theme(app: &AppHandle) -> Result<(), String> {
     let settings = state::current(app);
