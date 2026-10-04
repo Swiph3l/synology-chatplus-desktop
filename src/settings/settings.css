@@ -1,0 +1,101 @@
+.settings-page:not(.setup-page) {
+  height: 100dvh;
+  overflow: hidden;
+  padding: 16px 20px 10px;
+}
+.settings-page:not(.setup-page) #app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-width: none;
+  min-height: 0;
+}
+.settings-page:not(.setup-page) .page-header {
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+.settings-page:not(.setup-page) #settings {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.settings-page:not(.setup-page) .settings-tabs {
+  display: flex;
+  gap: 3px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  margin: 0 0 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.settings-page:not(.setup-page) .settings-tabs button {
+  font-size: 12px;
+  padding: 4px 9px;
+  min-height: 30px;
+}
+.settings-page .settings-tabs button[aria-selected="true"] {
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+  border-color: var(--accent);
+}
+.settings-content {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+  padding-right: 6px;
+  flex: 1;
+}
+.settings-page:not(.setup-page) fieldset {
+  padding: 12px 14px;
+  margin: 0 0 12px;
+}
+.settings-page #status {
+  flex-shrink: 0;
+  max-height: 54px;
+  overflow-y: auto;
+  margin: 6px 0;
+}
+.settings-page #save-feedback {
+  margin: 4px 0 0;
+  flex-shrink: 0;
+}
+.settings-page .form-footer {
+  gap: 8px;
+  flex-shrink: 0;
+  padding-top: 10px;
+  margin-top: 8px;
+}
+.settings-page footer {
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+.changelog-release {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.changelog-release h2 {
+  font-size: 15px;
+  margin: 0 0 6px;
+}
+.changelog-release h3 {
+  font-size: 13px;
+  margin: 12px 0 6px;
+}
+.changelog-release ul {
+  margin: 0;
+  padding-left: 20px;
+}
+.changelog-release li {
+  margin-bottom: 6px;
+}
+.settings-page .about-details .actions {
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.settings-page .about-details .technical-details {
+  margin: 14px 0;
+}
+.setup-page .settings-content {
+  overflow: visible;
+}

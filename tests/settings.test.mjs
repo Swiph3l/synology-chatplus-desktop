@@ -10,6 +10,7 @@ const result = await build({
   write: false,
   format: "iife",
   globalName: "settingsUi",
+  loader: { ".md": "text" },
   plugins: [
     {
       name: "desktop-fixture",
@@ -74,6 +75,7 @@ async function fixture(options = {}) {
       },
     ],
     theme: "system",
+    language: "en",
     autostart: false,
     minimizeToTray: true,
     closeToTray: true,
@@ -211,6 +213,70 @@ async function fixture(options = {}) {
     },
   };
 }
+
+test("six Settings sections keep keyboard navigation and route requests outside the scrolling content", async () => {
+  const f = await fixture();
+  const tabs = [...f.document.querySelectorAll('[role="tab"]')];
+  assert.deepEqual(
+    tabs.map((tab) => tab.dataset.tab),
+    ["general", "notifications", "updates", "services", "changelog", "about"],
+  );
+  assert.ok(!f.document.querySelector(".settings-content").contains(tabs[0]));
+  const arrow = new f.window.Event("keydown", { cancelable: true });
+  arrow.key = "ArrowRight";
+  tabs[0].dispatchEvent(arrow);
+  assert.equal(tabs[1].getAttribute("aria-selected"), "true");
+  assert.equal(f.document.activeElement, tabs[1]);
+  assert.equal(f.document.getElementById("panel-general").hidden, true);
+  f.document.getElementById("theme").value = "dark";
+  f.listeners.get("settings-section-requested")({ payload: "about" });
+  assert.equal(
+    f.document.getElementById("tab-about").getAttribute("aria-selected"),
+    "true",
+  );
+  assert.equal(f.document.getElementById("theme").value, "dark");
+  assert.equal(f.document.querySelector(".server-section").hidden, true);
+});
+
+test("Spanish localizes Settings sections and service confirmations and persists language", async () => {
+  const f = await fixture({ settings: { language: "es" } });
+  assert.equal(f.document.querySelector("h1").textContent, "Configuración");
+  assert.equal(
+    f.document.getElementById("tab-notifications").textContent,
+    "Notificaciones",
+  );
+  assert.equal(
+    f.document.getElementById("tab-changelog").textContent,
+    "Historial de cambios",
+  );
+  assert.equal(f.document.getElementById("tab-about").textContent, "Acerca de");
+  assert.equal(f.document.getElementById("language").value, "es");
+  assert.equal(
+    f.document.getElementById("service-chatplus-remove").textContent,
+    "Eliminar servicio",
+  );
+  f.document.getElementById("service-chatplus-remove").click();
+  await f.flush();
+  assert.equal(
+    f.document.querySelector("dialog h2").textContent,
+    "¿Eliminar el servicio?",
+  );
+  f.document.querySelector("dialog .secondary:not(.danger)").click();
+  await f.flush();
+  f.document
+    .querySelector("form")
+    .dispatchEvent(new f.window.Event("submit", { cancelable: true }));
+  await f.flush();
+  assert.equal(
+    f.calls.find((call) => call.command === "save_settings").args.settings
+      .language,
+    "es",
+  );
+  assert.match(
+    f.document.getElementById("save-feedback").textContent,
+    /Configuración guardada/,
+  );
+});
 
 test("Save persists edited preferences, confirms inline, and Close is separate", async () => {
   const f = await fixture();
@@ -525,6 +591,40 @@ test("Save cannot overlap a confirmation or pending removal and later saves the 
   assert.equal(saved.services.length, 1);
   assert.equal(saved.services[0].id, "first");
   assert.equal(saved.services[0].name, "Unsaved name");
+});
+
+test("pending Save locks draft controls and restores previously disabled states before language reload", async () => {
+  const f = await fixture();
+  const finishSave = f.defer("save_settings");
+  f.document.getElementById("language").value = "es";
+  f.document.getElementById("unread-tray").disabled = true;
+  f.document
+    .querySelector("form")
+    .dispatchEvent(new f.window.Event("submit", { cancelable: true }));
+  await f.flush();
+  assert.equal(f.document.getElementById("language").disabled, true);
+  assert.equal(f.document.getElementById("theme").disabled, true);
+  assert.equal(
+    f.document.getElementById("service-chatplus-name").disabled,
+    true,
+  );
+  assert.equal(
+    f.document.getElementById("service-chatplus-url").disabled,
+    true,
+  );
+  finishSave();
+  await f.flush();
+  assert.equal(f.document.getElementById("language").disabled, false);
+  assert.equal(
+    f.document.getElementById("service-chatplus-name").disabled,
+    false,
+  );
+  assert.equal(f.document.getElementById("unread-tray").disabled, true);
+  assert.equal(
+    f.calls.find((call) => call.command === "save_settings").args.settings
+      .language,
+    "es",
+  );
 });
 
 test("pending Save blocks repeated submission and both form and menu removal", async () => {

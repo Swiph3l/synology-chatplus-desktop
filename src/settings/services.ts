@@ -3,6 +3,7 @@ import {
   type ProviderId,
   type ServiceConfig,
 } from "../app/providers";
+import { t } from "../i18n";
 
 export function serviceEditor(
   container: HTMLElement,
@@ -19,13 +20,13 @@ export function serviceEditor(
       row.tabIndex = -1;
       const legend = document.createElement("legend");
       const heading = document.createElement("span");
-      heading.textContent = service.name || "New service";
+      heading.textContent = service.name || t("services.new");
       legend.append(heading);
       const definition = providers[service.provider];
       if (definition.experimental) {
         const badge = document.createElement("span");
         badge.className = "experimental-badge";
-        badge.textContent = "Experimental";
+        badge.textContent = t("services.experimental");
         legend.append(badge);
       }
       row.append(legend);
@@ -60,15 +61,15 @@ export function serviceEditor(
         render();
         document.getElementById(`service-${service.id}-provider`)?.focus();
       });
-      field("provider", "Provider", provider);
+      field("provider", t("services.provider"), provider);
       const name = document.createElement("input");
       name.value = service.name;
       name.maxLength = 60;
       name.addEventListener("input", () => {
         service.name = name.value;
-        heading.textContent = name.value || "New service";
+        heading.textContent = name.value || t("services.new");
       });
-      field("name", "Display name", name);
+      field("name", t("services.name"), name);
       if (definition.urlMode !== "fixed") {
         const url = document.createElement("input");
         url.type = "url";
@@ -82,7 +83,15 @@ export function serviceEditor(
           service.url = url.value;
           onUrl(service);
         });
-        field("url", definition.urlLabel, url);
+        field(
+          "url",
+          t(
+            definition.urlMode === "workspace"
+              ? "settings.workspaceUrl"
+              : "settings.serverUrl",
+          ),
+          url,
+        );
       }
       const options = document.createElement("div");
       options.className = "service-options";
@@ -99,38 +108,41 @@ export function serviceEditor(
         label.append(checkbox, text);
         options.append(label);
       };
-      toggle("Enabled", "enabled");
+      toggle(t("services.enabled"), "enabled");
       if (service.provider === "synology-chatplus")
-        toggle("Allow desktop notifications for this service", "notifications");
+        toggle(t("services.allowNotifications"), "notifications");
       row.append(options);
       if (definition.experimental) {
         const info = document.createElement("div");
         info.className = "service-provider-info";
         const title = document.createElement("h3");
-        title.textContent = "Experimental provider";
+        title.textContent = t("services.experimentalProvider");
         const description = document.createElement("p");
-        description.textContent =
-          "Web session support is available. Desktop unread and notifications are not yet supported.";
+        description.textContent = t("services.experimentalHelp");
         const sso = document.createElement("p");
         sso.className = "service-secondary-help";
-        sso.textContent = "External SSO may open in your default browser.";
+        sso.textContent = t("services.ssoHelp");
         info.append(title, description, sso);
         row.append(info);
       }
       const removal = document.createElement("div");
       removal.className = "service-removal";
       const removalTitle = document.createElement("h3");
-      removalTitle.textContent = "Remove service";
+      removalTitle.textContent = t("services.remove");
       const removalHelp = document.createElement("small");
       removalHelp.id = `service-${service.id}-removal-help`;
-      removalHelp.textContent =
-        "Removes this service from the desktop configuration after confirmation. Its stored profile is retained.";
+      removalHelp.textContent = t("services.removalHelp");
       const remove = document.createElement("button");
       remove.type = "button";
       remove.id = `service-${service.id}-remove`;
       remove.className = "secondary danger";
-      remove.textContent = "Remove service";
-      remove.setAttribute("aria-label", `Remove ${service.name || "service"}`);
+      remove.textContent = t("services.remove");
+      remove.setAttribute(
+        "aria-label",
+        t("services.removeLabel", {
+          name: service.name || t("services.service"),
+        }),
+      );
       remove.setAttribute("aria-describedby", removalHelp.id);
       remove.addEventListener("click", async () => {
         if (remove.disabled) return;

@@ -57,6 +57,8 @@ fn main() {
         )
         .invoke_handler(tauri::generate_handler![
             commands::get_settings,
+            commands::get_connection_state,
+            commands::get_unread_state,
             commands::activate_service,
             commands::open_settings,
             commands::show_service_context_menu,

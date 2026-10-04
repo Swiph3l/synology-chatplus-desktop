@@ -8,6 +8,9 @@ pub fn broadcast_settings(app: &AppHandle) {
     let _ = app.emit_to("about", "theme-changed", &settings.theme);
     let _ = app.emit_to("license", "theme-changed", &settings.theme);
     let _ = app.emit_to("update", "theme-changed", &settings.theme);
+    for label in ["about", "license", "update"] {
+        let _ = app.emit_to(label, "settings-changed", &settings);
+    }
     #[cfg(debug_assertions)]
     let _ = app.emit_to("fixture", "theme-changed", &settings.theme);
 }
@@ -60,19 +63,33 @@ fn open(
     crate::window::focus(&window.as_ref().window())
 }
 pub fn settings(app: &AppHandle) -> tauri::Result<()> {
+    settings_section(app, "general")
+}
+pub fn settings_section(app: &AppHandle, section: &str) -> tauri::Result<()> {
+    let section = match section {
+        "notifications" | "updates" | "services" | "changelog" | "about" => section,
+        _ => "general",
+    };
     let first_run = state::current(app).services.is_empty();
+    let existing = app.get_webview_window("settings").is_some();
+    let path = format!("index.html?section={section}");
     open(
         app,
         "settings",
-        "index.html",
+        &path,
         "ChatPlus Desktop",
         if first_run {
             (460., 280.)
         } else {
-            (500., 620.)
+            (720., 600.)
         },
         true,
-    )
+    )?;
+    // Swiph3l: New windows read the route from their URL; existing windows receive it after restore without losing unsaved drafts.
+    if existing {
+        let _ = app.emit_to("settings", "settings-section-requested", section);
+    }
+    Ok(())
 }
 pub fn about(app: &AppHandle) -> tauri::Result<()> {
     open(
@@ -91,16 +108,6 @@ pub fn license(app: &AppHandle) -> tauri::Result<()> {
         "index.html?page=license",
         "ChatPlus Desktop - License",
         (720., 640.),
-        true,
-    )
-}
-pub fn update(app: &AppHandle) -> tauri::Result<()> {
-    open(
-        app,
-        "update",
-        "index.html?page=update",
-        "ChatPlus Desktop - Update",
-        (500., 480.),
         true,
     )
 }

@@ -53,6 +53,8 @@ pub fn set_for(app: &AppHandle, id: &str, value: Connection) {
 pub fn refresh(app: &AppHandle) {
     crate::tray::refresh(app);
     let _ = app.emit_to("about", "connection-changed", current(app));
+    let _ = app.emit_to("settings", "connection-changed", current(app));
+    let _ = app.emit_to("main", "connection-changed", current(app));
 }
 #[cfg(test)]
 mod tests {

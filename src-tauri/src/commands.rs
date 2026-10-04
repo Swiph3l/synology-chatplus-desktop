@@ -105,12 +105,12 @@ pub fn get_about_info(
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,
 ) -> Result<diagnostics::AboutInfo, String> {
-    local(&window, &["about"])?;
+    local(&window, &["about", "settings"])?;
     Ok(diagnostics::snapshot(&app))
 }
 #[tauri::command]
 pub fn copy_diagnostics(window: tauri::WebviewWindow, app: tauri::AppHandle) -> Result<(), String> {
-    local(&window, &["about"])?;
+    local(&window, &["about", "settings"])?;
     app.clipboard()
         .write_text(diagnostics::format(&diagnostics::snapshot(&app)))
         .map_err(|_| "Could not copy diagnostics to the clipboard.".into())
@@ -122,16 +122,16 @@ pub async fn show_about(window: tauri::WebviewWindow, app: tauri::AppHandle) -> 
 }
 #[tauri::command]
 pub fn show_license(window: tauri::WebviewWindow, app: tauri::AppHandle) -> Result<(), String> {
-    local(&window, &["about"])?;
+    local(&window, &["about", "settings"])?;
     shell::license(&app).map_err(|_| "Could not open the license.".into())
 }
 #[tauri::command]
 pub fn open_project_link(
-    window: tauri::WebviewWindow,
+    window: tauri::Webview,
     app: tauri::AppHandle,
     link: project::Link,
 ) -> Result<(), String> {
-    local(&window, &["settings", "about"])?;
+    local_view(&window, &["settings", "about", "main"])?;
     project::open(&app, link)
 }
 #[tauri::command]
@@ -140,12 +140,11 @@ pub async fn check_for_updates(
     app: tauri::AppHandle,
 ) -> Result<updates::Snapshot, String> {
     local(&window, &["settings", "about", "update"])?;
-    shell::update(&app).map_err(|_| "Could not open update status.")?;
     updates::check(&app, true).await
 }
 #[tauri::command]
-pub fn get_current_version(window: tauri::WebviewWindow) -> Result<String, String> {
-    local(&window, &["settings", "about"])?;
+pub fn get_current_version(window: tauri::Webview) -> Result<String, String> {
+    local_view(&window, &["settings", "about", "main", "update"])?;
     Ok(env!("CARGO_PKG_VERSION").into())
 }
 #[tauri::command]
@@ -166,10 +165,10 @@ pub fn open_release_page(
 }
 #[tauri::command]
 pub fn get_update_state(
-    window: tauri::WebviewWindow,
+    window: tauri::Webview,
     app: tauri::AppHandle,
 ) -> Result<updates::Snapshot, String> {
-    local(&window, &["settings", "about", "update"])?;
+    local_view(&window, &["settings", "about", "update", "main"])?;
     Ok(updates::snapshot(&app))
 }
 #[tauri::command]
@@ -177,12 +176,12 @@ pub async fn download_update(
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    local(&window, &["update"])?;
+    local(&window, &["update", "settings"])?;
     updates::download(&app).await
 }
 #[tauri::command]
 pub fn cancel_update(window: tauri::WebviewWindow, app: tauri::AppHandle) -> Result<(), String> {
-    local(&window, &["update"])?;
+    local(&window, &["update", "settings"])?;
     updates::cancel(&app);
     Ok(())
 }
@@ -192,7 +191,7 @@ pub fn install_update(
     app: tauri::AppHandle,
     confirmed: bool,
 ) -> Result<(), String> {
-    local(&window, &["update"])?;
+    local(&window, &["update", "settings"])?;
     updates::install(&app, confirmed)
 }
 #[tauri::command]
@@ -201,7 +200,7 @@ pub async fn download_and_install(
     app: tauri::AppHandle,
     confirmed: bool,
 ) -> Result<(), String> {
-    local(&window, &["update"])?;
+    local(&window, &["update", "settings"])?;
     if !confirmed {
         return Err("Confirm restart before installing.".into());
     }
@@ -249,9 +248,32 @@ pub async fn activate_service(
     crate::services::activate(&app, &id)
 }
 #[tauri::command]
-pub async fn open_settings(window: tauri::Webview, app: tauri::AppHandle) -> Result<(), String> {
+pub async fn open_settings(
+    window: tauri::Webview,
+    app: tauri::AppHandle,
+    section: Option<String>,
+) -> Result<(), String> {
     local_view(&window, &["main"])?;
-    shell::settings(&app).map_err(|_| "Could not open Settings.".into())
+    shell::settings_section(&app, section.as_deref().unwrap_or("general"))
+        .map_err(|_| "Could not open Settings.".into())
+}
+
+#[tauri::command]
+pub fn get_connection_state(
+    window: tauri::Webview,
+    app: tauri::AppHandle,
+) -> Result<crate::connection::Connection, String> {
+    local_view(&window, &["main", "settings", "about"])?;
+    Ok(crate::connection::current(&app))
+}
+
+#[tauri::command]
+pub fn get_unread_state(
+    window: tauri::Webview,
+    app: tauri::AppHandle,
+) -> Result<std::collections::HashMap<String, crate::unread::Unread>, String> {
+    local_view(&window, &["main"])?;
+    Ok(crate::unread::observations(&app))
 }
 
 #[tauri::command]

@@ -1,4 +1,5 @@
 import "./ui/shell.css";
+import "./settings/settings.css";
 const page = new URLSearchParams(location.search).get("page");
 if (page === "services") {
   const { renderServices } = await import("./ui/services");

@@ -106,6 +106,8 @@ impl Action {
 #[derive(Default)]
 pub struct MenuState {
     themes: Mutex<Vec<(Theme, CheckMenuItem<tauri::Wry>)>>,
+    labels: Mutex<Vec<(String, MenuItem<tauri::Wry>)>>,
+    submenus: Mutex<Vec<(String, Submenu<tauri::Wry>)>>,
     zoom: Mutex<f64>,
     service_menu: Mutex<Option<Menu<tauri::Wry>>>,
     settings_target: Mutex<Option<ServiceSettingsTarget>>,
@@ -315,8 +317,14 @@ pub fn service_popup(app: &AppHandle, id: &str, x: f64, y: f64) -> Result<(), St
             .map_err(|_| "Could not create service menu.")?;
         }
         menu.append(
-            &MenuItem::with_id(app, action.id(id), action.title(), true, None::<&str>)
-                .map_err(|_| "Could not create service menu item.")?,
+            &MenuItem::with_id(
+                app,
+                action.id(id),
+                crate::i18n::localize(&state::current(app).language, action.title()),
+                true,
+                None::<&str>,
+            )
+            .map_err(|_| "Could not create service menu item.")?,
         )
         .map_err(|_| "Could not create service menu.")?;
     }
@@ -334,10 +342,22 @@ pub fn item(
     title: &str,
     key: Option<&str>,
 ) -> tauri::Result<MenuItem<tauri::Wry>> {
-    MenuItem::with_id(app, action.id(), title, true, key)
+    let localized = crate::i18n::localize(&state::current(app).language, title);
+    let item = MenuItem::with_id(app, action.id(), localized, true, key)?;
+    app.state::<MenuState>()
+        .labels
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push((title.into(), item.clone()));
+    Ok(item)
 }
 pub fn themes(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
-    let menu = Submenu::new(app, "Theme", true)?;
+    let menu = Submenu::new(app, crate::i18n::t(app, "settings.theme"), true)?;
+    app.state::<MenuState>()
+        .submenus
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push(("Theme".into(), menu.clone()));
     let selected = state::current(app).theme;
     for (action, title, theme) in [
         (Action::System, "System", Theme::System),
@@ -347,7 +367,7 @@ pub fn themes(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
         let item = CheckMenuItem::with_id(
             app,
             action.id(),
-            title,
+            crate::i18n::localize(&state::current(app).language, title),
             true,
             selected == theme,
             None::<&str>,
@@ -363,9 +383,28 @@ pub fn themes(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
 }
 pub fn refresh(app: &AppHandle) {
     if let Some(menu) = app.try_state::<MenuState>() {
-        let selected = state::current(app).theme;
+        let settings = state::current(app);
+        let selected = settings.theme;
         for (theme, item) in menu.themes.lock().unwrap_or_else(|e| e.into_inner()).iter() {
             let _ = item.set_checked(*theme == selected);
+            let key = match theme {
+                Theme::System => "settings.system",
+                Theme::Light => "settings.light",
+                Theme::Dark => "settings.dark",
+            };
+            let _ = item.set_text(crate::i18n::text(&settings.language, key));
+        }
+        // Swiph3l: Keep native menu instances alive when language changes; rebuilding them can invalidate active Windows menus.
+        for (label, item) in menu.labels.lock().unwrap_or_else(|e| e.into_inner()).iter() {
+            let _ = item.set_text(crate::i18n::localize(&settings.language, label));
+        }
+        for (label, item) in menu
+            .submenus
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+        {
+            let _ = item.set_text(crate::i18n::localize(&settings.language, label));
         }
     }
 }
@@ -429,6 +468,18 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
     }
     help.append(&item(app, Action::Updates, "Check for Updates", None)?)?;
     let menu = Menu::with_items(app, &[&file, &view, &windows, &help])?;
+    for (label, submenu) in [
+        ("File", file),
+        ("View", view),
+        ("Window", windows),
+        ("Help", help),
+    ] {
+        app.state::<MenuState>()
+            .submenus
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push((label.into(), submenu));
+    }
     #[cfg(target_os = "macos")]
     menu.prepend(&Submenu::with_items(
         app,
@@ -443,17 +494,26 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         ],
     )?)?;
     #[cfg(debug_assertions)]
-    menu.append(&Submenu::with_items(
-        app,
-        "Developer",
-        true,
-        &[
-            &item(app, Action::Fixture, "Open Local Fixture", None)?,
-            &item(app, Action::DevReload, "Reload WebView", None)?,
-            &item(app, Action::DevTools, "Open DevTools", None)?,
-        ],
-    )?)?;
+    {
+        let developer = Submenu::with_items(
+            app,
+            "Developer",
+            true,
+            &[
+                &item(app, Action::Fixture, "Open Local Fixture", None)?,
+                &item(app, Action::DevReload, "Reload WebView", None)?,
+                &item(app, Action::DevTools, "Open DevTools", None)?,
+            ],
+        )?;
+        menu.append(&developer)?;
+        app.state::<MenuState>()
+            .submenus
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(("Developer".into(), developer));
+    }
     app.set_menu(menu)?;
+    refresh(app);
     app.on_menu_event(|app, event| {
         if let Some(action) = Action::parse(event.id().as_ref()) {
             enqueue(app, action);
@@ -485,7 +545,9 @@ pub fn dispatch(app: &AppHandle, action: Action) -> Result<(), String> {
     match action {
         Action::Open => window::open(app),
         Action::Settings => shell::settings(app).map_err(|_| "Could not open Settings.".into()),
-        Action::About => shell::about(app).map_err(|_| "Could not open About.".into()),
+        Action::About => {
+            shell::settings_section(app, "about").map_err(|_| "Could not open About.".into())
+        }
         Action::Reload => crate::services::active(app)
             .ok_or("Open a service first.")?
             .reload()
@@ -547,7 +609,7 @@ pub fn dispatch(app: &AppHandle, action: Action) -> Result<(), String> {
         Action::Star => project::open(app, Link::Star),
         Action::Support => project::open(app, Link::Support),
         Action::Updates => {
-            shell::update(app).map_err(|_| "Could not open update status.")?;
+            shell::settings_section(app, "updates").map_err(|_| "Could not open update status.")?;
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
                 let _ = updates::check(&app, true).await;
