@@ -25,6 +25,8 @@ function fixture(html, hash = "") {
     `<html><body>${html}</body></html>`,
   );
   let browserVisible = true;
+  let browserFocused = true;
+  document.hasFocus = () => browserFocused;
   Object.defineProperties(document, {
     hidden: { configurable: true, get: () => !browserVisible },
     visibilityState: {
@@ -51,6 +53,7 @@ function fixture(html, hash = "") {
     }
   }
   const listeners = new Map();
+  const windowEvents = document.createElement("window-event-target");
   const location = { href: `https://provider.example/${hash}`, hash };
   Object.defineProperty(document, "defaultView", {
     value: {
@@ -62,8 +65,15 @@ function fixture(html, hash = "") {
         visibility: element.style.visibility ?? "",
         overflowY: element.style.overflowY ?? "",
       }),
-      addEventListener: (type, callback) => listeners.set(type, callback),
-      removeEventListener: (type) => listeners.delete(type),
+      addEventListener(type, callback, options) {
+        listeners.set(type, callback);
+        windowEvents.addEventListener(type, callback, options);
+      },
+      removeEventListener(type, callback, options) {
+        listeners.delete(type);
+        windowEvents.removeEventListener(type, callback, options);
+      },
+      dispatchEvent: windowEvents.dispatchEvent.bind(windowEvents),
     },
   });
   for (const element of document.querySelectorAll("*")) {
@@ -81,6 +91,9 @@ function fixture(html, hash = "") {
     location,
     browserVisibility: (value) => {
       browserVisible = value;
+    },
+    browserFocus: (value) => {
+      browserFocused = value;
     },
     record(target, type = "childList", attributeName = null, nodes = {}) {
       for (const observer of observers)
@@ -115,7 +128,17 @@ function chatplusFixture() {
     scrollHeight: 600,
     scrollTop: 400,
   });
-  return { ...state, viewer, adapter: createChatplusAdapter(state.document) };
+  const originalHasFocus = state.document.hasFocus;
+  const originalDescriptors = ["hasFocus", "hidden", "visibilityState"].map(
+    (key) => Object.getOwnPropertyDescriptor(state.document, key),
+  );
+  return {
+    ...state,
+    viewer,
+    originalHasFocus,
+    originalDescriptors,
+    adapter: createChatplusAdapter(state.document),
+  };
 }
 
 const chatHtml = `<main class="syno-chat"><aside class="channel-list-main">
@@ -165,6 +188,129 @@ test("ChatPlus acknowledges only the actual visible latest viewer, not its heade
   viewer.style.display = "none";
   assert.equal(adapter.readContext(), null);
   assert.equal(adapter.interactionContext({ target: viewer }), null);
+});
+
+test("ChatPlus host presentation hides the previously active latest conversation despite raw WebView focus when minimized or another service is selected", () => {
+  for (const scenario of ["selected-minimized", "another-service-selected"]) {
+    const state = chatplusFixture();
+    const { adapter, document, originalHasFocus } = state;
+    const window = document.defaultView;
+    const stop = adapter.observe(() => {});
+    adapter.onHostForegroundChanged(false);
+    adapter.onHostForegroundChanged(true);
+    const conversation = adapter.readContext();
+    assert.equal(typeof conversation, "string");
+    const events = [];
+    let providerFocused = document.hasFocus();
+    for (const type of ["focus", "blur"])
+      window.addEventListener(type, () => {
+        providerFocused = document.hasFocus();
+        events.push(type);
+      });
+    document.addEventListener("visibilitychange", () => {
+      events.push(document.visibilityState);
+    });
+    adapter.onHostForegroundChanged(false);
+    assert.equal(originalHasFocus(), true, scenario);
+    assert.equal(document.hasFocus(), false, scenario);
+    assert.equal(document.hidden, true, scenario);
+    assert.equal(document.visibilityState, "hidden", scenario);
+    assert.equal(providerFocused, false, scenario);
+    assert.equal(
+      adapter.readContext(),
+      conversation,
+      "the old conversation remains selected and at latest",
+    );
+    assert.deepEqual(events, ["blur", "hidden"]);
+    adapter.onHostForegroundChanged(false);
+    window.dispatchEvent(new window.Event("focus"));
+    document.dispatchEvent(new window.Event("visibilitychange"));
+    assert.deepEqual(
+      events,
+      ["blur", "hidden"],
+      "logical native events cannot revive a background provider",
+    );
+    state.browserFocus(false);
+    adapter.onHostForegroundChanged(true);
+    assert.equal(document.hidden, false);
+    assert.equal(
+      document.hasFocus(),
+      false,
+      "restore cannot invent original browser focus",
+    );
+    assert.deepEqual(events, ["blur", "hidden", "visible"]);
+    window.dispatchEvent(new window.Event("focus"));
+    assert.equal(providerFocused, false);
+    state.browserFocus(true);
+    window.dispatchEvent(new window.Event("focus"));
+    assert.equal(providerFocused, true);
+    assert.equal(document.hasFocus(), true);
+    state.browserVisibility(false);
+    document.dispatchEvent(new window.Event("visibilitychange"));
+    assert.equal(
+      document.hidden,
+      true,
+      "native foreground cannot expose a browser-hidden document",
+    );
+    assert.equal(document.hasFocus(), false);
+    assert.equal(providerFocused, false);
+    state.browserVisibility(true);
+    document.dispatchEvent(new window.Event("visibilitychange"));
+    assert.equal(document.hasFocus(), true);
+    stop();
+    assert.equal(document.hasFocus, originalHasFocus);
+    assert.deepEqual(
+      ["hasFocus", "hidden", "visibilityState"].map((key) =>
+        Object.getOwnPropertyDescriptor(document, key),
+      ),
+      state.originalDescriptors,
+    );
+    adapter.onHostForegroundChanged(false);
+    window.dispatchEvent(new window.Event("focus"));
+    assert.equal(
+      providerFocused,
+      true,
+      "teardown releases native focus listeners",
+    );
+  }
+});
+
+test("ChatPlus host presentation preserves later provider overrides and rolls back nonconfigurable browser properties", () => {
+  const state = chatplusFixture();
+  const stop = state.adapter.observe(() => {});
+  const providerHasFocus = () => false;
+  Object.defineProperty(state.document, "hasFocus", {
+    configurable: true,
+    value: providerHasFocus,
+  });
+  stop();
+  assert.equal(state.document.hasFocus, providerHasFocus);
+  for (const key of ["hasFocus", "hidden", "visibilityState"]) {
+    const fallback = fixture("");
+    const originals = ["hasFocus", "hidden", "visibilityState"].map((name) =>
+      Object.getOwnPropertyDescriptor(fallback.document, name),
+    );
+    Object.defineProperty(fallback.document, key, {
+      ...Object.getOwnPropertyDescriptor(fallback.document, key),
+      configurable: false,
+    });
+    originals[
+      ["hasFocus", "hidden", "visibilityState"].indexOf(key)
+    ].configurable = false;
+    const adapter = createChatplusAdapter(fallback.document);
+    adapter.onHostForegroundChanged(false);
+    assert.equal(fallback.document.hasFocus(), true);
+    assert.equal(fallback.document.hidden, false);
+    assert.equal(fallback.document.visibilityState, "visible");
+    const stopFallback = adapter.observe(() => {});
+    stopFallback();
+    assert.deepEqual(
+      ["hasFocus", "hidden", "visibilityState"].map((name) =>
+        Object.getOwnPropertyDescriptor(fallback.document, name),
+      ),
+      originals,
+    );
+  }
 });
 
 test("ChatPlus rejects zero or invalid viewport metrics and ambiguous/thread panes", () => {

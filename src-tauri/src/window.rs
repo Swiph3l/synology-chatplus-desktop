@@ -12,8 +12,9 @@ pub fn is_foreground(app: &AppHandle) -> bool {
     })
 }
 
-fn foreground_state(focused: bool, visible: bool, minimized: bool) -> bool {
-    // Swiph3l: Native focus can remain reported during minimize/hide; suppression and read acknowledgement require all three facts.
+pub(crate) fn foreground_state(focused: bool, visible: bool, minimized: bool) -> bool {
+    // Swiph3l: WebView focus may survive while ChatPlus is minimized, so an active
+    // conversation cannot be treated as read without top-level window visibility.
     focused && visible && !minimized
 }
 
@@ -143,27 +144,40 @@ mod tests {
 
     #[test]
     fn notification_activation_targets_its_origin_and_ignores_removed_services() {
-        let mut settings = state::Settings::default();
-        settings.services = ["selected", "origin"]
-            .into_iter()
-            .map(|id| crate::providers::ServiceConfig {
-                id: id.into(),
-                provider: crate::providers::ProviderId::SynologyChatplus,
-                name: id.into(),
-                url: "https://example.com/chat/".into(),
-                enabled: true,
-                notifications: true,
-            })
-            .collect();
-        settings.active_service = Some("selected".into());
-        assert_eq!(
-            notification_destination(&settings, Some("origin")),
-            Some("origin")
-        );
-        assert_eq!(notification_destination(&settings, Some("missing")), None);
-        assert_eq!(notification_destination(&settings, None), None);
-        settings.services[1].enabled = false;
-        assert_eq!(notification_destination(&settings, Some("origin")), None);
+        for provider in [
+            crate::providers::ProviderId::SynologyChatplus,
+            crate::providers::ProviderId::SynologyChat,
+            crate::providers::ProviderId::Discord,
+        ] {
+            let mut settings = state::Settings::default();
+            settings.services = ["selected", "origin"]
+                .into_iter()
+                .map(|id| crate::providers::ServiceConfig {
+                    id: id.into(),
+                    provider,
+                    name: id.into(),
+                    url: "https://example.com/chat/".into(),
+                    enabled: true,
+                    notifications: true,
+                })
+                .collect();
+            for active in ["origin", "selected"] {
+                settings.active_service = Some(active.into());
+                assert_eq!(
+                    notification_destination(&settings, Some("origin")),
+                    Some("origin")
+                );
+                assert_eq!(
+                    settings.active_service.as_deref(),
+                    Some(active),
+                    "routing alone must not acknowledge or mutate selection"
+                );
+            }
+            assert_eq!(notification_destination(&settings, Some("missing")), None);
+            assert_eq!(notification_destination(&settings, None), None);
+            settings.services[1].enabled = false;
+            assert_eq!(notification_destination(&settings, Some("origin")), None);
+        }
     }
 }
 pub fn apply_theme(app: &AppHandle) -> Result<(), String> {

@@ -423,6 +423,30 @@ pub fn taskbar(window: &tauri::Window, unread: &crate::unread::Unread) {
 mod tests {
     use super::*;
     #[test]
+    fn selected_user_a_or_other_service_minimized_native_event_is_toast_eligible_for_all_three_providers(
+    ) {
+        for provider in [
+            crate::providers::ProviderId::SynologyChatplus,
+            crate::providers::ProviderId::SynologyChat,
+            crate::providers::ProviderId::Discord,
+        ] {
+            for selected in ["origin", "other"] {
+                let focused =
+                    selected == "origin" && crate::window::foreground_state(true, true, true);
+                assert!(provider.definition().notifications && should_notify(true, true, focused), "{provider:?}/{selected}: retained WebView focus cannot suppress a minimized notification");
+                for cooldown in [0, 30, 60, 90] {
+                    let mut tracking = Tracking::default();
+                    let at = Instant::now();
+                    assert!(
+                        reserve_delivery(&mut tracking, 1, 7, at, cooldown, true),
+                        "a first User A event must reach native submission policy"
+                    );
+                    assert!(!reserve_delivery(&mut tracking, 1, 7, at, cooldown, false));
+                }
+            }
+        }
+    }
+    #[test]
     fn duplicate_filter_is_independent_of_cooldown_and_scoped_to_service() {
         let mut tracking = Tracking::default();
         let at = Instant::now();

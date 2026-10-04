@@ -605,6 +605,94 @@ mod tests {
         assert!(!tracking.observations["selected"].has_unread);
     }
     #[test]
+    fn selected_user_a_or_other_service_minimized_latches_native_unread_for_all_three_providers() {
+        use crate::providers::ProviderId;
+        for (provider, source) in [
+            (ProviderId::SynologyChatplus, Source::ChatPlusDom),
+            (ProviderId::SynologyChat, Source::SynologyChatDom),
+            (ProviderId::Discord, Source::DiscordDom),
+        ] {
+            assert!(provider.definition().unread);
+            assert!(provider.definition().notifications);
+            assert!(source.accepts(provider));
+            for selected in ["origin", "other"] {
+                let mut tracking = Tracking {
+                    foreground_service: Some(selected.into()),
+                    presentation_generation: 4,
+                    visibility_generation: 2,
+                    ..Default::default()
+                };
+                // Swiph3l: Model the adverse minimize race: logical User A focus
+                // and projected foreground may still be true when the native event arrives.
+                let native_foreground = crate::window::foreground_state(true, true, true);
+                let foreground = selected == "origin" && native_foreground;
+                let viewed = viewing_evidence_current(&tracking, "origin", foreground, 2, true);
+                assert!(
+                    !viewed,
+                    "{provider:?}/{selected}: logical conversation focus cannot override minimize"
+                );
+                revoke_input(&mut tracking, "origin", true);
+                let arrival = begin_event(&mut tracking, "origin", true, None);
+                assert!(observe_browser_event(
+                    &mut tracking,
+                    "origin",
+                    viewed,
+                    1,
+                    true,
+                    arrival
+                ));
+                assert!(tracking.observed_unread_arrivals["origin"].contains(&arrival));
+                assert!(crate::desktop_notifications::should_notify(
+                    true, true, viewed
+                ));
+                let generation = tracking.presentation_generation;
+                for proofs in [vec![], vec![arrival]] {
+                    let empty = observe_provider(
+                        &mut tracking,
+                        "origin",
+                        false,
+                        foreground,
+                        Some(generation),
+                        &proofs,
+                        false,
+                        2,
+                    );
+                    assert!(!empty.changed);
+                    assert!(
+                        empty.accepted.is_empty(),
+                        "{provider:?}/{selected}: a minimized page cannot mint a read proof"
+                    );
+                }
+                assert!(tracking.observations["origin"].has_unread);
+                assert!(aggregate(tracking.observations.values()).has_unread);
+                tracking.foreground_service = Some("other".into());
+                tracking.presentation_generation += 1;
+                let generation = tracking.presentation_generation;
+                let wrong_service = observe_provider(
+                    &mut tracking,
+                    "origin",
+                    false,
+                    false,
+                    Some(generation),
+                    &[arrival],
+                    false,
+                    3,
+                );
+                assert!(!wrong_service.changed);
+                assert!(wrong_service.accepted.is_empty());
+                tracking.foreground_service = Some("origin".into());
+                tracking.presentation_generation += 1;
+                let restored =
+                    observe_provider(&mut tracking, "origin", false, true, None, &[], false, 4);
+                assert!(
+                    !restored.changed,
+                    "restoring/focusing origin is not a user conversation read"
+                );
+                assert!(tracking.observations["origin"].has_unread);
+            }
+        }
+    }
+    #[test]
     fn acknowledgement_cannot_clear_another_service_or_remove_its_aggregate_badge() {
         let mut tracking = Tracking {
             foreground_service: Some("first".into()),
