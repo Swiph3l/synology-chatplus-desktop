@@ -59,7 +59,7 @@ function snapshot(changes = {}) {
 
 function fixture(options = {}) {
   const { window, document } = parseHTML(
-    '<html><body><div id="panel"></div></body></html>',
+    '<html><body><main id="app"><div id="panel"></div></main></body></html>',
   );
   let focused = null;
   Object.defineProperty(document, "activeElement", { get: () => focused });
@@ -93,6 +93,8 @@ function fixture(options = {}) {
         const result = options.invoke(command, args, emit);
         if (result !== undefined) return result;
       }
+      if (command === "get_settings")
+        return { language: options.language || "en" };
       return structuredClone(state);
     },
     nativeListen: async (name, callback) => {
@@ -305,6 +307,59 @@ test("remote release notes are rendered as text and never interpreted as HTML", 
   unlisten();
   assert.equal(f.listeners.has("update-state"), false);
 });
+
+for (const standalone of [false, true]) {
+  test(`${standalone ? "standalone" : "embedded"} update notes keep keyboard order and actions outside the reading region through progress`, async () => {
+    const notesText = "A long release note.\n".repeat(80);
+    const f = fixture({
+      state: { phase: "available", latestVersion: "0.5.0", notes: notesText },
+    });
+    if (standalone) await f.ui.renderUpdate();
+    else await f.mount();
+    const notes = f.document.getElementById("notes");
+    const panel = notes.closest("#update-details, #panel");
+    const actions = panel.querySelector(".update-actions");
+    assert.equal(
+      notes.getAttribute("tabindex"),
+      "0",
+      "keyboard users can reach the reading region",
+    );
+    assert.ok(
+      f.document.getElementById(notes.getAttribute("aria-labelledby"))
+        .textContent,
+      "the reading region has a localized visible label",
+    );
+    const keyboardOrder = [...panel.querySelectorAll("button, [tabindex]")];
+    assert.equal(
+      keyboardOrder.indexOf(notes) <
+        keyboardOrder.indexOf(f.document.getElementById("check-updates")),
+      standalone,
+      "keyboard order follows each context's visible notes/action order",
+    );
+    for (const [phase, action] of [
+      ["downloading", "cancel-update"],
+      ["ready", "install-update"],
+    ]) {
+      f.emit({
+        phase,
+        latestVersion: "0.5.0",
+        notes: notesText,
+        downloaded: 1024,
+        total: 2048,
+      });
+      assert.equal(f.document.getElementById("notes"), notes);
+      assert.equal(notes.textContent, notesText);
+      const button = f.document.getElementById(action);
+      assert.equal(button.hidden, false);
+      assert.ok(actions.contains(button));
+      assert.equal(
+        notes.contains(button),
+        false,
+        "progress/restart controls cannot become part of scrolling remote notes",
+      );
+    }
+  });
+}
 
 test("an already mounted updater panel refreshes when the saved language changes", async () => {
   const f = fixture({ state: { phase: "available", latestVersion: "0.5.0" } });

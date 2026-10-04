@@ -59,13 +59,18 @@ export async function mountUpdatePanel(
   container: HTMLElement,
 ): Promise<() => void> {
   container.innerHTML = `
+    <div class="update-summary">
     <h2 id="update-heading"></h2>
     <p id="update-version"></p><p id="update-latest" hidden></p>
     <small id="update-last-check"></small>
     <p id="update-message" role="status" aria-live="polite"></p>
     <div id="download-progress" hidden><progress id="progress" max="100"></progress><p id="download-size"></p></div>
+    </div>
     <div class="update-actions"><button id="check-updates" type="button" class="secondary"></button><button id="release-page" type="button" class="secondary" hidden></button><button id="download-update" type="button" hidden></button><button id="cancel-update" type="button" class="secondary" hidden></button><button id="install-update" type="button" hidden></button></div>
-    <section id="release-notes" hidden><h3 id="notes-heading"></h3><pre id="notes" class="release-notes"></pre></section>`;
+    <section id="release-notes" hidden><h3 id="notes-heading"></h3><pre id="notes" class="release-notes" tabindex="0" aria-labelledby="notes-heading"></pre></section>`;
+  // Swiph3l: Settings places actions above flowing notes; the standalone window keeps them below, so DOM order must follow the visible keyboard order too.
+  if (container.closest(".update-page"))
+    container.append(container.querySelector(".update-actions")!);
   const el = (id: string) => container.querySelector<HTMLElement>(`#${id}`)!;
   let lastState: UpdateSnapshot | undefined;
   const render = (state: UpdateSnapshot) => {
@@ -194,6 +199,7 @@ export async function mountUpdatePanel(
 export async function renderUpdate() {
   await initializeLanguage();
   await bindShellTheme();
+  document.body.classList.add("update-page");
   const app = document.querySelector<HTMLElement>("#app")!;
   app.innerHTML =
     '<header class="page-header"><img class="brand" src="/chatplus.png" width="32" height="32" alt=""><h1 id="update-title"></h1></header><div id="update-details"></div><div class="actions"><button id="later" type="button" class="secondary"></button></div>';

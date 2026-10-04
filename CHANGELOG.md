@@ -6,6 +6,8 @@ All notable changes will be documented here. Versions follow Semantic Versioning
 
 ### Fixed
 
+- Fixed update notes unnecessarily scrolling in larger windows. Thanks to
+  Azathoth for reporting this.
 - Retain each service's cached unread through minimize/background, selection and
   logically focused WebView transitions. Read acknowledgement now requires native
   foreground visibility, actual conversation input and current provider read proof.

@@ -743,9 +743,108 @@ dd {
 .release-notes {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  max-height: 180px;
-  overflow: auto;
   font: inherit;
+}
+
+/* Swiph3l: Settings owns the scroller. Sticky actions need the whole Updates pane as their containing block, or preferences push them below the fold on narrow windows. */
+.settings-page #update-details {
+  display: contents;
+}
+
+.settings-page .update-actions {
+  position: sticky;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  padding: 6px 0;
+  background: var(--surface);
+}
+
+.update-page {
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.update-page #app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.update-page .page-header,
+.update-page .update-summary,
+.update-page #app > .actions {
+  flex-shrink: 0;
+}
+
+.update-page .page-header {
+  margin-bottom: 14px;
+}
+
+.update-summary p {
+  margin: 8px 0;
+}
+
+.update-page #update-details {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Swiph3l: The standalone window has no Settings scroller; give notes the remaining height so long metadata cannot push update/restart controls offscreen. */
+.update-page #release-notes {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.update-page #notes-heading {
+  flex-shrink: 0;
+  margin: 12px 0 8px;
+}
+
+.update-page .release-notes {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.update-page .release-notes:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.update-page .update-actions {
+  flex-shrink: 0;
+  margin-top: auto;
+  padding-top: 12px;
+}
+
+.update-page #app > .actions {
+  margin-top: 10px;
+}
+
+@media (max-height: 520px) {
+  .update-page {
+    padding: 12px 20px;
+  }
+  .update-page .page-header {
+    margin-bottom: 10px;
+  }
+  .update-page #notes-heading {
+    margin-top: 8px;
+  }
+  .update-page .update-actions {
+    padding-top: 8px;
+  }
+  .update-page #app > .actions {
+    margin-top: 8px;
+  }
 }
 
 progress {
