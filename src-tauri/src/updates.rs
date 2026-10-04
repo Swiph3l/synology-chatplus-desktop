@@ -12,6 +12,7 @@ use tauri_plugin_updater::{Update, Updater, UpdaterExt};
 use tokio::sync::Notify;
 
 const INTERVAL: u64 = 6 * 60 * 60;
+const STARTUP_DELAY: u64 = 10;
 const MAX_DOWNLOAD: u64 = 512 * 1024 * 1024;
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -60,6 +61,7 @@ pub struct Snapshot {
     pub downloaded: u64,
     pub total: Option<u64>,
     pub message: String,
+    pub message_code: String,
     pub last_successful_check: Option<u64>,
 }
 impl Default for Snapshot {
@@ -74,9 +76,41 @@ impl Default for Snapshot {
             downloaded: 0,
             total: None,
             message: String::new(),
+            message_code: String::new(),
             last_successful_check: None,
         }
     }
+}
+impl Snapshot {
+    fn message(&mut self, code: &str, text: impl Into<String>) {
+        self.message_code = code.into();
+        self.message = text.into();
+    }
+}
+
+struct AutomaticSchedule {
+    next_attempt: Option<Duration>,
+}
+impl Default for AutomaticSchedule {
+    fn default() -> Self {
+        Self {
+            next_attempt: Some(Duration::from_secs(STARTUP_DELAY)),
+        }
+    }
+}
+impl AutomaticSchedule {
+    fn claim(&mut self, enabled: bool, busy: bool, elapsed: Duration) -> bool {
+        if !enabled || busy || self.next_attempt.is_some_and(|next| elapsed < next) {
+            return false;
+        }
+        // Swiph3l: Attempts, including failures, advance a monotonic clock so an
+        // offline endpoint cannot cause retry storms or wall-clock changes to skip checks.
+        self.next_attempt = Some(elapsed.saturating_add(Duration::from_secs(INTERVAL)));
+        true
+    }
+}
+fn operation_busy(phase: &str) -> bool {
+    matches!(phase, "checking" | "downloading" | "ready" | "installing")
 }
 #[derive(Default)]
 pub struct Service(pub Mutex<Inner>);
@@ -86,7 +120,63 @@ pub struct Inner {
     update: Option<Update>,
     verified_bytes: Option<Vec<u8>>,
     cancel: Option<Arc<Notify>>,
-    next_auto_attempt: u64,
+    request_generation: u64,
+}
+impl Inner {
+    fn begin_check(&mut self) -> Option<u64> {
+        // Swiph3l: Startup, scheduled and manual checks share this locked gate;
+        // a second request must not replace a download or a verified installer.
+        if operation_busy(&self.snapshot.phase) {
+            return None;
+        }
+        self.snapshot.phase = "checking".into();
+        self.snapshot.message("checking", "Checking for updates...");
+        Some(self.request_generation)
+    }
+    fn reset_channel(&mut self) {
+        self.verified_bytes = None;
+        self.update = None;
+        self.snapshot.latest_version = None;
+        self.snapshot.notes.clear();
+        self.snapshot.downloaded = 0;
+        self.snapshot.total = None;
+        self.snapshot.phase = "idle".into();
+        self.snapshot
+            .message("channel-changed", "Update channel changed. Check again.");
+    }
+    fn change_channel(&mut self) {
+        self.request_generation = self.request_generation.wrapping_add(1);
+        if self.snapshot.phase == "downloading" {
+            if let Some(cancel) = &self.cancel {
+                cancel.notify_one();
+            }
+        } else if !matches!(self.snapshot.phase.as_str(), "checking" | "installing") {
+            self.reset_channel();
+        }
+    }
+    fn discard_stale(
+        &mut self,
+        generation: u64,
+        channel: &UpdateChannel,
+        current: &UpdateChannel,
+    ) -> bool {
+        if self.request_generation == generation && current == channel {
+            return false;
+        }
+        self.reset_channel();
+        true
+    }
+    fn check_failed(&mut self, error: String) {
+        // Swiph3l: A temporary network failure does not invalidate an already
+        // discovered signed update or silently remove its indication.
+        self.snapshot.phase = if self.update.is_some() {
+            "available"
+        } else {
+            "error"
+        }
+        .into();
+        self.snapshot.message("check-failed", error);
+    }
 }
 pub fn snapshot(app: &AppHandle) -> Snapshot {
     let mut value = app
@@ -101,7 +191,7 @@ pub fn snapshot(app: &AppHandle) -> Snapshot {
 }
 fn emit(app: &AppHandle) {
     let value = snapshot(app);
-    for label in ["update", "about", "settings"] {
+    for label in ["main", "update", "about", "settings"] {
         let _ = app.emit_to(label, "update-state", &value);
     }
 }
@@ -114,9 +204,6 @@ fn now() -> u64 {
 pub fn accepts(current: &Version, candidate: &Version, channel: &UpdateChannel) -> bool {
     candidate.cmp_precedence(current).is_gt()
         && (matches!(channel, UpdateChannel::PreRelease) || candidate.pre.is_empty())
-}
-pub fn automatic_due(enabled: bool, last: Option<u64>, next: u64, at: u64) -> bool {
-    enabled && at >= next && last.is_none_or(|last| at.saturating_sub(last) >= INTERVAL)
 }
 fn https_asset(url: &url::Url, config: &Configuration) -> bool {
     url.scheme() == "https"
@@ -178,7 +265,8 @@ fn select_release_manifest(
     config: &Configuration,
     channel: &UpdateChannel,
 ) -> Option<url::Url> {
-    // Stable releases remain eligible for users who opted into prereleases.
+    // Swiph3l: Pre-release users also receive newer stable releases; those releases
+    // publish latest.json, while beta/RC releases must use their own manifest.
     let version = Version::parse(release.tag_name.trim_start_matches('v')).ok()?;
     if matches!(channel, UpdateChannel::Stable) && !version.pre.is_empty() {
         return None;
@@ -210,7 +298,8 @@ async fn endpoint(
                 .unwrap(),
         ));
     }
-    // Published release JSON, never HTML scraping. No account token is used.
+    // Swiph3l: Release selection uses semver precedence rather than GitHub order,
+    // so a later-published beta cannot displace a newer eligible stable version.
     let client = reqwest::Client::builder()
         .https_only(true)
         .timeout(Duration::from_secs(20))
@@ -251,33 +340,30 @@ async fn endpoint(
     }
     Ok(EndpointSelection::MissingManifest)
 }
-pub async fn check(app: &AppHandle, manual: bool) -> Result<Snapshot, String> {
+pub async fn check(app: &AppHandle, _manual: bool) -> Result<Snapshot, String> {
     let config = configuration();
     let channel = state::current(app).update_channel;
-    {
+    let generation = {
         let state = app.state::<Service>();
         let mut inner = state.0.lock().unwrap_or_else(|e| e.into_inner());
-        if matches!(
-            inner.snapshot.phase.as_str(),
-            "checking" | "downloading" | "ready" | "installing"
-        ) {
+        if operation_busy(&inner.snapshot.phase) {
             return Ok(inner.snapshot.clone());
         }
         if !config.ready() {
-            inner.snapshot.message =
-                "Signed updates are not configured for this development build.".into();
+            inner.snapshot.message(
+                "unconfigured",
+                "Signed updates are not configured for this development build.",
+            );
             inner.snapshot.phase = "unconfigured".into();
             drop(inner);
             emit(app);
             return Ok(snapshot(app));
         }
-        inner.snapshot.phase = "checking".into();
-        inner.snapshot.message = "Checking for updates...".into();
-        inner.snapshot.latest_version = None;
-        inner.snapshot.notes.clear();
-        inner.update = None;
-        inner.verified_bytes = None;
-    }
+        inner.snapshot.channel = channel.clone();
+        inner
+            .begin_check()
+            .expect("operation checked while holding its lock")
+    };
     emit(app);
     let result = async {
         let endpoint = match endpoint(&config, &channel).await? {
@@ -303,13 +389,12 @@ pub async fn check(app: &AppHandle, manual: bool) -> Result<Snapshot, String> {
         Ok((update, None))
     }
     .await;
-    let mut show = false;
     {
         let service = app.state::<Service>();
         let mut inner = service.0.lock().unwrap_or_else(|e| e.into_inner());
-        if state::current(app).update_channel != channel {
-            inner.snapshot.phase = "idle".into();
-            inner.snapshot.message = "Update channel changed. Check again.".into();
+        if inner.discard_stale(generation, &channel, &state::current(app).update_channel) {
+            // Swiph3l: A channel can change away and back while HTTP is pending;
+            // generation checks reject both cases instead of resurrecting stale results.
             drop(inner);
             emit(app);
             return Ok(snapshot(app));
@@ -327,7 +412,9 @@ pub async fn check(app: &AppHandle, manual: bool) -> Result<Snapshot, String> {
                         })
                     {
                         inner.snapshot.phase = "error".into();
-                        inner.snapshot.message = "Update metadata failed validation.".into();
+                        inner
+                            .snapshot
+                            .message("metadata-invalid", "Update metadata failed validation.");
                         drop(inner);
                         emit(app);
                         return Err("Update metadata failed validation.".into());
@@ -336,49 +423,54 @@ pub async fn check(app: &AppHandle, manual: bool) -> Result<Snapshot, String> {
                     inner.snapshot.notes = update
                         .body
                         .as_deref()
-                        .unwrap_or("No release notes provided.")
+                        .unwrap_or_default()
                         .chars()
                         .take(16000)
                         .collect();
                     inner.snapshot.phase = "available".into();
-                    inner.snapshot.message = "An update is available.".into();
-                    show = true;
+                    inner
+                        .snapshot
+                        .message("available", "An update is available.");
                 } else {
+                    inner.snapshot.latest_version = None;
+                    inner.snapshot.notes.clear();
                     inner.snapshot.phase = "current".into();
-                    inner.snapshot.message =
-                        message_override.unwrap_or_else(|| "You're up to date.".to_string());
+                    inner.snapshot.message(
+                        "current",
+                        message_override.unwrap_or_else(|| "You're up to date.".to_string()),
+                    );
                 }
                 inner.update = update;
-                inner.snapshot.last_successful_check = Some(now());
+                let checked_at = now();
+                inner.snapshot.last_successful_check = Some(checked_at);
                 if let Ok(store) = app.store("settings.json") {
-                    store.set("lastUpdateCheck", now());
+                    store.set("lastUpdateCheck", checked_at);
                     let _ = store.save();
                 }
             }
             Err(error) => {
-                inner.snapshot.phase = "error".into();
-                inner.snapshot.message = error;
+                inner.check_failed(error);
             }
         }
     }
     emit(app);
-    if show || manual {
-        let _ = crate::shell::update(app);
-    }
+    // Swiph3l: Automatic results stay in Settings and the footer; opening or
+    // focusing a window here would interrupt startup and background conversations.
     Ok(snapshot(app))
 }
 pub async fn download(app: &AppHandle) -> Result<(), String> {
-    let (update, cancel) = {
+    let (update, cancel, generation, channel) = {
         let service = app.state::<Service>();
         let mut inner = service.0.lock().unwrap_or_else(|e| e.into_inner());
         if inner.snapshot.phase != "available" {
             return Err("Check for an update before downloading.".into());
         }
         let update = inner.update.clone().ok_or("No update available.")?;
+        let channel = state::current(app).update_channel;
         if !accepts(
             &Version::parse(env!("CARGO_PKG_VERSION")).unwrap(),
             &Version::parse(&update.version).map_err(|_| "Invalid version.")?,
-            &state::current(app).update_channel,
+            &channel,
         ) {
             return Err("Check again for the selected channel.".into());
         }
@@ -388,8 +480,10 @@ pub async fn download(app: &AppHandle) -> Result<(), String> {
         inner.snapshot.phase = "downloading".into();
         inner.snapshot.downloaded = 0;
         inner.snapshot.total = None;
-        inner.snapshot.message = "Downloading update...".into();
-        (update, cancel)
+        inner
+            .snapshot
+            .message("downloading", "Downloading update...");
+        (update, cancel, inner.request_generation, channel)
     };
     emit(app);
     let mut last_event = std::time::Instant::now();
@@ -417,21 +511,34 @@ pub async fn download(app: &AppHandle) -> Result<(), String> {
     let service = app.state::<Service>();
     let mut inner = service.0.lock().unwrap_or_else(|e| e.into_inner());
     inner.cancel = None;
+    if inner.discard_stale(generation, &channel, &state::current(app).update_channel) {
+        // Swiph3l: Cancellation can race with signature verification finishing;
+        // stale bytes must never become installable after a channel change.
+        drop(inner);
+        emit(app);
+        return Ok(());
+    }
     match result {
         Some(Ok(bytes)) if !too_large => {
+            // Swiph3l: The updater download future verifies the existing public-key
+            // signature before returning bytes; raw HTTP bytes must never enter ready.
             inner.verified_bytes = Some(bytes);
             inner.snapshot.phase = "ready".into();
-            inner.snapshot.message =
-                "Signature verified. Restart and update when you are ready.".into();
+            inner.snapshot.message(
+                "ready",
+                "Signature verified. Restart and update when you are ready.",
+            );
         }
         None if !too_large => {
             inner.snapshot.phase = "available".into();
-            inner.snapshot.message = "Download cancelled.".into();
+            inner.snapshot.message("cancelled", "Download cancelled.");
         }
         _ => {
             inner.snapshot.phase = "available".into();
-            inner.snapshot.message =
-                "Download or signature verification failed. Nothing was installed.".into();
+            inner.snapshot.message(
+                "download-failed",
+                "Download or signature verification failed. Nothing was installed.",
+            );
         }
     }
     drop(inner);
@@ -452,22 +559,13 @@ pub fn cancel(app: &AppHandle) {
 pub fn channel_changed(app: &AppHandle) {
     let service = app.state::<Service>();
     let mut inner = service.0.lock().unwrap_or_else(|e| e.into_inner());
-    if inner.snapshot.phase == "downloading" {
-        if let Some(cancel) = &inner.cancel {
-            cancel.notify_one();
-        }
-    } else if !matches!(inner.snapshot.phase.as_str(), "checking" | "installing") {
-        inner.verified_bytes = None;
-        inner.update = None;
-        inner.snapshot.latest_version = None;
-        inner.snapshot.notes.clear();
-        inner.snapshot.phase = "idle".into();
-        inner.snapshot.message = "Update channel changed. Check again.".into();
-    }
+    inner.change_channel();
     drop(inner);
     emit(app);
 }
 pub fn install(app: &AppHandle, confirmed: bool) -> Result<(), String> {
+    // Swiph3l: Download verification is independent from consent. Every install
+    // entry point must supply explicit confirmation before consuming verified bytes.
     if !confirmed {
         return Err("Confirm restart before installing.".into());
     }
@@ -488,7 +586,9 @@ pub fn install(app: &AppHandle, confirmed: bool) -> Result<(), String> {
         }
         let bytes = inner.verified_bytes.take().ok_or("No verified download.")?;
         inner.snapshot.phase = "installing".into();
-        inner.snapshot.message = "Starting update installer...".into();
+        inner
+            .snapshot
+            .message("installing", "Starting update installer...");
         (update, bytes)
     };
     emit(app);
@@ -497,7 +597,10 @@ pub fn install(app: &AppHandle, confirmed: bool) -> Result<(), String> {
         let mut inner = service.0.lock().unwrap_or_else(|e| e.into_inner());
         inner.verified_bytes = Some(bytes);
         inner.snapshot.phase = "ready".into();
-        inner.snapshot.message = "Installation failed. Close other instances and try again.".into();
+        inner.snapshot.message(
+            "install-failed",
+            "Installation failed. Close other instances and try again.",
+        );
         drop(inner);
         emit(app);
         return Err("Could not start the update installer.".into());
@@ -529,24 +632,23 @@ pub fn start(app: &AppHandle) {
     }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(10)).await;
+        let started = std::time::Instant::now();
+        let mut schedule = AutomaticSchedule::default();
+        // Swiph3l: Startup checks belong to a detached task after the shell paints;
+        // the saved timestamp is display history and must not suppress this launch's check.
+        tokio::time::sleep(Duration::from_secs(STARTUP_DELAY)).await;
         loop {
             let settings = state::current(&app);
             let due = {
                 let service = app.state::<Service>();
-                let mut inner = service.0.lock().unwrap_or_else(|e| e.into_inner());
-                let due = automatic_due(
-                    settings.automatic_updates
-                        && !settings.server_url.is_empty()
-                        && configuration().ready(),
-                    inner.snapshot.last_successful_check,
-                    inner.next_auto_attempt,
-                    now(),
-                );
-                if due {
-                    inner.next_auto_attempt = now() + INTERVAL;
-                }
-                due
+                let inner = service.0.lock().unwrap_or_else(|e| e.into_inner());
+                // Swiph3l: Updating ChatPlus is independent of service setup;
+                // a user with no active server still needs application security updates.
+                schedule.claim(
+                    settings.automatic_updates && configuration().ready(),
+                    operation_busy(&inner.snapshot.phase),
+                    started.elapsed(),
+                )
             };
             if due {
                 let _ = check(&app, false).await;
@@ -682,11 +784,103 @@ mod tests {
         ));
     }
     #[test]
-    fn disabled_and_recent_checks_do_not_request_network() {
-        assert!(!automatic_due(false, None, 0, 100));
-        assert!(!automatic_due(true, Some(100), 0, 101));
-        assert!(!automatic_due(true, None, 200, 100));
-        assert!(automatic_due(true, Some(100), 0, 100 + INTERVAL));
+    fn startup_and_six_hour_schedule_use_a_fake_clock() {
+        let mut schedule = AutomaticSchedule::default();
+        let mut clock = Duration::ZERO;
+        assert!(!schedule.claim(true, false, clock));
+        clock += Duration::from_secs(STARTUP_DELAY - 1);
+        assert!(!schedule.claim(true, false, clock));
+        clock += Duration::from_secs(1);
+        assert!(schedule.claim(true, false, clock));
+        assert!(!schedule.claim(true, false, clock));
+        clock += Duration::from_secs(INTERVAL - 1);
+        assert!(!schedule.claim(true, false, clock));
+        clock += Duration::from_secs(1);
+        assert!(schedule.claim(true, false, clock));
+    }
+    #[test]
+    fn disabled_or_busy_automatic_schedule_does_not_consume_the_due_check() {
+        let mut schedule = AutomaticSchedule::default();
+        let clock = Duration::from_secs(STARTUP_DELAY);
+        assert!(!schedule.claim(false, false, clock));
+        assert!(!schedule.claim(true, true, clock));
+        assert!(schedule.claim(true, false, clock));
+    }
+    #[test]
+    fn failures_do_not_trigger_rapid_automatic_retries() {
+        let mut schedule = AutomaticSchedule::default();
+        let clock = Duration::from_secs(STARTUP_DELAY);
+        assert!(schedule.claim(true, false, clock));
+        for minute in 1..360 {
+            assert!(!schedule.claim(true, false, clock + Duration::from_secs(minute * 60)));
+        }
+        assert!(schedule.claim(true, false, clock + Duration::from_secs(INTERVAL)));
+    }
+    #[test]
+    fn recent_persisted_check_is_history_not_a_startup_scheduling_gate() {
+        let inner = Inner {
+            snapshot: Snapshot {
+                last_successful_check: Some(now()),
+                ..Snapshot::default()
+            },
+            ..Inner::default()
+        };
+        let mut schedule = AutomaticSchedule::default();
+        assert!(inner.snapshot.last_successful_check.is_some());
+        assert!(schedule.claim(
+            true,
+            operation_busy(&inner.snapshot.phase),
+            Duration::from_secs(STARTUP_DELAY)
+        ));
+    }
+    #[test]
+    fn overlapping_checks_share_one_operation_gate() {
+        let service = Arc::new(Service::default());
+        let barrier = Arc::new(std::sync::Barrier::new(3));
+        let workers: Vec<_> = (0..2)
+            .map(|_| {
+                let service = service.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    service.0.lock().unwrap().begin_check().is_some()
+                })
+            })
+            .collect();
+        barrier.wait();
+        let accepted = workers
+            .into_iter()
+            .map(|worker| usize::from(worker.join().unwrap()))
+            .sum::<usize>();
+        assert_eq!(accepted, 1);
+        for phase in ["downloading", "ready", "installing"] {
+            let mut inner = service.0.lock().unwrap();
+            inner.snapshot.phase = phase.into();
+            assert!(inner.begin_check().is_none());
+        }
+    }
+    #[test]
+    fn channel_changes_invalidate_in_flight_checks_even_after_switching_back() {
+        let mut inner = Inner::default();
+        let generation = inner.begin_check().unwrap();
+        inner.change_channel();
+        inner.change_channel();
+        assert!(inner.begin_check().is_none());
+        assert!(inner.discard_stale(generation, &UpdateChannel::Stable, &UpdateChannel::Stable));
+        assert_eq!(inner.snapshot.phase, "idle");
+        assert!(inner.begin_check().is_some());
+    }
+    #[test]
+    fn channel_change_cannot_publish_a_stale_verified_download() {
+        let mut inner = Inner::default();
+        inner.snapshot.phase = "downloading".into();
+        inner.cancel = Some(Arc::new(Notify::new()));
+        let generation = inner.request_generation;
+        inner.change_channel();
+        inner.verified_bytes = Some(vec![1, 2, 3]);
+        assert!(inner.discard_stale(generation, &UpdateChannel::Stable, &UpdateChannel::Stable));
+        assert!(inner.verified_bytes.is_none());
+        assert_eq!(inner.snapshot.phase, "idle");
     }
 
     #[test]
@@ -700,6 +894,17 @@ mod tests {
         assert!(accepts(&beta2, &rc1, &UpdateChannel::PreRelease));
         assert!(accepts(&beta2, &stable, &UpdateChannel::PreRelease));
         assert!(accepts(&rc1, &stable, &UpdateChannel::PreRelease));
+        let beta3 = Version::parse("0.5.0-beta.3").unwrap();
+        let beta4 = Version::parse("0.5.0-beta.4").unwrap();
+        let beta10 = Version::parse("0.5.0-beta.10").unwrap();
+        assert!(accepts(&beta3, &beta4, &UpdateChannel::PreRelease));
+        assert!(accepts(&beta4, &beta10, &UpdateChannel::PreRelease));
+        assert!(!accepts(&beta10, &beta4, &UpdateChannel::PreRelease));
+        assert!(accepts(
+            &beta10,
+            &Version::parse("0.5.1").unwrap(),
+            &UpdateChannel::PreRelease
+        ));
     }
 
     #[test]

@@ -289,3 +289,23 @@ async fn updater_offline_and_cancelled_download_do_not_install() {
     drop(fixture);
     assert!(updater.check().await.is_err());
 }
+
+#[tokio::test]
+async fn cached_update_remains_available_after_a_later_network_failure() {
+    let app = app();
+    let fixture = Fixture::new("0.2.0", false, false, false);
+    let updater = fixture.updater(app.handle(), UpdateChannel::Stable);
+    let update = updater.check().await.unwrap().unwrap();
+    let mut inner = super::Inner::default();
+    inner.snapshot.phase = "available".into();
+    inner.snapshot.latest_version = Some(update.version.clone());
+    inner.update = Some(update);
+    assert!(inner.begin_check().is_some());
+    drop(fixture);
+    assert!(updater.check().await.is_err());
+    inner.check_failed("Fixture endpoint offline".into());
+    assert_eq!(inner.snapshot.phase, "available");
+    assert_eq!(inner.snapshot.latest_version.as_deref(), Some("0.2.0"));
+    assert!(inner.update.is_some());
+    assert_eq!(inner.snapshot.message_code, "check-failed");
+}
