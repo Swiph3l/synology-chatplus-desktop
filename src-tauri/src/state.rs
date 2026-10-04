@@ -6,6 +6,15 @@ use tauri_plugin_store::StoreExt;
 
 pub const AUTOSTART_ENTRY_NAME: &str = "ChatPlus Desktop";
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Language {
+    #[default]
+    En,
+    Pl,
+    Es,
+}
+
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Theme {
@@ -65,6 +74,7 @@ pub struct Settings {
     pub active_service: Option<String>,
     pub service_schema: u8,
     pub theme: Theme,
+    pub language: Language,
     pub autostart: bool,
     pub minimize_to_tray: bool,
     pub close_to_tray: bool,
@@ -87,6 +97,8 @@ impl Default for Settings {
             active_service: None,
             service_schema: 0,
             theme: Theme::System,
+            // Swiph3l: Legacy profiles were English-only; a missing language preserves that interface during migration.
+            language: Language::En,
             autostart: false,
             // Swiph3l: These defaults apply on first run; existing users keep their saved window preferences.
             minimize_to_tray: true,
@@ -185,14 +197,14 @@ pub fn load(app: &AppHandle) -> Result<Settings, Box<dyn std::error::Error>> {
     match settings.migrate_services() {
         Ok(true) => {
             store.set("settings", serde_json::to_value(&settings)?);
-            // Preserve the original record if the one-time write cannot complete.
+            // Swiph3l: A failed migration write must retain the original profile for the next launch.
             if store.save().is_err() {
                 store.set("settings", serde_json::to_value(before_migration)?);
             }
         }
         Ok(false) => {}
         Err(_) => {
-            // Keep existing configuration on disk; open setup with safe defaults.
+            // Swiph3l: Invalid provider configuration must not overwrite existing account/profile data.
             settings.services.clear();
             settings.service_schema = 0;
             settings.migrate_services()?;
@@ -374,6 +386,28 @@ mod tests {
         assert!(matches!(settings.update_channel, UpdateChannel::Stable));
         assert!(settings.server_url.is_empty());
         assert_eq!(settings.notification_cooldown, 60);
+        assert_eq!(settings.language, Language::En);
+    }
+
+    #[test]
+    fn language_and_preferences_round_trip_without_resetting_account_profiles() {
+        let mut settings: Settings = serde_json::from_value(serde_json::json!({
+            "language": "es", "serverUrl": "https://example.com/chat/",
+            "automaticUpdates": true, "updateChannel": "pre-release", "theme": "dark"
+        }))
+        .unwrap();
+        settings.migrate_services().unwrap();
+        let serialized = serde_json::to_value(&settings).unwrap();
+        let restored: Settings = serde_json::from_value(serialized).unwrap();
+        assert_eq!(restored.language, Language::Es);
+        assert_eq!(restored.services[0].id, "chatplus");
+        assert_eq!(
+            restored.services[0].provider,
+            crate::providers::ProviderId::SynologyChatplus
+        );
+        assert!(restored.automatic_updates);
+        assert!(matches!(restored.update_channel, UpdateChannel::PreRelease));
+        assert!(matches!(restored.theme, Theme::Dark));
     }
 
     #[test]

@@ -71,7 +71,7 @@ pub fn send_test_notification(
 }
 #[tauri::command]
 pub fn get_settings(window: tauri::Webview, app: tauri::AppHandle) -> Result<Settings, String> {
-    local_view(&window, &["settings", "main"])?;
+    local_view(&window, &["settings", "main", "about", "license", "update"])?;
     Ok(state::current(&app))
 }
 #[tauri::command]

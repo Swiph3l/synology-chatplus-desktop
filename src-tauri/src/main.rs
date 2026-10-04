@@ -4,6 +4,7 @@ mod commands;
 mod connection;
 mod desktop_notifications;
 mod diagnostics;
+mod i18n;
 mod menu;
 mod navigation;
 mod notification_bridge;
