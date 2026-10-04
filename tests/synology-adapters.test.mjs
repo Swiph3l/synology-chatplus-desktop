@@ -421,6 +421,38 @@ test("Synology pane detach/reinsert boundaries revoke old gestures even when the
   }
 });
 
+test("Synology content contexts change for message content but remain stable while scrolling to latest", () => {
+  for (const factory of [chatplusFixture, synologyChatFixture]) {
+    const { document, adapter, viewer, record } = factory();
+    const stop = adapter.observe(() => {});
+    const before = adapter.contentContext();
+    assert.equal(typeof before, "string");
+    if (adapter.source === "chatplus-dom") viewer.scrollTop = 200;
+    else document.querySelector(".new-message-btn").style.display = "";
+    record(viewer, "attributes", "style");
+    assert.equal(adapter.readContext(), null);
+    assert.equal(
+      adapter.contentContext(),
+      before,
+      "scroll position alone is not proof of a new message rendering",
+    );
+    const rendered = document.createElement("article");
+    viewer.append(rendered);
+    record(viewer, "childList", null, { addedNodes: [rendered] });
+    assert.notEqual(
+      adapter.contentContext(),
+      before,
+      "new message content invalidates the captured arrival context",
+    );
+    assert.equal(
+      adapter.readContext(),
+      null,
+      "content proof does not imply the user is at latest",
+    );
+    stop();
+  }
+});
+
 test("Synology providers never suppress toasts based on generic titles or unverified tags", () => {
   const adapters = [chatplusFixture().adapter, synologyChatFixture().adapter];
   for (const adapter of adapters) {

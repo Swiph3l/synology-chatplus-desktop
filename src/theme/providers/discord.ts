@@ -98,6 +98,53 @@ function completeGroup(group: Element): Element[] | null {
     : null;
 }
 
+function completePrivateList(list: Element, document: Document): boolean {
+  // Swiph3l: The ordinary private sidebar excludes message requests/spam. Their separate row appears whenever either store is nonempty, so an ordinary DM list cannot clear that hidden scope.
+  if (list.querySelector('a[href="/message-requests"]')) return false;
+  const rows = [
+    ...list.querySelectorAll("[aria-setsize][aria-posinset]"),
+  ].filter(
+    (row) => row.closest('[data-list-id^="private-channels-"]') === list,
+  );
+  const size = Number(rows[0]?.getAttribute("aria-setsize"));
+  const positions = new Set(
+    rows.map((row) => Number(row.getAttribute("aria-posinset"))),
+  );
+  if (
+    !visible(list as HTMLElement, document) ||
+    !Number.isInteger(size) ||
+    size < 1 ||
+    rows.length !== size ||
+    positions.size !== size ||
+    rows.some((row) => Number(row.getAttribute("aria-setsize")) !== size) ||
+    [...positions].some(
+      (position) =>
+        !Number.isInteger(position) || position < 1 || position > size,
+    )
+  )
+    return false;
+  // Swiph3l: Discord's global DM group and row pill both use mention counts. Muted ordinary DMs may have unread with no pill, and selection/hover hides their muted styling, so neither can prove a global zero.
+  return rows.every((row) => {
+    const dm = row.querySelector(`a[href^="/channels/@me/"]`);
+    if (!dm) return !semanticClass(row, "dm");
+    if (
+      !semanticClass(row, "channel") ||
+      !semanticClass(row, "dm") ||
+      !new RegExp(`^/channels/@me/${snowflake}/?$`).test(
+        dm.getAttribute("href") ?? "",
+      )
+    )
+      return false;
+    return (
+      !row.matches(":hover") &&
+      !semanticDescendant(row, "muted") &&
+      !semanticDescendant(row, "mutedIcon") &&
+      !semanticDescendant(row, "selected") &&
+      !semanticDescendant(row, "interactiveSelected")
+    );
+  });
+}
+
 function guildState(item: Element, document: Document): boolean | null {
   const id = item.getAttribute("data-list-item-id") ?? "";
   const favorite = id === "guildsnav___favorites";
@@ -250,12 +297,13 @@ export function createDiscordAdapter(
       return { hasUnread: true, count: null };
     }
     if (dms && badgePresent(dms)) return { hasUnread: true, count: null };
-    if (!rail || !dms) return { hasUnread: null, count: null };
+    if (!rail) return { hasUnread: null, count: null };
     const items = [
       ...rail.querySelectorAll('[data-list-item-id^="guildsnav___"]'),
     ];
     const states = items.map((item) => guildState(item, document));
     if (states.includes(true)) return { hasUnread: true, count: null };
+    if (!dms) return { hasUnread: null, count: null };
     const rootGroups = [...rail.querySelectorAll('[role="group"]')].filter(
       (group) =>
         !group.parentElement?.closest('[role="group"]') && completeGroup(group),
@@ -283,7 +331,9 @@ export function createDiscordAdapter(
     const complete =
       covered &&
       roots.every((root) => guildState(root, document) === false) &&
-      favorites.every((item) => guildState(item, document) === false);
+      favorites.every((item) => guildState(item, document) === false) &&
+      privateLists.length === 1 &&
+      completePrivateList(privateLists[0], document);
     return { hasUnread: complete ? false : null, count: null };
   };
 
@@ -298,6 +348,20 @@ export function createDiscordAdapter(
       else if (browserHasFocus()) view?.dispatchEvent(new Event("focus"));
     },
     readContext: () => conversationViewport(document, true)?.channel ?? null,
+    contentContext() {
+      const viewport = conversationViewport(document, false);
+      if (!viewport) return null;
+      // Swiph3l: A conversation gesture must stay attached to actual message content. Scroll position and older virtualized rows can change independently, so use the newest retained message snowflake.
+      const newest = viewport.rows
+        .map((row) => messageId.exec(row.id)![2])
+        .reduce((latest, id) =>
+          id.length > latest.length ||
+          (id.length === latest.length && id > latest)
+            ? id
+            : latest,
+        );
+      return `${viewport.channel}:${newest}`;
+    },
     interactionContext(event) {
       const viewport = conversationViewport(document, false);
       const target = event

@@ -167,6 +167,10 @@ export function createSynologyChatAdapter(
         projected = false;
       };
     },
+    contentContext() {
+      const current = view();
+      return current ? contexts.key(current) : null;
+    },
     readContext() {
       const current = view();
       const panel = current?.closest(".msg-panel");

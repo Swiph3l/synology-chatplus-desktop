@@ -55,6 +55,10 @@ export function createChatplusAdapter(
     source: "chatplus-dom",
     snapshot,
     observe: contexts.observe,
+    contentContext() {
+      const current = view();
+      return current && viewport(current) ? contexts.key(current) : null;
+    },
     readContext() {
       const current = view();
       if (!current) return null;

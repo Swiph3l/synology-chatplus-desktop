@@ -6,6 +6,7 @@ export interface ProviderUnreadSnapshot {
 export interface ProviderNotification {
   tag: string;
   title?: string;
+  arrival?: number;
 }
 
 export interface ProviderUnreadAdapter {
@@ -13,6 +14,7 @@ export interface ProviderUnreadAdapter {
   snapshot(): ProviderUnreadSnapshot;
   observe(changed: () => void): () => void;
   readContext(): string | null;
+  contentContext(): string | null;
   interactionContext(event: Event): string | null;
   isViewingNotification(notification: ProviderNotification): boolean;
   onHostForegroundChanged?(foreground: boolean): void;
