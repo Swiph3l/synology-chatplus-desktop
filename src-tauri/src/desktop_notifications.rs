@@ -175,6 +175,8 @@ pub fn deliver_for(
     tag: &str,
     identity: &str,
     first_observation: bool,
+    generation: u64,
+    provider_viewed: bool,
 ) -> bool {
     let settings = crate::state::current(app);
     let Some(config) = settings.services.iter().find(|s| s.id == id && s.enabled) else {
@@ -183,8 +185,7 @@ pub fn deliver_for(
     if !config.notifications || !config.provider.definition().notifications {
         return false;
     }
-    let focused =
-        settings.active_service.as_deref() == Some(id) && crate::window::is_foreground(app);
+    let focused = crate::unread::actively_viewed(app, id, generation, provider_viewed);
     // Swiph3l: A trusted live browser notification is already an incoming event; a post-navigation delay silently drops real messages.
     if !should_notify(
         settings.desktop_notifications,
