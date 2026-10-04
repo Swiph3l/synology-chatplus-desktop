@@ -347,6 +347,14 @@ fn create(app: &AppHandle, service: &ServiceConfig) -> Result<(), String> {
             include_str!("../theme-bootstrap.js")
         ));
     }
+    if service.provider.definition().unread {
+        // Swiph3l: Unread adapters are provider-specific and independent of theme support; Discord and Synology Chat must never receive ChatPlus styling.
+        builder = builder.initialization_script(format!(
+            "window.__chatplusProvider = {};\n{}",
+            serde_json::to_string(&service.provider).unwrap(),
+            include_str!("../unread-bootstrap.js")
+        ));
+    }
     let scale = window.scale_factor().unwrap_or(1.0);
     let size = window
         .inner_size()

@@ -57,7 +57,8 @@ export function serviceEditor(
           service.url = next.defaultUrl;
           onUrl(service);
         }
-        service.notifications = service.provider === "synology-chatplus";
+        // Swiph3l: Changing provider keeps this service's saved preference; newly supported notifications must not silently unmute it.
+        service.notifications = service.notifications && next.notifications;
         render();
         document.getElementById(`service-${service.id}-provider`)?.focus();
       });
@@ -109,7 +110,7 @@ export function serviceEditor(
         options.append(label);
       };
       toggle(t("services.enabled"), "enabled");
-      if (service.provider === "synology-chatplus")
+      if (definition.notifications)
         toggle(t("services.allowNotifications"), "notifications");
       row.append(options);
       if (definition.experimental) {
@@ -118,7 +119,11 @@ export function serviceEditor(
         const title = document.createElement("h3");
         title.textContent = t("services.experimentalProvider");
         const description = document.createElement("p");
-        description.textContent = t("services.experimentalHelp");
+        description.textContent = t(
+          definition.notifications
+            ? "services.notificationHelp"
+            : "services.experimentalHelp",
+        );
         const sso = document.createElement("p");
         sso.className = "service-secondary-help";
         sso.textContent = t("services.ssoHelp");

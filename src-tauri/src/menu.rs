@@ -690,12 +690,15 @@ mod tests {
         service.notifications = false;
         assert!(service_actions(&service).contains(&ServiceAction::Unmute));
         assert!(!service_actions(&service).contains(&ServiceAction::Mute));
-        for provider in [
-            ProviderId::Slack,
-            ProviderId::Discord,
-            ProviderId::SynologyChat,
-            ProviderId::Mattermost,
-        ] {
+        for provider in [ProviderId::SynologyChat, ProviderId::Discord] {
+            service.provider = provider;
+            assert!(service_actions(&service).contains(&ServiceAction::Unmute));
+            assert!(ServiceAction::Notifications.allowed(&service));
+            service.notifications = true;
+            assert!(service_actions(&service).contains(&ServiceAction::Mute));
+            service.notifications = false;
+        }
+        for provider in [ProviderId::Slack, ProviderId::Mattermost] {
             service.provider = provider;
             assert_eq!(
                 service_actions(&service),
@@ -770,7 +773,9 @@ mod tests {
         );
         set_service_notifications(&mut settings, "second", true).unwrap();
         assert!(settings.services[1].notifications);
-        assert!(set_service_notifications(&mut settings, "discord", true).is_err());
+        set_service_notifications(&mut settings, "discord", false).unwrap();
+        assert!(!settings.services[2].notifications);
+        assert!(settings.services[0].notifications);
         settings.services[1].enabled = false;
         assert!(set_service_notifications(&mut settings, "second", false).is_err());
         assert!(set_service_notifications(&mut settings, "missing", false).is_err());

@@ -4,23 +4,27 @@ import { build } from "esbuild";
 import { runInNewContext } from "node:vm";
 
 const result = await build({
-  entryPoints: ["src/theme/unread.ts"],
+  entryPoints: ["src/theme/provider-unread.ts"],
   bundle: true,
   write: false,
   format: "iife",
+  globalName: "unreadUi",
 });
 
-function fixture({ marker = true, present = true } = {}) {
+function fixture({
+  marker = true,
+  present = true,
+  source = "chatplus-dom",
+} = {}) {
   const messages = [],
-    observers = [],
     tasks = [],
     listeners = new Map();
   let focused = true;
-  const header = {
-    isConnected: true,
-    querySelectorAll: () =>
-      present ? [{ querySelector: () => (marker ? {} : null) }] : [],
-  };
+  let changed;
+  let conversation = "conversation-a";
+  let latest = true;
+  let contentRevision = 0;
+  let aggregateUnknown = false;
   const window = {
     chrome: {
       webview: { postMessage: (value) => messages.push(JSON.parse(value)) },
@@ -31,29 +35,49 @@ function fixture({ marker = true, present = true } = {}) {
     title: "(5) ChatPlus",
     visibilityState: "visible",
     hasFocus: () => focused,
-    querySelector: () => (present ? { parentElement: header } : null),
     addEventListener: (type, callback) => listeners.set(type, callback),
+    removeEventListener: (type) => listeners.delete(type),
   };
   class KeyboardEvent {
-    constructor(key, isTrusted) {
+    constructor(key, isTrusted, inConversation) {
       this.key = key;
       this.isTrusted = isTrusted;
+      this.inConversation = inConversation;
     }
   }
-  runInNewContext(result.outputFiles[0].text, {
+  const context = {
     window,
     document,
     KeyboardEvent,
     queueMicrotask: (callback) => tasks.push(callback),
-    MutationObserver: class {
-      constructor(callback) {
-        this.callback = callback;
-        observers.push(this);
-      }
-      observe() {}
-      disconnect() {}
+  };
+  runInNewContext(result.outputFiles[0].text, context);
+  const stop = context.unreadUi.installUnreadAdapter(
+    {
+      source,
+      snapshot: () => ({
+        hasUnread: present && !aggregateUnknown ? marker : null,
+        count: null,
+      }),
+      observe(callback) {
+        changed = callback;
+        return () => {};
+      },
+      readContext: () => (present && latest ? conversation : null),
+      contentContext: () =>
+        present ? `${conversation}:${contentRevision}` : null,
+      interactionContext: (event) =>
+        event.inConversation ? conversation : null,
+      isViewingNotification: (notification) =>
+        present &&
+        latest &&
+        notification.tag === conversation &&
+        (notification.revision === undefined ||
+          notification.revision === contentRevision),
     },
-  });
+    document,
+    window,
+  );
   const flush = () => {
     while (tasks.length) tasks.shift()();
   };
@@ -61,30 +85,294 @@ function fixture({ marker = true, present = true } = {}) {
   return {
     messages,
     document,
+    window,
+    stop,
     flush,
     badges(value) {
       marker = value;
-      observers[0].callback();
+      changed();
     },
     tabs(value) {
       present = value;
-      observers[0].callback();
+      changed();
     },
     focus(value) {
       focused = value;
     },
-    foreground(value, generation = 1) {
-      window.__chatplusSetForeground(value, generation);
+    foreground(value, generation = 1, incoming = 0) {
+      window.__chatplusSetForeground(value, generation, incoming);
     },
-    gesture({ type = "click", trusted = true, key = "Enter" } = {}) {
+    conversation(value, atLatest = true) {
+      conversation = value;
+      latest = atLatest;
+      changed();
+    },
+    renderMessage() {
+      contentRevision += 1;
+      changed();
+    },
+    aggregateUnavailable(value = true) {
+      aggregateUnknown = value;
+      changed();
+    },
+    gesture({
+      type = "click",
+      trusted = true,
+      key = "Enter",
+      inConversation = true,
+    } = {}) {
       listeners.get(type)(
         type === "keydown"
-          ? new KeyboardEvent(key, trusted)
-          : { isTrusted: trusted },
+          ? new KeyboardEvent(key, trusted, inConversation)
+          : { isTrusted: trusted, inConversation },
       );
     },
   };
 }
+
+for (const source of ["chatplus-dom", "synology-chat-dom", "discord-dom"]) {
+  test(`${source}: a fresh gesture in the old pane cannot acknowledge an unrendered native arrival`, () => {
+    const f = fixture({ marker: false, source });
+    f.foreground(true, 1, 1);
+    f.gesture();
+    f.flush();
+    assert.equal(f.messages.at(-1).acknowledgement, null);
+    f.renderMessage();
+    f.flush();
+    assert.equal(
+      f.messages.at(-1).acknowledgement,
+      null,
+      "a gesture before the new message rendered is no read proof",
+    );
+    f.gesture();
+    f.flush();
+    assert.equal(f.messages.at(-1).acknowledgement, null);
+    f.window.__chatplusIsViewingNotification({
+      tag: "conversation-a",
+      arrival: 1,
+    });
+    f.gesture();
+    f.flush();
+    assert.equal(f.messages.at(-1).acknowledgement, 1);
+  });
+
+  test(`${source}: background arrivals retain their content barrier through restore and stale projections`, () => {
+    const f = fixture({ marker: false, source });
+    f.foreground(false, 1, 2);
+    f.window.__chatplusIsViewingNotification({
+      tag: "conversation-a",
+      arrival: 2,
+      revision: 1,
+    });
+    f.flush();
+    f.foreground(true, 2, 2);
+    f.foreground(true, 2, 1);
+    f.gesture();
+    f.flush();
+    assert.equal(f.messages.at(-1).acknowledgement, null);
+    f.renderMessage();
+    f.gesture();
+    f.flush();
+    assert.equal(f.messages.at(-1).acknowledgement, 2);
+  });
+
+  test(`${source}: exact event-view proof releases only that arrival's read barrier`, () => {
+    const f = fixture({ marker: false, source });
+    f.foreground(true, 3, 4);
+    assert.equal(
+      f.window.__chatplusIsViewingNotification({
+        tag: "conversation-a",
+        arrival: 3,
+      }),
+      true,
+    );
+    f.gesture();
+    f.flush();
+    assert.equal(f.messages.at(-1).acknowledgement, 3);
+    assert.deepEqual(f.messages.at(-1).readArrivals, [3]);
+    assert.equal(
+      f.window.__chatplusIsViewingNotification({
+        tag: "conversation-a",
+        arrival: 4,
+      }),
+      true,
+    );
+    f.gesture();
+    f.flush();
+    assert.equal(f.messages.at(-1).acknowledgement, 3);
+    assert.deepEqual(f.messages.at(-1).readArrivals, [4, 3]);
+  });
+}
+
+test("positive sidebar evidence alone cannot read an unseen arrival in the old content", () => {
+  const f = fixture({ marker: true });
+  f.foreground(true, 1, 1);
+  f.gesture();
+  f.badges(false);
+  f.flush();
+  assert.equal(f.messages.at(-1).acknowledgement, null);
+  f.renderMessage();
+  f.gesture();
+  f.flush();
+  assert.equal(f.messages.at(-1).acknowledgement, null);
+  f.window.__chatplusIsViewingNotification({
+    tag: "conversation-a",
+    arrival: 1,
+  });
+  f.gesture();
+  f.flush();
+  assert.equal(f.messages.at(-1).acknowledgement, 1);
+});
+
+test("unrelated old-pane content changes never release an unknown native event", () => {
+  const f = fixture({ marker: false });
+  f.foreground(true, 1, 1);
+  f.window.__chatplusIsViewingNotification({
+    tag: "unrendered-message",
+    arrival: 1,
+  });
+  f.renderMessage();
+  f.gesture();
+  f.flush();
+  assert.equal(f.messages.at(-1).acknowledgement, null);
+  assert.deepEqual(f.messages.at(-1).readArrivals, []);
+});
+
+test("rendering only an older message cannot prove a newer completed native arrival", () => {
+  const f = fixture({ marker: false });
+  f.foreground(true, 1, 1);
+  f.window.__chatplusIsViewingNotification({
+    tag: "conversation-a",
+    arrival: 1,
+    revision: 1,
+  });
+  f.foreground(true, 2, 2);
+  f.window.__chatplusIsViewingNotification({
+    tag: "conversation-a",
+    arrival: 2,
+    revision: 2,
+  });
+  f.renderMessage();
+  f.gesture();
+  f.flush();
+  assert.deepEqual(f.messages.at(-1).readArrivals, [1]);
+  f.window.__chatplusAcceptRead([1]);
+  f.renderMessage();
+  f.gesture();
+  f.flush();
+  assert.equal(f.messages.at(-1).acknowledgement, 2);
+  assert.deepEqual(f.messages.at(-1).readArrivals, [2]);
+});
+
+test("arrival history saturation keeps unread rather than evicting unknown events", () => {
+  const f = fixture({ marker: false });
+  for (let arrival = 1; arrival <= 257; arrival += 1)
+    f.foreground(true, arrival, arrival);
+  for (let arrival = 1; arrival <= 257; arrival += 1)
+    f.window.__chatplusIsViewingNotification({
+      tag: "conversation-a",
+      arrival,
+    });
+  f.gesture();
+  f.flush();
+  assert.equal(f.messages.at(-1).acknowledgement, null);
+});
+
+test("a readonly query with stale renderer visibility cannot mint a lasting read proof", () => {
+  const f = fixture({ marker: false });
+  f.foreground(true, 1, 1);
+  assert.equal(
+    f.window.__chatplusIsViewingNotification({
+      tag: "conversation-a",
+      arrival: 1,
+    }),
+    true,
+  );
+  f.conversation("conversation-b");
+  f.gesture();
+  f.flush();
+  assert.equal(f.messages.at(-1).acknowledgement, null);
+  assert.deepEqual(f.messages.at(-1).readArrivals, []);
+});
+
+test("a rejected native read cannot reuse old proofs in another conversation", () => {
+  const f = fixture({ marker: false });
+  f.foreground(true, 1, 1);
+  f.window.__chatplusIsViewingNotification({
+    tag: "conversation-a",
+    arrival: 1,
+  });
+  f.gesture();
+  f.flush();
+  assert.deepEqual(f.messages.at(-1).readArrivals, [1]);
+  // Native deliberately sends no acceptance: its foreground revalidation rejected this proposal.
+  f.conversation("conversation-b");
+  f.gesture();
+  f.flush();
+  assert.equal(f.messages.at(-1).acknowledgement, null);
+  assert.deepEqual(f.messages.at(-1).readArrivals, []);
+});
+
+test("native confirmation retires only accepted read events before reading another conversation", () => {
+  const f = fixture({ marker: false });
+  f.foreground(true, 1, 1);
+  f.window.__chatplusIsViewingNotification({
+    tag: "conversation-a",
+    arrival: 1,
+  });
+  f.foreground(true, 2, 2);
+  f.window.__chatplusIsViewingNotification({
+    tag: "conversation-b",
+    arrival: 2,
+  });
+  f.gesture();
+  f.flush();
+  assert.deepEqual(f.messages.at(-1).readArrivals, [1]);
+  f.window.__chatplusAcceptRead([1]);
+  f.conversation("conversation-b");
+  f.gesture();
+  f.flush();
+  assert.deepEqual(f.messages.at(-1).readArrivals, [2]);
+});
+
+test("reading one exact event progresses while another conversation keeps provider badges positive", () => {
+  const f = fixture({ marker: true });
+  f.foreground(true, 1, 1);
+  f.window.__chatplusIsViewingNotification({
+    tag: "conversation-a",
+    arrival: 1,
+  });
+  f.foreground(true, 2, 2);
+  f.window.__chatplusIsViewingNotification({
+    tag: "conversation-b",
+    arrival: 2,
+  });
+  f.gesture();
+  f.flush();
+  assert.equal(f.messages.at(-1).hasUnread, true);
+  assert.deepEqual(f.messages.at(-1).readArrivals, [1]);
+  f.window.__chatplusAcceptRead([1]);
+  f.conversation("conversation-b");
+  f.badges(false);
+  f.gesture();
+  f.flush();
+  assert.deepEqual(f.messages.at(-1).readArrivals, [2]);
+});
+
+test("exact event proofs progress through unknown aggregate UI without proposing a provider zero", () => {
+  const f = fixture({ marker: false });
+  f.foreground(true, 1, 1);
+  f.window.__chatplusIsViewingNotification({
+    tag: "conversation-a",
+    arrival: 1,
+  });
+  f.aggregateUnavailable();
+  f.gesture();
+  f.flush();
+  assert.deepEqual(f.messages.at(-1).readArrivals, [1]);
+  assert.equal(f.messages.at(-1).proofOnly, true);
+  assert.equal(f.messages.at(-1).reason, "native-read-proof");
+});
 
 test("initial sidebar unread is observed and unchanged/missing provider state cannot invent a clear", () => {
   const f = fixture();
@@ -96,6 +384,7 @@ test("initial sidebar unread is observed and unchanged/missing provider state ca
       count: null,
       reason: "badge-present",
       acknowledgement: null,
+      readArrivals: [],
     },
   ]);
   f.badges(true);
@@ -263,4 +552,80 @@ test("flashing document title cannot create unread when sidebar is unavailable",
   const f = fixture({ present: false });
   f.flush();
   assert.equal(f.messages.length, 0);
+});
+
+for (const source of ["chatplus-dom", "synology-chat-dom", "discord-dom"]) {
+  test(`${source}: logically focused selected provider cannot acknowledge while host is minimized or backgrounded`, () => {
+    const f = fixture({ source });
+    f.foreground(false, 8);
+    f.badges(false);
+    f.gesture();
+    f.flush();
+    assert.equal(f.messages.at(-1).source, source);
+    assert.equal(f.messages.at(-1).acknowledgement, null);
+    assert.equal(
+      f.window.__chatplusIsViewingNotification({ tag: "conversation-a" }),
+      false,
+    );
+  });
+  test(`${source}: read acknowledgement belongs to the interacted conversation at its latest messages`, () => {
+    const f = fixture({ source });
+    f.foreground(true, 9);
+    f.gesture();
+    f.conversation("conversation-b");
+    f.badges(false);
+    f.flush();
+    assert.equal(f.messages.at(-1).acknowledgement, null);
+    f.gesture({ inConversation: false });
+    f.flush();
+    assert.equal(f.messages.at(-1).acknowledgement, null);
+    f.conversation("conversation-b", false);
+    f.gesture();
+    f.flush();
+    assert.equal(f.messages.at(-1).acknowledgement, null);
+    f.conversation("conversation-b", true);
+    f.gesture();
+    f.flush();
+    assert.equal(f.messages.at(-1).acknowledgement, 9);
+  });
+  test(`${source}: suppression needs matching conversation evidence and real host foreground`, () => {
+    const f = fixture({ source });
+    f.foreground(true, 10);
+    f.flush();
+    const viewed = f.window.__chatplusIsViewingNotification;
+    assert.equal(viewed({ tag: "conversation-a" }), true);
+    assert.equal(viewed({ tag: "conversation-b" }), false);
+    f.conversation("conversation-a", false);
+    assert.equal(viewed({ tag: "conversation-a" }), false);
+    f.conversation("conversation-a", true);
+    f.tabs(false);
+    assert.equal(viewed({ tag: "conversation-a" }), false);
+    f.tabs(true);
+    f.foreground(false, 11);
+    assert.equal(viewed({ tag: "conversation-a" }), false);
+  });
+}
+
+test("unmount removes provider listeners and native script hooks", () => {
+  const f = fixture();
+  f.badges(false);
+  const count = f.messages.length;
+  f.stop();
+  f.flush();
+  assert.equal(f.messages.length, count);
+  assert.equal(f.window.__chatplusSetForeground, undefined);
+  assert.equal(f.window.__chatplusIsViewingNotification, undefined);
+});
+
+test("trusted scrolling can acknowledge reaching latest messages but not an older viewport", () => {
+  const f = fixture();
+  f.foreground(true, 12);
+  f.conversation("conversation-a", false);
+  f.gesture({ type: "wheel" });
+  f.badges(false);
+  f.flush();
+  assert.equal(f.messages.at(-1).acknowledgement, null);
+  f.conversation("conversation-a", true);
+  f.flush();
+  assert.equal(f.messages.at(-1).acknowledgement, 12);
 });

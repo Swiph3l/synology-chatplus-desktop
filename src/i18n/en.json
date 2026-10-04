@@ -101,6 +101,7 @@
   "services.allowNotifications": "Allow desktop notifications for this service",
   "services.experimentalProvider": "Experimental provider",
   "services.experimentalHelp": "Web session support is available. Desktop unread and notifications are not yet supported.",
+  "services.notificationHelp": "Desktop notifications follow this service’s setting and the provider’s own notification preferences.",
   "services.ssoHelp": "External SSO may open in your default browser.",
   "services.remove": "Remove service",
   "services.removalHelp": "Removes this service from the desktop configuration after confirmation. Its stored profile is retained.",

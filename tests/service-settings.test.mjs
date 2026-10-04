@@ -98,7 +98,7 @@ test("provider status and desktop-notification fields follow provider classifica
     );
     assert.equal(
       document.querySelectorAll(".service-options input[type=checkbox]").length,
-      experimental ? 1 : 2,
+      provider === "slack" ? 1 : 2,
     );
     assert.equal(
       document.querySelectorAll(".service-field input[type=url]").length,
@@ -146,6 +146,35 @@ test("Discord uses name-only configuration and changing provider keeps service i
   assert.equal(services[0].notifications, false);
   assert.equal(document.querySelectorAll("input[type=url]").length, 0);
 });
+
+for (const provider of ["synology-chatplus", "synology-chat", "discord"]) {
+  test(`${provider}: mute stays in the service draft through editor refreshes`, () => {
+    const f = fixture(provider);
+    const notifications = f.document.getElementById(
+      "service-first-notifications",
+    );
+    assert.ok(notifications);
+    notifications.checked = false;
+    notifications.dispatchEvent(new f.window.Event("change"));
+    assert.equal(f.services[0].notifications, false);
+    f.add();
+    assert.equal(f.services[0].notifications, false);
+    assert.equal(
+      f.document.getElementById("service-first-notifications").checked,
+      false,
+    );
+    assert.equal(f.services[1].notifications, true);
+    assert.equal(f.services[0].id, "first");
+    const select = f.document.getElementById("service-first-provider");
+    select.value = provider === "discord" ? "synology-chat" : "discord";
+    select.dispatchEvent(new f.window.Event("change"));
+    assert.equal(f.services[0].notifications, false);
+    assert.equal(
+      f.document.getElementById("service-first-notifications").checked,
+      false,
+    );
+  });
+}
 
 test("enabled edits stay in the service draft and removal requires confirmation", async () => {
   const { window, document, services, add, confirm } = fixture();

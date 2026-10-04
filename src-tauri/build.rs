@@ -22,6 +22,7 @@ fn main() {
         "Cargo.toml",
         "Cargo.lock",
         "theme-bootstrap.js",
+        "unread-bootstrap.js",
         "../package.json",
         "../src",
     ] {

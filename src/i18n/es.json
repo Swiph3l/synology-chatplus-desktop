@@ -101,6 +101,7 @@
   "services.allowNotifications": "Permitir notificaciones de escritorio para este servicio",
   "services.experimentalProvider": "Proveedor experimental",
   "services.experimentalHelp": "Se admiten sesiones web. Aún no se admiten los indicadores de mensajes sin leer ni las notificaciones de escritorio.",
+  "services.notificationHelp": "Las notificaciones de escritorio dependen del ajuste de este servicio y de las preferencias de notificación del proveedor.",
   "services.ssoHelp": "El inicio de sesión externo mediante SSO puede abrir el navegador predeterminado.",
   "services.remove": "Eliminar servicio",
   "services.removalHelp": "Elimina este servicio de la configuración tras confirmarlo. Se conserva su perfil guardado.",

@@ -4,6 +4,7 @@ dist/
 src-tauri/target/
 src-tauri/gen/
 src-tauri/theme-bootstrap.js
+src-tauri/unread-bootstrap.js
 .env
 .env.*
 !.env.example

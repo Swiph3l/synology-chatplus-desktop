@@ -101,6 +101,7 @@
   "services.allowNotifications": "Zezwalaj na powiadomienia dla tej usługi",
   "services.experimentalProvider": "Dostawca eksperymentalny",
   "services.experimentalHelp": "Sesje internetowe są obsługiwane. Wskaźniki nieprzeczytanych i powiadomienia nie są jeszcze obsługiwane.",
+  "services.notificationHelp": "Powiadomienia na pulpicie zależą od ustawienia tej usługi i preferencji powiadomień u jej dostawcy.",
   "services.ssoHelp": "Zewnętrzne logowanie SSO może otworzyć domyślną przeglądarkę.",
   "services.remove": "Usuń usługę",
   "services.removalHelp": "Po potwierdzeniu usuwa usługę z konfiguracji aplikacji. Zapisany profil zostaje zachowany.",

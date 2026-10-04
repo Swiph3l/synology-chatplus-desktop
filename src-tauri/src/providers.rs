@@ -37,8 +37,8 @@ impl ProviderId {
                 display_name: "Synology Chat",
                 icon: "SC",
                 experimental: true,
-                unread: false,
-                notifications: false,
+                unread: true,
+                notifications: true,
                 theme: false,
             },
             Self::Slack => ProviderDefinition {
@@ -53,8 +53,8 @@ impl ProviderId {
                 display_name: "Discord",
                 icon: "D",
                 experimental: true,
-                unread: false,
-                notifications: false,
+                unread: true,
+                notifications: true,
                 theme: false,
             },
             Self::Mattermost => ProviderDefinition {
@@ -307,18 +307,49 @@ mod tests {
 
     #[test]
     fn providers_do_not_share_dom_adapters() {
-        assert!(ProviderId::SynologyChatplus.definition().unread);
         for provider in [
+            ProviderId::SynologyChatplus,
             ProviderId::SynologyChat,
-            ProviderId::Slack,
             ProviderId::Discord,
-            ProviderId::Mattermost,
         ] {
+            assert!(provider.definition().unread);
+            assert!(provider.definition().notifications);
+        }
+        for provider in [ProviderId::Slack, ProviderId::Mattermost] {
             assert!(!provider.definition().unread);
             assert!(!provider.definition().notifications);
             assert!(!provider.definition().theme);
         }
         assert!(serde_json::from_str::<ProviderId>("\"browser\"").is_err());
+        assert!(!ProviderId::SynologyChat.definition().theme);
+        assert!(!ProviderId::Discord.definition().theme);
+    }
+    #[test]
+    fn notification_capability_keeps_existing_service_mute_and_profiles() {
+        for provider in [
+            ProviderId::SynologyChatplus,
+            ProviderId::SynologyChat,
+            ProviderId::Discord,
+        ] {
+            let mut service = profile_service("muted-profile");
+            service.provider = provider;
+            service.url = if provider == ProviderId::Discord {
+                String::new()
+            } else {
+                "https://example.com/chat/".into()
+            };
+            service.notifications = false;
+            let profile = service.profile_directory(std::path::Path::new("profiles"));
+            normalize_services(std::slice::from_mut(&mut service)).unwrap();
+            assert!(!service.notifications);
+            assert_eq!(
+                service.profile_directory(std::path::Path::new("profiles")),
+                profile
+            );
+            service.notifications = true;
+            normalize_services(std::slice::from_mut(&mut service)).unwrap();
+            assert!(service.notifications);
+        }
     }
     #[test]
     fn discord_configuration_and_auth_navigation_are_exact_origin_only() {
@@ -387,7 +418,7 @@ mod tests {
             paths[0],
             Some(root.join("services").join("discord-personal"))
         );
-        assert!(services.iter().all(|s| !s.notifications));
+        assert!(services.iter().all(|s| s.notifications));
         services[0].name = "Renamed".into();
         assert_eq!(services[0].profile_directory(root), paths[0]);
         let saved = serde_json::to_vec(&services).unwrap();

@@ -1,5 +1,4 @@
 import css from "./dark.css?inline";
-import "./unread";
 import type { Theme } from "../app/settings";
 declare global {
   interface Window {
