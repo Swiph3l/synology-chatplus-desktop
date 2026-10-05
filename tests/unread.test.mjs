@@ -15,6 +15,7 @@ function fixture({
   marker = true,
   present = true,
   source = "chatplus-dom",
+  providerZero = false,
 } = {}) {
   const messages = [],
     tasks = [],
@@ -59,6 +60,8 @@ function fixture({
         hasUnread: present && !aggregateUnknown ? marker : null,
         count: null,
       }),
+      providerUnreadZero: () =>
+        providerZero && present && !aggregateUnknown && marker === false,
       observe(callback) {
         changed = callback;
         return () => {};
@@ -628,4 +631,72 @@ test("trusted scrolling can acknowledge reaching latest messages but not an olde
   f.conversation("conversation-a", true);
   f.flush();
   assert.equal(f.messages.at(-1).acknowledgement, 12);
+});
+
+for (const source of ["chatplus-dom", "synology-chat-dom", "discord-dom"]) {
+  test(`${source}: provider zero plus new trusted conversation input releases unmapped completed arrivals`, () => {
+    const f = fixture({ marker: false, source, providerZero: true });
+    f.foreground(false, 1, 1);
+    f.window.__chatplusIsViewingNotification({ tag: "", arrival: 1 });
+    f.flush();
+    f.foreground(true, 2, 1);
+    f.flush();
+    assert.equal(f.messages.at(-1).acknowledgement, null);
+    f.gesture({ trusted: false, type: "input" });
+    f.flush();
+    assert.equal(f.messages.at(-1).acknowledgement, null);
+    // Swiph3l: Providers may finish rendering before the native query; requiring
+    // a later content mutation would recreate the sticky unread after typing.
+    f.gesture({ type: "input" });
+    f.flush();
+    assert.equal(f.messages.at(-1).acknowledgement, 2);
+    assert.equal(f.messages.at(-1).readScope, "provider-zero");
+    assert.deepEqual(f.messages.at(-1).readArrivals, [1]);
+  });
+}
+
+test("provider zero cannot reuse input across content, conversation, visibility or arrival changes", () => {
+  for (const change of [
+    (f) => f.renderMessage(),
+    (f) => f.conversation("conversation-b"),
+    (f) => f.foreground(false, 2, 1),
+    (f) => f.foreground(true, 2, 2),
+    (f) => f.window.__chatplusIsViewingNotification({ tag: "", arrival: 2 }),
+  ]) {
+    const f = fixture({ marker: false, providerZero: true });
+    f.foreground(true, 1, 1);
+    f.gesture();
+    change(f);
+    f.flush();
+    assert.equal(f.messages.at(-1).acknowledgement, null);
+    assert.equal(f.messages.at(-1).readScope, undefined);
+  }
+});
+
+test("provider zero can recover saturated arrival history only through new trusted foreground read evidence", () => {
+  const f = fixture({ marker: false, providerZero: true });
+  for (let arrival = 1; arrival <= 257; arrival += 1)
+    f.foreground(false, arrival, arrival);
+  f.gesture();
+  f.flush();
+  assert.equal(f.messages.at(-1).acknowledgement, null);
+  f.foreground(true, 258, 257);
+  f.flush();
+  assert.equal(f.messages.at(-1).acknowledgement, null);
+  f.gesture();
+  f.flush();
+  assert.equal(f.messages.at(-1).readScope, "provider-zero");
+  assert.equal(f.messages.at(-1).readArrivals.length, 256);
+  f.window.__chatplusAcceptRead(f.messages.at(-1).readArrivals);
+  f.foreground(true, 259, 258);
+  f.window.__chatplusIsViewingNotification({
+    tag: "conversation-a",
+    arrival: 258,
+  });
+  f.badges(true);
+  f.flush();
+  f.gesture();
+  f.flush();
+  assert.deepEqual(f.messages.at(-1).readArrivals, [258]);
+  assert.equal(f.messages.at(-1).readScope, undefined);
 });

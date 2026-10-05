@@ -145,8 +145,8 @@ const chatHtml = `<main class="syno-chat"><aside class="channel-list-main">
   <div class="channel-list-container"><div class="channel-list-group"><i class="unread number-0"></i></div>
   <div class="channel-list-view"><div class="channel-list-item highlight"><span class="name">Example</span><i class="unread number-0"></i></div></div></div>
   <div class="channel-list-container"><div class="channel-list-group"><i class="unread number-0"></i></div><div class="channel-list-view"></div></div>
-  </aside><section class="msg-panel"><header class="chat-msg-top-toolbar"><button class="new-message-btn" style="display:none"></button></header>
-  <div class="chat-msgview"><div class="mcontentwrapper"><div class="contentwrapper"><div class="msg-wrap" data-post-id="1">Example</div></div></div></div></section></main>`;
+  </aside><section class="chat-center-content-panel"><section class="msg-panel"><header class="chat-msg-top-toolbar"><button class="new-message-btn" style="display:none"></button></header>
+  <div class="chat-msgview"><div class="mcontentwrapper"><div class="contentwrapper"><div class="msg-wrap" data-post-id="1">Example</div></div></div></div></section><div class="chat-input-aria-main"><div class="msg-inputarea-textarea" contenteditable="true"></div></div></section></main>`;
 function synologyChatFixture() {
   const state = fixture(chatHtml, "#channels/42");
   return {
@@ -165,7 +165,7 @@ test("ChatPlus aggregates all audited tab indicators without inventing counts", 
   assert.deepEqual(adapter.snapshot(), { hasUnread: null, count: null });
 });
 
-test("ChatPlus acknowledges only the actual visible latest viewer, not its header or an unmapped composer", () => {
+test("ChatPlus maps its main composer and actual latest viewer while excluding the header", () => {
   const { document, viewer, adapter } = chatplusFixture();
   const context = adapter.readContext();
   assert.equal(typeof context, "string");
@@ -179,7 +179,7 @@ test("ChatPlus acknowledges only the actual visible latest viewer, not its heade
   );
   assert.equal(
     adapter.interactionContext({ target: document.querySelector("textarea") }),
-    null,
+    context,
   );
   viewer.scrollTop = 200;
   assert.equal(adapter.readContext(), null);
@@ -188,6 +188,49 @@ test("ChatPlus acknowledges only the actual visible latest viewer, not its heade
   viewer.style.display = "none";
   assert.equal(adapter.readContext(), null);
   assert.equal(adapter.interactionContext({ target: viewer }), null);
+});
+
+test("Synology composers are scoped to one visible main conversation and exclude search/thread/ambiguous controls", () => {
+  for (const make of [chatplusFixture, synologyChatFixture]) {
+    const f = make();
+    const editor = f.document.querySelector(
+      '[data-testid="message-create-box-text-area"], .msg-inputarea-textarea',
+    );
+    const context = f.adapter.readContext();
+    assert.equal(f.adapter.interactionContext({ target: editor }), context);
+    const search = f.document.createElement("textarea");
+    search.getBoundingClientRect = editor.getBoundingClientRect;
+    f.document.querySelector("main").append(search);
+    assert.equal(f.adapter.interactionContext({ target: search }), null);
+    editor.style.display = "none";
+    assert.equal(f.adapter.interactionContext({ target: editor }), null);
+    editor.style.display = "";
+    const duplicate = editor.cloneNode(true);
+    duplicate.getBoundingClientRect = editor.getBoundingClientRect;
+    editor.parentElement.append(duplicate);
+    assert.equal(f.adapter.interactionContext({ target: editor }), null);
+    duplicate.remove();
+    if (f.adapter.source === "chatplus-dom")
+      editor.setAttribute("data-testid", "thread-viewer-comments-section");
+    else editor.setAttribute("contenteditable", "false");
+    assert.equal(f.adapter.interactionContext({ target: editor }), null);
+  }
+});
+
+test("Synology complete zero is an explicit adapter capability and missing provider surfaces cannot provide it", () => {
+  for (const make of [chatplusFixture, synologyChatFixture]) {
+    const f = make();
+    assert.equal(f.adapter.providerUnreadZero(), false);
+    f.document.querySelector('[data-testid="tab-item-indicator"]')?.remove();
+    f.document
+      .querySelector(".channel-list-item")
+      ?.classList.remove("highlight");
+    assert.equal(f.adapter.providerUnreadZero(), true);
+    f.document
+      .querySelector("#chat-main-app header, .channel-list-main")
+      .remove();
+    assert.equal(f.adapter.providerUnreadZero(), false);
+  }
 });
 
 test("ChatPlus host presentation hides the previously active latest conversation despite raw WebView focus when minimized or another service is selected", () => {

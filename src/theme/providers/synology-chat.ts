@@ -141,6 +141,7 @@ export function createSynologyChatAdapter(
   return {
     source: "synology-chat-dom",
     snapshot,
+    providerUnreadZero: () => snapshot().hasUnread === false,
     onHostForegroundChanged(foreground) {
       hostForeground = foreground;
       if (!projected) return;
@@ -205,7 +206,18 @@ export function createSynologyChatAdapter(
     },
     interactionContext(event) {
       const current = view();
-      return current && eventInside(event, current)
+      const center = current?.closest(".chat-center-content-panel");
+      const editors = [
+        ...(center?.querySelectorAll<HTMLElement>(
+          '.chat-input-aria-main .msg-inputarea-textarea[contenteditable="true"]',
+        ) ?? []),
+      ].filter((element) => visibleElement(document, element));
+      // Swiph3l: Chat's main composer is a sibling of .msg-panel inside the
+      // audited center panel; thread/edit/search inputs have different owners.
+      const editor = editors.length === 1 ? editors[0] : null;
+      return current &&
+        (eventInside(event, current) ||
+          (editor !== null && eventInside(event, editor)))
         ? contexts.key(current)
         : null;
     },

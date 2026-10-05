@@ -340,6 +340,7 @@ export function createDiscordAdapter(
   return {
     source: "discord-dom",
     snapshot,
+    providerUnreadZero: () => snapshot().hasUnread === false,
     onHostForegroundChanged(foreground) {
       if (hostForeground === foreground) return;
       hostForeground = foreground;

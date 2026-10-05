@@ -16,6 +16,7 @@ export interface ProviderUnreadAdapter {
   readContext(): string | null;
   contentContext(): string | null;
   interactionContext(event: Event): string | null;
+  providerUnreadZero?(): boolean;
   isViewingNotification(notification: ProviderNotification): boolean;
   onHostForegroundChanged?(foreground: boolean): void;
 }

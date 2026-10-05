@@ -178,9 +178,26 @@ export function createChatplusAdapter(
     );
     return candidates.length === 1 ? candidates[0] : null;
   };
+  const composer = (current: HTMLElement) => {
+    const app = current.closest("#chat-main-app");
+    const candidates = [
+      ...(app?.querySelectorAll<HTMLElement>(
+        '[data-testid="message-create-box-text-area"]',
+      ) ?? []),
+    ].filter(
+      (element) =>
+        !element.closest('[data-testid="thread-viewer-comments-section"]') &&
+        visibleElement(document, element) &&
+        !element.hasAttribute("disabled"),
+    );
+    // Swiph3l: The main composer has its own audited test ID; accepting every
+    // textarea would also accept search, thread replies and settings controls.
+    return candidates.length === 1 ? candidates[0] : null;
+  };
   return {
     source: "chatplus-dom",
     snapshot,
+    providerUnreadZero: () => snapshot().hasUnread === false,
     onHostForegroundChanged: presentation.setForeground,
     observe(changed) {
       const stop = contexts.observe(changed);
@@ -211,7 +228,11 @@ export function createChatplusAdapter(
     interactionContext(event) {
       const current = view();
       const scroll = current && viewport(current);
-      return current && scroll && eventInside(event, scroll)
+      const editor = current && composer(current);
+      return current &&
+        scroll &&
+        (eventInside(event, scroll) ||
+          (editor !== null && eventInside(event, editor)))
         ? contexts.key(current)
         : null;
     },

@@ -24,16 +24,16 @@ const providers = [
 function fixture(provider) {
   const markup = {
     "synology-chatplus": `<main id="chat-main-app"><header><button id="sidebar-tab-item-a"></button></header>
-      <section class="message-viewer-scrollbar" id="user-a"><article>Earlier message</article></section></main>`,
+      <section class="message-viewer-scrollbar" id="user-a"><article>Earlier message</article></section><textarea data-testid="message-create-box-text-area"></textarea></main>`,
     "synology-chat": `<main class="syno-chat"><aside class="channel-list-main">
       <div class="channel-list-container"><div class="channel-list-group"><i class="unread number-0"></i></div><div class="channel-list-view"><div class="channel-list-item"><span>User A</span><i class="unread number-0"></i></div></div></div>
       <div class="channel-list-container"><div class="channel-list-group"><i class="unread number-0"></i></div><div class="channel-list-view"></div></div>
-      </aside><section class="msg-panel"><header class="chat-msg-top-toolbar"><button class="new-message-btn" style="display:none"></button></header>
-      <div class="chat-msgview" id="user-a"><div class="mcontentwrapper"><div class="contentwrapper"><div class="msg-wrap" data-post-id="1">Earlier message</div></div></div></div></section></main>`,
+      </aside><section class="chat-center-content-panel"><section class="msg-panel"><header class="chat-msg-top-toolbar"><button class="new-message-btn" style="display:none"></button></header>
+      <div class="chat-msgview" id="user-a"><div class="mcontentwrapper"><div class="contentwrapper"><div class="msg-wrap" data-post-id="1">Earlier message</div></div></div></div></section><div class="chat-input-aria-main"><div class="msg-inputarea-textarea" contenteditable="true"></div></div></section></main>`,
     discord: `<div data-list-id="guildsnav" role="tree"><div id="guild-list-unread-dms" role="group"></div><div role="group" id="root-guilds">
       <div class="listItem__current"><div class="wrapper__current" aria-hidden="true"><span class="item__current"></span></div><div data-dnd-name="Guild"><a data-list-item-id="guildsnav___${guild}" aria-setsize="1" aria-posinset="1" aria-label="Guild"></a></div></div></div></div>
       <ul data-list-id="private-channels-generated"><li class="channel__current" aria-setsize="2" aria-posinset="1"><a href="/channels/@me">Friends</a></li><li class="channel__current dm__current" aria-setsize="2" aria-posinset="2"><div class="interactive__current"><a href="/channels/@me/${channel}">User A</a></div></li></ul>
-      <div class="chatContent_current"><div class="messagesWrapper__current"><div class="scroller__current" id="user-a"><ol data-list-id="chat-messages"><li id="chat-messages-${channel}-${previousMessage}"><div>Earlier message</div></li></ol></div></div></div>`,
+      <div class="chatContent_current"><div class="messagesWrapper__current"><div class="scroller__current" id="user-a"><ol data-list-id="chat-messages"><li id="chat-messages-${channel}-${previousMessage}"><div>Earlier message</div></li></ol></div></div><div class="channelTextArea_current"><div role="textbox" contenteditable="true"></div></div></div>`,
   };
   const { document, window: dom } = parseHTML(
     `<html><body class="eos-scope">${markup[provider]}</body></html>`,
@@ -144,10 +144,10 @@ function fixture(provider) {
       ]);
     flush();
   };
-  const gesture = () => {
-    const event = new dom.Event("click", { bubbles: true });
-    Object.defineProperty(event, "isTrusted", { value: true });
-    pane.dispatchEvent(event);
+  const gesture = (target = pane, type = "click", trusted = true) => {
+    const event = new dom.Event(type, { bubbles: true });
+    Object.defineProperty(event, "isTrusted", { value: trusted });
+    target.dispatchEvent(event);
     flush();
   };
   const badges = (unread) => {
@@ -192,6 +192,9 @@ function fixture(provider) {
     document,
     host,
     pane,
+    composer: document.querySelector(
+      '[data-testid="message-create-box-text-area"], .msg-inputarea-textarea, [role="textbox"]',
+    ),
     messages,
     rawHasFocus,
     flush,
@@ -272,20 +275,63 @@ for (const [name, provider, source] of providers) {
         "restore/select alone is not read",
       );
       f.gesture();
-      if (provider === "discord") {
-        assert.equal(f.messages.at(-1).acknowledgement, 3);
-        assert.deepEqual(
-          f.messages.at(-1).readArrivals,
-          [1],
-          "foreground gesture proves the exact new message",
-        );
-      } else {
-        assert.equal(
-          f.messages.at(-1).acknowledgement,
-          null,
-          "unaudited Synology native tag cannot fabricate reliable read evidence",
-        );
-      }
+      assert.equal(f.messages.at(-1).acknowledgement, 3);
+      assert.equal(f.messages.at(-1).readScope, "provider-zero");
+      assert.deepEqual(
+        f.messages.at(-1).readArrivals,
+        [1],
+        "trusted foreground conversation input plus proven provider zero retires the completed arrival without an exact tag",
+      );
     });
   }
+}
+
+for (const [name, provider] of providers) {
+  for (const input of ["keydown", "beforeinput", "input"]) {
+    test(`${name}: foreground composer ${input} acknowledges a restored conversation without a notification tag`, () => {
+      const f = fixture(provider);
+      f.host.__chatplusSetForeground(false, 1, 1);
+      f.arrival();
+      f.host.__chatplusIsViewingNotification({ tag: "", arrival: 1 });
+      f.badges(false);
+      f.host.__chatplusSetForeground(true, 2, 1);
+      f.flush();
+      assert.equal(f.messages.at(-1).acknowledgement, null);
+      f.gesture(f.composer, input, false);
+      assert.equal(f.messages.at(-1).acknowledgement, null);
+      f.gesture(f.composer, input);
+      assert.equal(f.messages.at(-1).acknowledgement, 2);
+      assert.equal(f.messages.at(-1).readScope, "provider-zero");
+      assert.deepEqual(f.messages.at(-1).readArrivals, [1]);
+    });
+  }
+
+  test(`${name}: sidebar/header activity cannot acknowledge a restored service zero`, () => {
+    const f = fixture(provider);
+    f.host.__chatplusSetForeground(false, 1, 1);
+    f.arrival();
+    f.badges(false);
+    f.host.__chatplusSetForeground(true, 2, 1);
+    f.flush();
+    const sidebar = f.document.querySelector(
+      '#sidebar-tab-item-a, .channel-list-item, [data-list-item-id^="guildsnav___"]',
+    );
+    f.gesture(sidebar);
+    assert.equal(f.messages.at(-1).acknowledgement, null);
+    f.gesture(f.composer);
+    assert.equal(f.messages.at(-1).acknowledgement, 2);
+  });
+
+  test(`${name}: an unrelated unread conversation prevents a provider-wide zero proof`, () => {
+    const f = fixture(provider);
+    f.host.__chatplusSetForeground(false, 1, 1);
+    f.arrival();
+    f.host.__chatplusIsViewingNotification({ tag: "unmapped", arrival: 1 });
+    f.host.__chatplusSetForeground(true, 2, 1);
+    f.flush();
+    f.gesture(f.composer, "input");
+    assert.equal(f.messages.at(-1).hasUnread, true);
+    assert.equal(f.messages.at(-1).readScope, undefined);
+    assert.equal(f.messages.at(-1).acknowledgement, null);
+  });
 }

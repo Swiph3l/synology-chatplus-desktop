@@ -56,8 +56,9 @@ export function installUnreadAdapter(
     acknowledgement: number | null = null,
     readArrivals: number[] = [],
     proofOnly = false,
+    readScope?: "provider-zero",
   ) => {
-    const key = `${hasUnread ? 1 : 0}:${count ?? "dot"}:${proofOnly ? "proof" : "state"}:${acknowledgement === null ? "observation" : `${acknowledgement}:${interactionSequence}`}`;
+    const key = `${hasUnread ? 1 : 0}:${count ?? "dot"}:${proofOnly ? "proof" : "state"}:${readScope ?? "exact"}:${acknowledgement === null ? "observation" : `${acknowledgement}:${interactionSequence}`}`;
     if (lastKey === key) return;
     lastKey = key;
     host.chrome?.webview?.postMessage(
@@ -70,6 +71,7 @@ export function installUnreadAdapter(
         acknowledgement,
         readArrivals: acknowledgement === null ? [] : readArrivals,
         proofOnly: proofOnly || undefined,
+        readScope,
       }),
     );
   };
@@ -81,7 +83,8 @@ export function installUnreadAdapter(
       // Swiph3l: Input before a new message cannot acknowledge it; a gesture is retained only when it already observed the unread being read.
       if (lastUnread !== true && !interactionSawUnread) interaction = null;
     }
-    // Swiph3l: Header clicks and service selection do not read a conversation. Empty provider state must match a real conversation gesture and the current native foreground generation.
+    // Swiph3l: Foreground trusted interaction is conversation-specific read evidence;
+    // service selection or retained WebView focus alone is not.
     const content = adapter.contentContext();
     const genuineRead =
       visible() &&
@@ -90,17 +93,28 @@ export function installUnreadAdapter(
       content !== null &&
       interactionContent === content;
     const readArrivals: number[] = [];
+    // Swiph3l: Synology does not expose reliable notification tags. A proven provider
+    // zero plus fresh conversation input can retire completed arrivals without
+    // inventing a tag mapping; native generation checks still protect pending arrivals.
+    const providerZero =
+      genuineRead &&
+      state.hasUnread === false &&
+      adapter.providerUnreadZero?.() === true;
     if (genuineRead) {
       // Swiph3l: Changed content may be an old avatar or another message. Retry retained native tags against actual visible rows; unrelated DOM changes cannot read unseen arrivals.
       for (const [arrival, notification] of unseenArrivals)
-        if (notification && adapter.isViewingNotification(notification))
+        if (
+          providerZero ||
+          (notification && adapter.isViewingNotification(notification))
+        )
           readArrivals.push(arrival);
     }
     // Swiph3l: Read proofs are fresh for this gesture. Native revalidation may reject a stale foreground snapshot, so only its acknowledgement can retire retained event tags.
     const acknowledged =
       genuineRead &&
-      !arrivalOverflow &&
-      (unseenArrivals.size === 0 || readArrivals.length > 0);
+      (providerZero ||
+        (!arrivalOverflow &&
+          (unseenArrivals.size === 0 || readArrivals.length > 0)));
     if (state.hasUnread === null) {
       // Swiph3l: Missing aggregate UI cannot become zero, but an exact current-message read must still progress independently of another unread/unknown conversation.
       if (acknowledged && readArrivals.length > 0) {
@@ -139,6 +153,8 @@ export function installUnreadAdapter(
       acknowledged ? "user-read-acknowledgement" : "provider-empty",
       acknowledged ? generation : null,
       readArrivals,
+      false,
+      providerZero ? "provider-zero" : undefined,
     );
     lastUnread = false;
     if (acknowledged) {
@@ -173,6 +189,13 @@ export function installUnreadAdapter(
   host.__chatplusIsViewingNotification = (notification) => {
     const arrival = notification.arrival;
     if (Number.isSafeInteger(arrival) && arrival! > 0) {
+      if (arrival! > incomingSequence) {
+        // Swiph3l: A notification query can beat its queued native projection;
+        // revoke prior input here too so an old gesture cannot read a new event.
+        interaction = null;
+        interactionContent = null;
+        interactionSawUnread = false;
+      }
       incomingSequence = Math.max(incomingSequence, arrival!);
       retain(arrival!, notification);
     }
@@ -189,6 +212,7 @@ export function installUnreadAdapter(
       if (acceptedArrivals.size > 256)
         acceptedArrivals.delete(acceptedArrivals.values().next().value!);
     }
+    if (unseenArrivals.size === 0) arrivalOverflow = false;
     schedule();
   };
   const interact = (event: Event) => {
@@ -209,6 +233,8 @@ export function installUnreadAdapter(
   document.addEventListener("pointerdown", interact, true);
   document.addEventListener("click", interact, true);
   document.addEventListener("keydown", interact, true);
+  document.addEventListener("beforeinput", interact, true);
+  document.addEventListener("input", interact, true);
   document.addEventListener("wheel", interact, true);
   adapter.onHostForegroundChanged?.(false);
   const stop = adapter.observe(schedule);
@@ -219,6 +245,8 @@ export function installUnreadAdapter(
     document.removeEventListener("pointerdown", interact, true);
     document.removeEventListener("click", interact, true);
     document.removeEventListener("keydown", interact, true);
+    document.removeEventListener("beforeinput", interact, true);
+    document.removeEventListener("input", interact, true);
     document.removeEventListener("wheel", interact, true);
     delete host.__chatplusSetForeground;
     delete host.__chatplusIsViewingNotification;
