@@ -185,7 +185,11 @@ test("service rail filters disabled services, routes activation and keeps unread
   assert.equal(calls.at(-1).args.id, "b");
   buttons[1].focus();
   events.get("service-unread")({
-    payload: { a: { hasUnread: true }, b: { hasUnread: false } },
+    payload: {
+      revision: 1,
+      services: { a: { hasUnread: true }, b: { hasUnread: false } },
+      aggregate: { hasUnread: true },
+    },
   });
   events.get("services-changed")({
     payload: { ...settings, activeService: "b" },
@@ -287,7 +291,13 @@ async function contextFixture() {
 
 test("right-click suppresses only service icon menus and targets the clicked service without activating it", async () => {
   const f = await contextFixture();
-  f.events.get("service-unread")({ payload: { first: { hasUnread: true } } });
+  f.events.get("service-unread")({
+    payload: {
+      revision: 1,
+      services: { first: { hasUnread: true } },
+      aggregate: { hasUnread: true },
+    },
+  });
   const event = f.dispatch(
     f.button("second").querySelector("img"),
     "contextmenu",
@@ -356,7 +366,13 @@ test("native-menu dismissal restores a replaced trigger but never steals outside
     f.dispatch(f.document.getElementById("outside"), "click").defaultPrevented,
     false,
   );
-  f.events.get("service-unread")({ payload: { first: { hasUnread: true } } });
+  f.events.get("service-unread")({
+    payload: {
+      revision: 1,
+      services: { first: { hasUnread: true } },
+      aggregate: { hasUnread: true },
+    },
+  });
   f.dismiss();
   await f.flush();
   assert.equal(f.document.activeElement, f.button("first"));
@@ -387,7 +403,13 @@ test("unread refresh never steals focus from a provider while the shell retains 
   const oldButton = f.button("first");
   oldButton.focus();
   f.blurShell();
-  f.events.get("service-unread")({ payload: { first: { hasUnread: true } } });
+  f.events.get("service-unread")({
+    payload: {
+      revision: 1,
+      services: { first: { hasUnread: true } },
+      aggregate: { hasUnread: true },
+    },
+  });
   assert.equal(
     f.document.activeElement,
     oldButton,
@@ -412,7 +434,13 @@ test("a failed native popup reports an accessible error without changing active/
 test("saved display-name changes refresh the rail immediately with stable icon, ID and unread state", async () => {
   const f = await contextFixture();
   const icon = f.button("first").querySelector("img").src;
-  f.events.get("service-unread")({ payload: { first: { hasUnread: true } } });
+  f.events.get("service-unread")({
+    payload: {
+      revision: 1,
+      services: { first: { hasUnread: true } },
+      aggregate: { hasUnread: true },
+    },
+  });
   const settings = structuredClone(f.settings);
   settings.services[0].name = "Renamed service";
   f.events.get("services-changed")({ payload: settings });
@@ -420,4 +448,83 @@ test("saved display-name changes refresh the rail immediately with stable icon, 
   assert.equal(f.button("first").querySelector("img").src, icon);
   assert.equal(f.button("first").getAttribute("aria-pressed"), "true");
   assert.ok(f.button("first").classList.contains("has-unread"));
+});
+
+test("sidebar follows native multi-service snapshots and cannot resurrect dots from older revisions after clearing", async () => {
+  const f = await contextFixture();
+  const emit = (revision, first, second) => {
+    const payload = {
+      revision,
+      services: {
+        first: { hasUnread: first },
+        second: { hasUnread: second },
+      },
+      aggregate: { hasUnread: first || second },
+    };
+    f.events.get("service-unread")({ payload });
+    for (const id of ["first", "second"])
+      assert.equal(
+        f.button(id).classList.contains("has-unread"),
+        payload.services[id].hasUnread,
+      );
+    assert.equal(
+      [...f.document.querySelectorAll(".rail-services button")].some((button) =>
+        button.classList.contains("has-unread"),
+      ),
+      payload.aggregate.hasUnread,
+      "sidebar and tray aggregate derive from the same native transition",
+    );
+    return payload;
+  };
+  const both = emit(1, true, true);
+  emit(2, false, true);
+  emit(3, false, false);
+  f.events.get("service-unread")({ payload: both });
+  assert.equal(f.button("first").classList.contains("has-unread"), false);
+  assert.equal(f.button("second").classList.contains("has-unread"), false);
+});
+
+test("the native unread snapshot IPC supplies the same initial per-service sidebar state", async () => {
+  const { window, document } = parseHTML(
+    '<html><body><main id="app"></main></body></html>',
+  );
+  const settings = {
+    activeService: "first",
+    services: [
+      {
+        id: "first",
+        provider: "synology-chatplus",
+        name: "First",
+        enabled: true,
+      },
+      { id: "second", provider: "discord", name: "Second", enabled: true },
+    ],
+  };
+  const native = {
+    revision: 7,
+    services: { first: { hasUnread: false }, second: { hasUnread: true } },
+    aggregate: { hasUnread: true },
+  };
+  const context = {
+    window,
+    document,
+    nativeInvoke: async (command) => {
+      if (command === "get_settings") return settings;
+      if (command === "get_unread_state") return native;
+    },
+    nativeListen: async () => () => {},
+  };
+  runInNewContext(result.outputFiles[0].text, context);
+  await context.railUi.renderServices();
+  for (const id of ["first", "second"])
+    assert.equal(
+      document
+        .querySelector(`[data-rail-key="${id}"]`)
+        .classList.contains("has-unread"),
+      native.services[id].hasUnread,
+    );
+  assert.equal(
+    document.querySelectorAll(".rail-services .has-unread").length,
+    1,
+  );
 });
