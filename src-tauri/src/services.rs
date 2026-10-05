@@ -312,7 +312,19 @@ fn create(app: &AppHandle, service: &ServiceConfig) -> Result<(), String> {
                 false
             }
         })
-        .on_new_window(move |target, _| {
+        .on_new_window(move |target, features| {
+            if crate::downloads::attachment_popup(&popup_service, &target) {
+                return match crate::downloads::popup(&popup_app, &popup_service, features) {
+                    Ok(window) => tauri::webview::NewWindowResponse::Create { window },
+                    Err(_) => {
+                        crate::shell::report(
+                            &popup_app,
+                            "Could not open the attachment. Try the download again.".into(),
+                        );
+                        tauri::webview::NewWindowResponse::Deny
+                    }
+                };
+            }
             if popup_service.provider.allows(&popup_service.url, &target) {
                 if let Some(view) = popup_app.get_webview(&label(&popup_service.id)) {
                     let _ = view.navigate(target);
@@ -368,6 +380,8 @@ fn create(app: &AppHandle, service: &ServiceConfig) -> Result<(), String> {
         .map_err(|_| "Could not create service WebView. Check WebView2 installation.")?;
     crate::platform::observe_connection(app, &view, &service.id)
         .map_err(|_| "Could not observe service connection.")?;
+    crate::downloads::attach(app, &view, &service.id)
+        .map_err(|_| "Could not observe attachment downloads.")?;
     crate::notification_bridge::attach(app, &view, service)
         .map_err(|_| "Could not attach service bridge.")?;
     crate::menu::restore_zoom(app, &view).map_err(|_| "Could not restore zoom.")?;
