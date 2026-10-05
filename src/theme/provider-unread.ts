@@ -13,6 +13,7 @@ export interface ProviderHostWindow {
     notification: ProviderNotification,
   ) => boolean;
   __chatplusAcceptRead?: (arrivals: number[]) => void;
+  __chatplusCompleteArrival?: (arrival: number) => void;
   chrome?: { webview?: { postMessage: (value: unknown) => void } };
 }
 
@@ -32,6 +33,14 @@ export function installUnreadAdapter(
   let lastUnread: boolean | null = null;
   let interactionSawUnread = false;
   let incomingSequence = 0;
+  let pendingRead: {
+    context: string;
+    content: string;
+    generation: number;
+    incomingSequence: number;
+    sequence: number;
+    sawUnread: boolean;
+  } | null = null;
   const unseenArrivals = new Map<number, ProviderNotification | null>();
   const acceptedArrivals = new Set<number>();
   let arrivalOverflow = false;
@@ -40,7 +49,8 @@ export function installUnreadAdapter(
     notification: ProviderNotification | null,
   ) => {
     if (acceptedArrivals.has(arrival)) return;
-    // Swiph3l: Never evict an unproven arrival to manufacture a read zero. A saturated history stays unread; restart reobserves provider state.
+    // Swiph3l: Never evict an unproven arrival to manufacture a read zero.
+    // Saturated history requires a proven provider-wide zero to recover.
     if (!unseenArrivals.has(arrival) && unseenArrivals.size >= 256) {
       arrivalOverflow = true;
       return;
@@ -158,6 +168,17 @@ export function installUnreadAdapter(
     );
     lastUnread = false;
     if (acknowledged) {
+      // Swiph3l: A trusted read can beat native query completion. Retain only this
+      // exact gesture context so completion can retry it without a clear timer.
+      if (providerZero && unseenArrivals.size > 0)
+        pendingRead = {
+          context: interaction!,
+          content: interactionContent!,
+          generation,
+          incomingSequence,
+          sequence: interactionSequence,
+          sawUnread: interactionSawUnread,
+        };
       interaction = null;
     }
     interactionSawUnread = false;
@@ -176,6 +197,7 @@ export function installUnreadAdapter(
       interaction = null;
       interactionContent = null;
       interactionSawUnread = false;
+      pendingRead = null;
     }
     if (newArrival) {
       incomingSequence = nextIncoming;
@@ -195,6 +217,7 @@ export function installUnreadAdapter(
         interaction = null;
         interactionContent = null;
         interactionSawUnread = false;
+        pendingRead = null;
       }
       incomingSequence = Math.max(incomingSequence, arrival!);
       retain(arrival!, notification);
@@ -212,7 +235,39 @@ export function installUnreadAdapter(
       if (acceptedArrivals.size > 256)
         acceptedArrivals.delete(acceptedArrivals.values().next().value!);
     }
-    if (unseenArrivals.size === 0) arrivalOverflow = false;
+    // Swiph3l: Saturation may have omitted the newest pending token locally;
+    // emptying retained tags is not confirmation that native finished that arrival.
+    if (
+      unseenArrivals.size === 0 &&
+      (pendingRead === null ||
+        acceptedArrivals.has(pendingRead.incomingSequence))
+    ) {
+      arrivalOverflow = false;
+      pendingRead = null;
+    }
+    schedule();
+  };
+  host.__chatplusCompleteArrival = (arrival) => {
+    const candidate = pendingRead;
+    if (
+      !Number.isSafeInteger(arrival) ||
+      arrival <= 0 ||
+      arrival > incomingSequence ||
+      candidate === null ||
+      !visible() ||
+      candidate.generation !== generation ||
+      candidate.incomingSequence !== incomingSequence ||
+      adapter.readContext() !== candidate.context ||
+      adapter.contentContext() !== candidate.content
+    )
+      return;
+    // Swiph3l: Native still filters pending arrivals. Completion only retries a
+    // valid earlier conversation gesture; it cannot manufacture new read input.
+    interaction = candidate.context;
+    interactionContent = candidate.content;
+    interactionSequence = candidate.sequence;
+    interactionSawUnread = candidate.sawUnread;
+    lastKey = undefined;
     schedule();
   };
   const interact = (event: Event) => {
@@ -251,5 +306,6 @@ export function installUnreadAdapter(
     delete host.__chatplusSetForeground;
     delete host.__chatplusIsViewingNotification;
     delete host.__chatplusAcceptRead;
+    delete host.__chatplusCompleteArrival;
   };
 }

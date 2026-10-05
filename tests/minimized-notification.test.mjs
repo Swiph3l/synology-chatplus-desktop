@@ -334,4 +334,21 @@ for (const [name, provider] of providers) {
     assert.equal(f.messages.at(-1).readScope, undefined);
     assert.equal(f.messages.at(-1).acknowledgement, null);
   });
+
+  test(`${name}: native completion retries a trusted restored composer read that beat its notification query`, () => {
+    const f = fixture(provider);
+    f.host.__chatplusSetForeground(false, 1, 1);
+    f.arrival();
+    f.badges(false);
+    f.host.__chatplusSetForeground(true, 2, 1);
+    f.flush();
+    f.gesture(f.composer, "input");
+    assert.equal(f.messages.at(-1).readScope, "provider-zero");
+    const beforeComplete = f.messages.length;
+    f.host.__chatplusCompleteArrival(1);
+    f.flush();
+    assert.equal(f.messages.length, beforeComplete + 1);
+    assert.equal(f.messages.at(-1).acknowledgement, 2);
+    assert.deepEqual(f.messages.at(-1).readArrivals, [1]);
+  });
 }

@@ -688,6 +688,7 @@ test("provider zero can recover saturated arrival history only through new trust
   assert.equal(f.messages.at(-1).readScope, "provider-zero");
   assert.equal(f.messages.at(-1).readArrivals.length, 256);
   f.window.__chatplusAcceptRead(f.messages.at(-1).readArrivals);
+  f.window.__chatplusAcceptRead([257]);
   f.foreground(true, 259, 258);
   f.window.__chatplusIsViewingNotification({
     tag: "conversation-a",
@@ -699,4 +700,77 @@ test("provider zero can recover saturated arrival history only through new trust
   f.flush();
   assert.deepEqual(f.messages.at(-1).readArrivals, [258]);
   assert.equal(f.messages.at(-1).readScope, undefined);
+});
+
+test("native completion retries a still-current trusted zero after a pending arrival without another user gesture", () => {
+  const f = fixture({ marker: false, providerZero: true });
+  f.foreground(true, 1, 2);
+  f.window.__chatplusIsViewingNotification({ tag: "", arrival: 1 });
+  f.gesture({ type: "input" });
+  f.flush();
+  assert.equal(f.messages.at(-1).readScope, "provider-zero");
+  assert.deepEqual(f.messages.at(-1).readArrivals, [2, 1]);
+  // Native accepts only the completed first event; the second still has a query.
+  f.window.__chatplusAcceptRead([1]);
+  f.flush();
+  const beforeComplete = f.messages.length;
+  f.window.__chatplusCompleteArrival(2);
+  f.flush();
+  assert.equal(f.messages.length, beforeComplete + 1);
+  assert.equal(f.messages.at(-1).acknowledgement, 1);
+  assert.deepEqual(f.messages.at(-1).readArrivals, [2]);
+  f.window.__chatplusAcceptRead([2]);
+  f.flush();
+  const accepted = f.messages.length;
+  f.window.__chatplusCompleteArrival(2);
+  f.flush();
+  assert.equal(f.messages.length, accepted, "accepted reads cannot be retried");
+});
+
+test("native completion cannot invent a gesture or revive a read after context, visibility or arrival changes", () => {
+  for (const change of [
+    (f) => f.renderMessage(),
+    (f) => f.conversation("conversation-b"),
+    (f) => f.foreground(false, 2, 1),
+    (f) => f.foreground(true, 2, 2),
+  ]) {
+    const f = fixture({ marker: false, providerZero: true });
+    f.foreground(true, 1, 1);
+    f.flush();
+    f.window.__chatplusCompleteArrival(1);
+    f.flush();
+    assert.equal(f.messages.at(-1).acknowledgement, null);
+    f.gesture();
+    f.flush();
+    change(f);
+    f.flush();
+    const beforeComplete = f.messages.length;
+    f.window.__chatplusCompleteArrival(1);
+    f.flush();
+    assert.equal(f.messages.length, beforeComplete);
+  }
+});
+
+test("a saturated retained history preserves the read candidate until the dropped newest pending arrival completes", () => {
+  const f = fixture({ marker: false, providerZero: true });
+  for (let arrival = 1; arrival <= 257; arrival += 1)
+    f.foreground(false, arrival, arrival);
+  f.foreground(true, 258, 257);
+  f.gesture({ type: "input" });
+  f.flush();
+  const completed = f.messages.at(-1).readArrivals;
+  assert.equal(completed.length, 256);
+  f.window.__chatplusAcceptRead(completed);
+  f.flush();
+  const beforeComplete = f.messages.length;
+  f.window.__chatplusCompleteArrival(257);
+  f.flush();
+  assert.equal(f.messages.length, beforeComplete + 1);
+  assert.equal(f.messages.at(-1).readScope, "provider-zero");
+  f.window.__chatplusAcceptRead([257]);
+  f.flush();
+  const accepted = f.messages.length;
+  f.window.__chatplusCompleteArrival(257);
+  f.flush();
+  assert.equal(f.messages.length, accepted);
 });
