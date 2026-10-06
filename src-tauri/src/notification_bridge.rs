@@ -300,6 +300,7 @@ impl PendingNotification {
             self.first_observation,
             self.visibility_generation,
             provider_viewed,
+            self.generation,
         )
     }
 }

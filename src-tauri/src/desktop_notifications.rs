@@ -15,7 +15,6 @@ pub struct Tracking {
     pub bridge_available: bool,
     duplicates: HashMap<u64, Instant>,
     retryable: HashMap<u64, Instant>,
-    recent: HashMap<u64, Instant>,
     pub last_status: String,
 }
 
@@ -92,7 +91,7 @@ pub fn request_permission(app: &AppHandle) -> Result<Permission, String> {
     Ok(permission(app))
 }
 pub fn send_test(app: &AppHandle, sound: bool) -> Result<(), String> {
-    // Swiph3l: The user's explicit test must work independently of provider unread, focus suppression and cooldown.
+    // Swiph3l: The user's explicit test must work independently of provider unread and focus suppression.
     let mut permission = permission(app);
     if !permission.granted {
         permission = request_permission(app)?;
@@ -106,6 +105,7 @@ pub fn send_test(app: &AppHandle, sound: bool) -> Result<(), String> {
         &crate::i18n::t(app, "notification.testBody"),
         sound,
         None,
+        0,
     )
 }
 fn native_state(app: &AppHandle) -> NativeState {
@@ -167,51 +167,72 @@ pub fn preview(
 pub fn should_notify(enabled: bool, granted: bool, focused: bool) -> bool {
     enabled && granted && !focused
 }
+
+fn suppression_reason(
+    enabled: bool,
+    granted: bool,
+    service_notifications: bool,
+    focused: bool,
+) -> Option<crate::diagnostics::NotificationReason> {
+    use crate::diagnostics::NotificationReason as Reason;
+    if !service_notifications {
+        Some(Reason::ServiceMuted)
+    } else if !enabled {
+        Some(Reason::GlobalDisabled)
+    } else if !granted {
+        Some(Reason::PermissionDenied)
+    } else if !should_notify(enabled, granted, focused) {
+        Some(Reason::ConversationViewed)
+    } else {
+        None
+    }
+}
 pub fn deliver_for(
     app: &AppHandle,
     id: &str,
     title: &str,
     body: &str,
-    tag: &str,
+    _tag: &str,
     identity: &str,
     first_observation: bool,
     generation: u64,
     provider_viewed: bool,
+    arrival_generation: u64,
 ) -> bool {
     let settings = crate::state::current(app);
+    use crate::diagnostics::{
+        notification, NotificationEvent as Event, NotificationReason as Reason,
+    };
+    let suppress = |reason| {
+        notification(app, id, Event::ToastSuppressed, reason, arrival_generation);
+        false
+    };
     let Some(config) = settings.services.iter().find(|s| s.id == id && s.enabled) else {
         return false;
     };
-    if !config.notifications || !config.provider.definition().notifications {
-        return false;
-    }
     let focused = crate::unread::actively_viewed(app, id, generation, provider_viewed);
     // Swiph3l: A trusted live browser notification is already an incoming event; a post-navigation delay silently drops real messages.
-    if !should_notify(
+    if let Some(reason) = suppression_reason(
         settings.desktop_notifications,
         permission(app).granted,
+        config.notifications && config.provider.definition().notifications,
         focused,
     ) {
-        return false;
+        return suppress(reason);
     }
-    // Swiph3l: Cooldown suppresses repeated toasts only; unread state must always update.
-    // Swiph3l: First toast is immediate, regardless of the selected cooldown.
-    let key = conversation_key(&format!("{id}:{tag}"));
-    let duplicate = conversation_key(&format!("{id}:{identity}"));
+    // Swiph3l: Distinct messages remain eligible even in the same conversation;
+    // only exact native event identity deduplicates delivery, never a cooldown.
+    let duplicate = event_key(&format!("{id}:{identity}"));
     let at = Instant::now();
-    {
+    let reserved = {
         let service = app.state::<Service>();
         let mut tracking = service.0.lock().unwrap_or_else(|e| e.into_inner());
-        if !reserve_delivery(
-            &mut tracking,
-            duplicate,
-            key,
-            at,
-            settings.notification_cooldown,
-            first_observation,
-        ) {
-            return false;
-        }
+        reserve_delivery(&mut tracking, duplicate, at, first_observation)
+    };
+    // Swiph3l: Diagnostics can query the native window; release delivery tracking
+    // before crossing that UI boundary so another callback cannot deadlock on it.
+    if !reserved {
+        return suppress(Reason::DuplicateEvent);
     }
     let (title, body) = preview(
         &settings.notification_preview,
@@ -225,13 +246,13 @@ pub fn deliver_for(
         &body,
         settings.notification_sound,
         Some(id.to_string()),
+        arrival_generation,
     );
     let service = app.state::<Service>();
     let mut tracking = service.0.lock().unwrap_or_else(|e| e.into_inner());
     if result.is_err() {
         // Swiph3l: Failed native delivery must release only its own reservation so a retry is possible without undoing a newer event.
-        release_failed_delivery(&mut tracking, duplicate, key, at);
-        let _ = app.emit_to("main", "notification-issue", ());
+        release_failed_delivery(&mut tracking, duplicate, at);
     }
     if result.is_ok() {
         tracking.retryable.remove(&duplicate);
@@ -241,16 +262,32 @@ pub fn deliver_for(
     } else {
         crate::i18n::t(app, "notification.submitFailed")
     };
-
+    drop(tracking);
+    if result.is_err() {
+        let _ = app.emit_to("main", "notification-issue", ());
+    }
+    notification(
+        app,
+        id,
+        if result.is_ok() {
+            Event::ToastSubmitted
+        } else {
+            Event::ToastSuppressed
+        },
+        if result.is_ok() {
+            Reason::NativeSubmission
+        } else {
+            Reason::SubmitFailed
+        },
+        arrival_generation,
+    );
     result.is_ok()
 }
 
 fn reserve_delivery(
     tracking: &mut Tracking,
     duplicate: u64,
-    conversation: u64,
     at: Instant,
-    cooldown: u16,
     first_observation: bool,
 ) -> bool {
     tracking
@@ -261,53 +298,18 @@ fn reserve_delivery(
         return false;
     }
     !duplicate_suppressed(tracking, duplicate, at)
-        && !cooldown_suppressed(tracking, conversation, at, cooldown)
 }
 
-fn release_failed_delivery(
-    tracking: &mut Tracking,
-    duplicate: u64,
-    conversation: u64,
-    at: Instant,
-) {
+fn release_failed_delivery(tracking: &mut Tracking, duplicate: u64, at: Instant) {
     if tracking.duplicates.get(&duplicate) == Some(&at) {
         tracking.duplicates.remove(&duplicate);
-    }
-    if tracking.recent.get(&conversation) == Some(&at) {
-        tracking.recent.remove(&conversation);
     }
     tracking.retryable.insert(duplicate, at);
 }
 
-fn cooldown_suppressed(tracking: &mut Tracking, key: u64, now: Instant, cooldown: u16) -> bool {
-    let cooldown = crate::state::normalize_notification_cooldown_seconds(cooldown) as u64;
-    if cooldown == 0 {
-        tracking.recent.clear();
-        return false;
-    }
-    let window = Duration::from_secs(cooldown);
-    tracking
-        .recent
-        .retain(|_, at| now.duration_since(*at) < window);
-    if tracking
-        .recent
-        .get(&key)
-        .is_some_and(|at| now.duration_since(*at) < window)
-    {
-        return true;
-    }
-    tracking.recent.insert(key, now);
-    false
-}
-
-fn conversation_key(tag: &str) -> u64 {
+fn event_key(identity: &str) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    let normalized = tag.trim();
-    if normalized.is_empty() {
-        "global".hash(&mut hasher);
-    } else {
-        normalized.hash(&mut hasher);
-    }
+    identity.hash(&mut hasher);
     hasher.finish()
 }
 #[cfg(windows)]
@@ -317,6 +319,7 @@ fn show(
     body: &str,
     sound: bool,
     service_id: Option<String>,
+    arrival_generation: u64,
 ) -> Result<(), String> {
     // Swiph3l: The desktop plugin drops activation callbacks/errors; use its WinRT backend once for routing and explicit silence.
     use tauri_winrt_notification::{Sound, Toast};
@@ -331,6 +334,15 @@ fn show(
             let dispatcher = app.clone();
             let _ = dispatcher.run_on_main_thread(move || {
                 // Swiph3l: WinRT activation is off-thread; restore and WebView activation must run on the existing UI thread.
+                if let Some(id) = id.as_deref() {
+                    crate::diagnostics::notification(
+                        &app,
+                        id,
+                        crate::diagnostics::NotificationEvent::ToastActivated,
+                        crate::diagnostics::NotificationReason::ExistingWindow,
+                        arrival_generation,
+                    );
+                }
                 let _ = crate::window::activate_notification(&app, id.as_deref());
             });
             Ok(())
@@ -345,6 +357,7 @@ fn show(
     body: &str,
     sound: bool,
     _service_id: Option<String>,
+    _arrival_generation: u64,
 ) -> Result<(), String> {
     let mut builder = app.notification().builder().title(title).body(body);
     if sound {
@@ -423,6 +436,32 @@ pub fn taskbar(window: &tauri::Window, unread: &crate::unread::Unread) {
 mod tests {
     use super::*;
     #[test]
+    fn consecutive_distinct_messages_in_one_conversation_both_deliver_and_duplicates_do_not() {
+        let mut tracking = Tracking::default();
+        let at = Instant::now();
+        let first = event_key("service:room:message-1");
+        let second = event_key("service:room:message-2");
+        assert!(reserve_delivery(&mut tracking, first, at, true));
+        assert!(reserve_delivery(
+            &mut tracking,
+            second,
+            at + Duration::from_millis(1),
+            true
+        ));
+        assert!(!reserve_delivery(
+            &mut tracking,
+            first,
+            at + Duration::from_millis(2),
+            false
+        ));
+        assert!(!reserve_delivery(
+            &mut tracking,
+            second,
+            at + Duration::from_secs(6),
+            false
+        ));
+    }
+    #[test]
     fn selected_user_a_or_other_service_minimized_native_event_is_toast_eligible_for_all_three_providers(
     ) {
         for provider in [
@@ -434,36 +473,42 @@ mod tests {
                 let focused =
                     selected == "origin" && crate::window::foreground_state(true, true, true);
                 assert!(provider.definition().notifications && should_notify(true, true, focused), "{provider:?}/{selected}: retained WebView focus cannot suppress a minimized notification");
-                for cooldown in [0, 30, 60, 90] {
-                    let mut tracking = Tracking::default();
-                    let at = Instant::now();
-                    assert!(
-                        reserve_delivery(&mut tracking, 1, 7, at, cooldown, true),
-                        "a first User A event must reach native submission policy"
-                    );
-                    assert!(!reserve_delivery(&mut tracking, 1, 7, at, cooldown, false));
-                }
+                let mut tracking = Tracking::default();
+                let at = Instant::now();
+                assert!(suppression_reason(
+                    true,
+                    true,
+                    provider.definition().notifications,
+                    focused
+                )
+                .is_none());
+                assert!(
+                    reserve_delivery(&mut tracking, 1, at, true),
+                    "a first User A event must reach native submission policy"
+                );
+                assert!(!reserve_delivery(&mut tracking, 1, at, false));
             }
         }
     }
     #[test]
-    fn duplicate_filter_is_independent_of_cooldown_and_scoped_to_service() {
+    fn exact_event_reservations_are_scoped_to_service() {
         let mut tracking = Tracking::default();
         let at = Instant::now();
-        let alpha = conversation_key("service-a:room:message");
-        let beta = conversation_key("service-b:room:message");
-        assert!(!duplicate_suppressed(&mut tracking, alpha, at));
-        assert!(!cooldown_suppressed(&mut tracking, alpha, at, 0));
-        assert!(duplicate_suppressed(
+        let alpha = event_key("service-a:room:message");
+        let beta = event_key("service-b:room:message");
+        assert!(reserve_delivery(&mut tracking, alpha, at, true));
+        assert!(!reserve_delivery(
             &mut tracking,
             alpha,
-            at + Duration::from_secs(1)
+            at + Duration::from_secs(1),
+            false
         ));
-        assert!(!duplicate_suppressed(&mut tracking, beta, at));
-        assert!(!duplicate_suppressed(
+        assert!(reserve_delivery(&mut tracking, beta, at, true));
+        assert!(!reserve_delivery(
             &mut tracking,
             alpha,
-            at + Duration::from_secs(7)
+            at + Duration::from_secs(7),
+            false
         ));
     }
     #[test]
@@ -498,6 +543,24 @@ mod tests {
     }
     #[test]
     fn permission_and_real_foreground_gate_notifications_without_a_startup_delay() {
+        use crate::diagnostics::NotificationReason as Reason;
+        assert!(suppression_reason(true, true, true, false).is_none());
+        assert!(matches!(
+            suppression_reason(false, true, true, false),
+            Some(Reason::GlobalDisabled)
+        ));
+        assert!(matches!(
+            suppression_reason(true, false, true, false),
+            Some(Reason::PermissionDenied)
+        ));
+        assert!(matches!(
+            suppression_reason(true, true, false, false),
+            Some(Reason::ServiceMuted)
+        ));
+        assert!(matches!(
+            suppression_reason(true, true, true, true),
+            Some(Reason::ConversationViewed)
+        ));
         assert!(should_notify(true, true, false));
         assert!(!should_notify(true, true, true));
         for values in [(false, true, false), (true, false, false)] {
@@ -509,145 +572,78 @@ mod tests {
     fn distinct_message_events_with_identical_content_are_not_deduplicated() {
         let mut tracking = Tracking::default();
         let at = Instant::now();
-        let first = conversation_key("service:browser-event:timestamp-1");
-        let next = conversation_key("service:browser-event:timestamp-2");
-        assert!(!duplicate_suppressed(&mut tracking, first, at));
-        assert!(duplicate_suppressed(
+        let first = event_key("service:browser-event:timestamp-1");
+        let next = event_key("service:browser-event:timestamp-2");
+        assert!(reserve_delivery(&mut tracking, first, at, true));
+        assert!(!reserve_delivery(
             &mut tracking,
             first,
-            at + Duration::from_secs(1)
+            at + Duration::from_secs(1),
+            false
         ));
-        assert!(!duplicate_suppressed(
+        assert!(reserve_delivery(
             &mut tracking,
             next,
-            at + Duration::from_secs(1)
+            at + Duration::from_secs(1),
+            true
         ));
         assert!(
-            !duplicate_suppressed(&mut tracking, first, at + Duration::from_secs(5)),
-            "duplicate callbacks do not extend the history window"
+            !reserve_delivery(&mut tracking, first, at + Duration::from_secs(5), false),
+            "a duplicate callback never becomes a new message when history expires"
         );
     }
 
     #[test]
-    fn failed_delivery_can_retry_without_releasing_a_newer_conversation_reservation() {
+    fn failed_delivery_can_retry_without_releasing_a_newer_event_reservation() {
         let mut tracking = Tracking::default();
         let at = Instant::now();
-        assert!(!duplicate_suppressed(&mut tracking, 1, at));
-        assert!(!cooldown_suppressed(&mut tracking, 2, at, 30));
-        release_failed_delivery(&mut tracking, 1, 2, at);
-        assert!(!duplicate_suppressed(&mut tracking, 1, at));
-        assert!(!cooldown_suppressed(&mut tracking, 2, at, 30));
+        assert!(reserve_delivery(&mut tracking, 1, at, true));
+        release_failed_delivery(&mut tracking, 1, at);
+        assert!(reserve_delivery(&mut tracking, 1, at, false));
         let newer = at + Duration::from_secs(1);
-        tracking.recent.insert(2, newer);
-        release_failed_delivery(&mut tracking, 1, 2, at);
-        assert_eq!(tracking.recent.get(&2), Some(&newer));
+        tracking.duplicates.insert(1, newer);
+        assert!(reserve_delivery(&mut tracking, 2, newer, true));
+        release_failed_delivery(&mut tracking, 1, at);
+        assert_eq!(tracking.duplicates.get(&1), Some(&newer));
+        assert_eq!(tracking.duplicates.get(&2), Some(&newer));
+        assert!(!reserve_delivery(&mut tracking, 1, newer, false));
     }
     #[test]
     fn duplicate_event_delivery_requires_a_failed_reservation_even_after_delivery_history_expires()
     {
         let mut tracking = Tracking::default();
         let at = Instant::now();
-        assert!(reserve_delivery(&mut tracking, 1, 2, at, 0, true));
+        assert!(reserve_delivery(&mut tracking, 1, at, true));
         assert!(!reserve_delivery(
             &mut tracking,
             1,
-            2,
             at + Duration::from_secs(6),
-            0,
             false
         ));
         assert!(
-            !reserve_delivery(&mut tracking, 3, 2, at + Duration::from_secs(6), 0, false),
+            !reserve_delivery(&mut tracking, 3, at + Duration::from_secs(6), false),
             "a muted or focus-suppressed original event cannot become a new notification later"
         );
         assert!(reserve_delivery(
             &mut tracking,
             3,
-            2,
             at + Duration::from_secs(6),
-            0,
             true
         ));
         let failed = at + Duration::from_secs(6);
-        release_failed_delivery(&mut tracking, 3, 2, failed);
+        release_failed_delivery(&mut tracking, 3, failed);
         assert!(reserve_delivery(
             &mut tracking,
             3,
-            2,
             failed + Duration::from_secs(1),
-            0,
             false
         ));
         tracking.retryable.remove(&3);
         assert!(!reserve_delivery(
             &mut tracking,
             3,
-            2,
             failed + Duration::from_secs(7),
-            0,
             false
-        ));
-    }
-
-    #[test]
-    fn conversation_cooldown_uses_tag_with_global_fallback() {
-        let global_a = conversation_key("");
-        let global_b = conversation_key("   ");
-        assert_eq!(global_a, global_b);
-        assert_eq!(
-            conversation_key("room:alpha"),
-            conversation_key("room:alpha")
-        );
-        assert_ne!(
-            conversation_key("room:alpha"),
-            conversation_key("room:beta")
-        );
-    }
-
-    #[test]
-    fn first_toast_is_immediate_then_suppressed_within_selected_window() {
-        let mut tracking = Tracking::default();
-        let key = conversation_key("room:alpha");
-        let now = Instant::now();
-        assert!(!cooldown_suppressed(&mut tracking, key, now, 60));
-        assert!(cooldown_suppressed(
-            &mut tracking,
-            key,
-            now + Duration::from_secs(10),
-            60
-        ));
-        assert!(!cooldown_suppressed(
-            &mut tracking,
-            key,
-            now + Duration::from_secs(61),
-            60
-        ));
-    }
-
-    #[test]
-    fn cooldown_is_per_conversation_and_zero_disables_suppression() {
-        let mut tracking = Tracking::default();
-        let now = Instant::now();
-        let alpha = conversation_key("room:alpha");
-        let beta = conversation_key("room:beta");
-        assert!(!cooldown_suppressed(&mut tracking, alpha, now, 60));
-        assert!(!cooldown_suppressed(
-            &mut tracking,
-            beta,
-            now + Duration::from_secs(5),
-            60
-        ));
-        assert!(!cooldown_suppressed(
-            &mut tracking,
-            alpha,
-            now + Duration::from_secs(6),
-            0
-        ));
-        assert!(!cooldown_suppressed(
-            &mut tracking,
-            alpha,
-            now + Duration::from_secs(7),
-            0
         ));
     }
 }
