@@ -14,6 +14,13 @@ pub enum Source {
     DiscordDom,
 }
 impl Source {
+    fn label(self) -> &'static str {
+        match self {
+            Self::ChatPlusDom => "chatplus-dom",
+            Self::SynologyChatDom => "synology-chat-dom",
+            Self::DiscordDom => "discord-dom",
+        }
+    }
     pub fn accepts(self, provider: crate::providers::ProviderId) -> bool {
         matches!(
             (self, provider),
@@ -34,9 +41,20 @@ pub struct Unread {
     pub has_unread: bool,
     pub mention_count: Option<u32>,
     pub last_update: Option<u64>,
+    pub generation: u64,
+    pub source: Option<&'static str>,
+    pub last_arrival: Option<u64>,
+    pub last_read_evidence: Option<u64>,
 }
 #[derive(Default)]
 pub struct Service(Mutex<Tracking>);
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Snapshot {
+    pub revision: u64,
+    pub services: HashMap<String, Unread>,
+    pub aggregate: Unread,
+}
 #[derive(Default)]
 struct Tracking {
     observations: HashMap<String, Unread>,
@@ -49,6 +67,7 @@ struct Tracking {
     foreground_service: Option<String>,
     presentation_generation: u64,
     visibility_generation: u64,
+    revision: u64,
 }
 struct ReadProof {
     through: u64,
@@ -68,16 +87,34 @@ pub fn remove(app: &AppHandle, id: &str) {
     tracking.pending_generations.remove(id);
     tracking.observed_unread_arrivals.remove(id);
     tracking.observed_unread_overflow.remove(id);
+    tracking.revision += 1;
     drop(tracking);
     refresh(app);
 }
-pub fn observations(app: &AppHandle) -> HashMap<String, Unread> {
-    app.state::<Service>()
-        .0
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .observations
-        .clone()
+fn project(tracking: &Tracking, settings: &crate::state::Settings) -> Snapshot {
+    let services: HashMap<_, _> = settings
+        .services
+        .iter()
+        .filter(|service| service.enabled)
+        .filter_map(|service| {
+            tracking
+                .observations
+                .get(&service.id)
+                .map(|state| (service.id.clone(), state.clone()))
+        })
+        .collect();
+    Snapshot {
+        revision: tracking.revision,
+        aggregate: aggregate(services.values()),
+        services,
+    }
+}
+
+pub fn snapshot(app: &AppHandle) -> Snapshot {
+    let settings = crate::state::current(app);
+    let service = app.state::<Service>();
+    let tracking = service.0.lock().unwrap_or_else(|e| e.into_inner());
+    project(&tracking, &settings)
 }
 
 pub fn invalidate_presentation(app: &AppHandle, id: &str) {
@@ -148,11 +185,31 @@ pub fn begin_incoming_for(
     let mut tracking = service.0.lock().unwrap_or_else(|e| e.into_inner());
     revoke_input(&mut tracking, id, first_observation);
     let read = begin_event(&mut tracking, id, first_observation, previous_generation);
+    let changed = first_observation && latch_arrival(&mut tracking, id, read, now());
     let generation = IncomingGeneration {
         read,
         visibility: tracking.visibility_generation,
     };
     drop(tracking);
+    if first_observation {
+        crate::diagnostics::notification(
+            app,
+            id,
+            crate::diagnostics::NotificationEvent::NotificationArrival,
+            crate::diagnostics::NotificationReason::BrowserEvent,
+            read,
+        );
+    }
+    if changed {
+        crate::diagnostics::notification(
+            app,
+            id,
+            crate::diagnostics::NotificationEvent::UnreadLatched,
+            crate::diagnostics::NotificationReason::BrowserEvent,
+            read,
+        );
+        refresh(app);
+    }
     // Swiph3l: Background arrivals also need a renderer read barrier; retaining
     // each service's latest sequence lets restore retry a missed projection.
     if first_observation {
@@ -245,18 +302,58 @@ fn consume_read_arrivals(tracking: &mut Tracking, id: &str, read_arrivals: &[u64
 fn native_unread_complete(tracking: &Tracking, id: &str) -> bool {
     !tracking.observed_unread_overflow.contains(id)
         && tracking
+            .pending_generations
+            .get(id)
+            .map_or(true, HashSet::is_empty)
+        && tracking
             .observed_unread_arrivals
             .get(id)
             .map_or(true, HashSet::is_empty)
 }
 
+fn consume_provider_zero(tracking: &mut Tracking, id: &str) -> Vec<u64> {
+    // Swiph3l: Synology does not expose reliable read tags. A trusted current
+    // conversation plus provider-wide zero can retire completed arrivals;
+    // asynchronous arrivals still pending must remain unread when they finish.
+    let completed = tracking
+        .observed_unread_arrivals
+        .get(id)
+        .into_iter()
+        .flat_map(|arrivals| arrivals.iter().copied())
+        .filter(|arrival| {
+            !tracking
+                .pending_generations
+                .get(id)
+                .is_some_and(|pending| pending.contains(arrival))
+        })
+        .collect::<Vec<_>>();
+    tracking.observed_unread_overflow.remove(id);
+    let mut accepted = consume_read_arrivals(tracking, id, &completed);
+    if let Some(latest) = tracking.incoming_generations.get(id).copied() {
+        // Swiph3l: Saturation can omit the newest local tag. Echo a completed
+        // scope boundary so the renderer can retire its zero-proof retry too.
+        if latest > 0
+            && !accepted.contains(&latest)
+            && !tracking
+                .pending_generations
+                .get(id)
+                .is_some_and(|pending| pending.contains(&latest))
+        {
+            accepted.push(latest);
+        }
+    }
+    accepted
+}
+
 pub fn accept_read_for(app: &AppHandle, id: &str, arrivals: &[u64]) {
     if !arrivals.is_empty() {
         if let Some(view) = app.get_webview(&crate::services::label(id)) {
-            let _ = view.eval(&format!(
-                "window.__chatplusAcceptRead?.({})",
-                serde_json::to_string(arrivals).unwrap()
-            ));
+            for chunk in arrivals.chunks(READ_ARRIVAL_LIMIT) {
+                let _ = view.eval(&format!(
+                    "window.__chatplusAcceptRead?.({})",
+                    serde_json::to_string(chunk).unwrap()
+                ));
+            }
         }
     }
 }
@@ -360,6 +457,13 @@ pub fn incoming_for(
     );
     drop(tracking);
     if changed {
+        crate::diagnostics::notification(
+            app,
+            id,
+            crate::diagnostics::NotificationEvent::UnreadLatched,
+            crate::diagnostics::NotificationReason::BrowserEvent,
+            generation,
+        );
         refresh(app);
     }
     viewed
@@ -368,7 +472,7 @@ pub fn incoming_for(
 fn observe_browser_event(
     tracking: &mut Tracking,
     id: &str,
-    actively_viewed: bool,
+    _actively_viewed: bool,
     at: u64,
     first_observation: bool,
     generation: u64,
@@ -384,12 +488,31 @@ fn observe_browser_event(
     {
         return false;
     }
-    if first_observation && !actively_viewed {
-        remember_unread_arrival(tracking, id, generation);
-        observe(&mut tracking.observations, id, true, false, at)
+    if first_observation {
+        latch_arrival(tracking, id, generation, at)
     } else {
         false
     }
+}
+
+fn latch_arrival(tracking: &mut Tracking, id: &str, generation: u64, at: u64) -> bool {
+    if tracking
+        .observed_unread_arrivals
+        .get(id)
+        .is_some_and(|arrivals| arrivals.contains(&generation))
+    {
+        return false;
+    }
+    remember_unread_arrival(tracking, id, generation);
+    // Swiph3l: Selected/loaded conversations are not acknowledgements. Every
+    // arrival latches before its asynchronous view query or native toast.
+    observe(&mut tracking.observations, id, true, false, at);
+    let state = tracking.observations.get_mut(id).unwrap();
+    state.generation += 1;
+    state.source = Some("browser-notification");
+    state.last_arrival = Some(at);
+    tracking.revision += 1;
+    true
 }
 
 fn now() -> u64 {
@@ -406,15 +529,7 @@ fn aggregate<'a>(values: impl Iterator<Item = &'a Unread>) -> Unread {
     })
 }
 pub fn current(app: &AppHandle) -> Unread {
-    let settings = crate::state::current(app);
-    let states = observations(app);
-    aggregate(
-        settings
-            .services
-            .iter()
-            .filter(|s| s.enabled)
-            .filter_map(|s| states.get(&s.id)),
-    )
+    snapshot(app).aggregate
 }
 pub fn title(value: &Unread, enabled: bool) -> String {
     if enabled && value.has_unread {
@@ -433,6 +548,7 @@ pub fn publish_for(
     acknowledgement: Option<u64>,
     read_arrivals: &[u64],
     proof_only: bool,
+    provider_zero: bool,
 ) {
     let settings = crate::state::current(app);
     if !settings
@@ -446,7 +562,12 @@ pub fn publish_for(
         settings.active_service.as_deref() == Some(id) && crate::window::is_foreground(app);
     let service = app.state::<Service>();
     let mut tracking = service.0.lock().unwrap_or_else(|e| e.into_inner());
-    let outcome = observe_provider(
+    let valid_read = read_acknowledged(&tracking, id, foreground, acknowledgement);
+    let was_unread = tracking
+        .observations
+        .get(id)
+        .is_some_and(|state| state.has_unread);
+    let outcome = observe_provider_scoped(
         &mut tracking,
         id,
         has_unread,
@@ -455,8 +576,64 @@ pub fn publish_for(
         read_arrivals,
         proof_only,
         now(),
+        provider_zero,
     );
+    if outcome.changed {
+        let state = tracking.observations.get_mut(id).unwrap();
+        state.source = Some(source.label());
+        if has_unread && !was_unread {
+            state.last_arrival = state.last_update;
+        }
+    }
+    let cleared = was_unread
+        && tracking
+            .observations
+            .get(id)
+            .is_some_and(|state| !state.has_unread);
     drop(tracking);
+    use crate::diagnostics::{
+        notification, NotificationEvent as Event, NotificationReason as Reason,
+    };
+    if let Some(generation) = acknowledgement {
+        notification(
+            app,
+            id,
+            Event::ReadCandidate,
+            Reason::ProviderObservation,
+            generation,
+        );
+        let reason = if !valid_read {
+            Reason::StaleOrBackground
+        } else if provider_zero {
+            Reason::ProviderZero
+        } else if !outcome.accepted.is_empty() {
+            Reason::ExactArrival
+        } else {
+            Reason::UnprovenArrival
+        };
+        notification(
+            app,
+            id,
+            if valid_read && (cleared || !outcome.accepted.is_empty()) {
+                Event::ReadAccepted
+            } else {
+                Event::ReadRejected
+            },
+            reason,
+            generation,
+        );
+        if cleared {
+            notification(app, id, Event::UnreadCleared, reason, generation);
+        }
+    } else if outcome.changed && has_unread {
+        notification(
+            app,
+            id,
+            Event::UnreadLatched,
+            Reason::ProviderObservation,
+            0,
+        );
+    }
     accept_read_for(app, id, &outcome.accepted);
     if outcome.changed {
         refresh(app);
@@ -468,6 +645,7 @@ struct ProviderObservation {
     accepted: Vec<u64>,
 }
 
+#[cfg(test)]
 fn observe_provider(
     tracking: &mut Tracking,
     id: &str,
@@ -478,22 +656,75 @@ fn observe_provider(
     proof_only: bool,
     at: u64,
 ) -> ProviderObservation {
+    observe_provider_scoped(
+        tracking,
+        id,
+        has_unread,
+        foreground,
+        acknowledgement,
+        read_arrivals,
+        proof_only,
+        at,
+        false,
+    )
+}
+
+fn observe_provider_scoped(
+    tracking: &mut Tracking,
+    id: &str,
+    has_unread: bool,
+    foreground: bool,
+    acknowledgement: Option<u64>,
+    read_arrivals: &[u64],
+    proof_only: bool,
+    at: u64,
+    provider_zero: bool,
+) -> ProviderObservation {
     let valid_read = read_acknowledged(tracking, id, foreground, acknowledgement);
     let mut accepted = Vec::new();
+    let retained_before = tracking
+        .observed_unread_arrivals
+        .get(id)
+        .map_or(0, HashSet::len);
+    if valid_read && provider_zero && !has_unread && !proof_only {
+        accepted = consume_provider_zero(tracking, id);
+    }
     if valid_read && !tracking.observed_unread_overflow.contains(id) {
-        accepted = consume_read_arrivals(tracking, id, read_arrivals);
+        accepted.extend(consume_read_arrivals(tracking, id, read_arrivals));
         record_acknowledgement(tracking, id);
     }
+    let proofs_changed = tracking
+        .observed_unread_arrivals
+        .get(id)
+        .map_or(0, HashSet::len)
+        < retained_before;
     // Swiph3l: Exact reads can progress while another conversation remains unread
     // or badges are unknown; an unknown snapshot must never invent an aggregate state.
     if proof_only {
-        return ProviderObservation {
-            changed: false,
-            accepted,
-        };
+        let changed = proofs_changed;
+        if changed {
+            if let Some(state) = tracking.observations.get_mut(id) {
+                state.generation += 1;
+                state.last_read_evidence = Some(at);
+            }
+            tracking.revision += 1;
+        }
+        return ProviderObservation { changed, accepted };
     }
     let acknowledged = valid_read && native_unread_complete(tracking, id);
-    let changed = observe(&mut tracking.observations, id, has_unread, acknowledged, at);
+    let mut changed = observe(&mut tracking.observations, id, has_unread, acknowledged, at);
+    if proofs_changed {
+        changed = true;
+    }
+    if changed {
+        if let Some(state) = tracking.observations.get_mut(id) {
+            state.generation += 1;
+            if valid_read {
+                state.last_read_evidence = Some(at);
+            }
+        }
+        tracking.revision += 1;
+    }
     ProviderObservation { changed, accepted }
 }
 
@@ -531,24 +762,312 @@ fn observe(
         Unread {
             has_unread,
             last_update: Some(at),
+            generation: states.get(id).map_or(0, |state| state.generation),
+            last_arrival: states.get(id).and_then(|state| state.last_arrival),
+            last_read_evidence: states.get(id).and_then(|state| state.last_read_evidence),
+            source: states.get(id).and_then(|state| state.source),
             ..Unread::default()
         },
     );
     true
 }
 pub fn refresh(app: &AppHandle) {
-    let unread = current(app);
+    let handle = app.clone();
+    // Swiph3l: Commands and native callbacks can race. Read and apply the snapshot
+    // together on the UI thread so an older tray/title update cannot overtake a clear.
+    let _ = app.run_on_main_thread(move || refresh_presentation(&handle));
+}
+
+fn refresh_presentation(app: &AppHandle) {
+    // Swiph3l: Sidebar and tray derive from one native snapshot; separate UI
+    // booleans or separate reads could present different transitions.
+    let snapshot = snapshot(app);
+    let unread = &snapshot.aggregate;
     let settings = crate::state::current(app);
     if let Some(window) = app.get_window("main") {
-        let _ = window.set_title(&title(&unread, settings.unread_title));
-        crate::desktop_notifications::taskbar(&window, &unread);
-        let _ = app.emit_to("main", "service-unread", observations(app));
+        let _ = window.set_title(&title(unread, settings.unread_title));
+        crate::desktop_notifications::taskbar(&window, unread);
+        let _ = app.emit_to("main", "service-unread", &snapshot);
     }
-    crate::tray::refresh(app);
+    crate::tray::refresh_unread(app, unread);
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn immediate_arrival_stays_latched_while_a_trusted_zero_waits_for_query_completion() {
+        let mut tracking = Tracking {
+            foreground_service: Some("origin".into()),
+            presentation_generation: 4,
+            ..Default::default()
+        };
+        let arrival = begin_event(&mut tracking, "origin", true, None);
+        assert!(latch_arrival(&mut tracking, "origin", arrival, 1));
+        let early = observe_provider_scoped(
+            &mut tracking,
+            "origin",
+            false,
+            true,
+            Some(4),
+            &[],
+            false,
+            2,
+            true,
+        );
+        assert!(early.accepted.is_empty());
+        assert!(!early.changed);
+        assert!(tracking.observations["origin"].has_unread);
+        assert!(!observe_browser_event(
+            &mut tracking,
+            "origin",
+            true,
+            3,
+            true,
+            arrival
+        ));
+        let retry = observe_provider_scoped(
+            &mut tracking,
+            "origin",
+            false,
+            true,
+            Some(4),
+            &[],
+            false,
+            4,
+            true,
+        );
+        assert_eq!(retry.accepted, vec![arrival]);
+        assert!(!tracking.observations["origin"].has_unread);
+    }
+
+    #[test]
+    fn saturated_provider_zero_echoes_completed_latest_boundary_but_never_a_pending_one() {
+        let mut tracking = Tracking {
+            foreground_service: Some("origin".into()),
+            presentation_generation: 4,
+            ..Default::default()
+        };
+        for at in 1..=READ_ARRIVAL_LIMIT as u64 + 1 {
+            let arrival = begin_event(&mut tracking, "origin", true, None);
+            latch_arrival(&mut tracking, "origin", arrival, at);
+            finish_event(&mut tracking, "origin", arrival, true);
+        }
+        let latest = tracking.incoming_generations["origin"];
+        let read = observe_provider_scoped(
+            &mut tracking,
+            "origin",
+            false,
+            true,
+            Some(4),
+            &[],
+            false,
+            300,
+            true,
+        );
+        assert!(read.accepted.contains(&latest));
+        assert_eq!(read.accepted.len(), READ_ARRIVAL_LIMIT + 1);
+        assert!(!tracking.observations["origin"].has_unread);
+        assert!(tracking.read_generations["origin"].includes(latest));
+    }
+    fn assert_presentations(tracking: &Tracking, settings: &crate::state::Settings) {
+        let snapshot = project(tracking, settings);
+        for service in settings.services.iter().filter(|service| service.enabled) {
+            assert_eq!(
+                snapshot.services.get(&service.id),
+                tracking.observations.get(&service.id)
+            );
+        }
+        assert_eq!(
+            snapshot.aggregate.has_unread,
+            snapshot.services.values().any(|state| state.has_unread)
+        );
+    }
+
+    #[test]
+    fn provider_zero_matrix_preserves_native_sidebar_and_tray_after_each_transition() {
+        use crate::providers::{ProviderId, ServiceConfig};
+        for provider in [
+            ProviderId::SynologyChatplus,
+            ProviderId::SynologyChat,
+            ProviderId::Discord,
+        ] {
+            let settings = crate::state::Settings {
+                services: ["first", "second"]
+                    .into_iter()
+                    .map(|id| ServiceConfig {
+                        id: id.into(),
+                        provider,
+                        name: id.into(),
+                        url: "https://example.invalid/".into(),
+                        enabled: true,
+                        notifications: true,
+                    })
+                    .collect(),
+                ..Default::default()
+            };
+            let mut tracking = Tracking::default();
+            // A/I: retained child focus and disappearing background badges.
+            let arrival = begin_event(&mut tracking, "first", true, None);
+            observe_browser_event(&mut tracking, "first", false, 1, true, arrival);
+            assert_presentations(&tracking, &settings);
+            for (foreground, acknowledgement) in [(false, None), (true, None), (true, Some(0))] {
+                // B/G/H: restore, synthetic observation, or switching only.
+                observe_provider_scoped(
+                    &mut tracking,
+                    "first",
+                    false,
+                    foreground,
+                    acknowledgement,
+                    &[],
+                    false,
+                    2,
+                    true,
+                );
+                assert!(tracking.observations["first"].has_unread);
+                assert_presentations(&tracking, &settings);
+            }
+            tracking.foreground_service = Some("first".into());
+            tracking.presentation_generation = 3;
+            observe_provider_scoped(
+                &mut tracking,
+                "first",
+                false,
+                true,
+                Some(2),
+                &[],
+                false,
+                3,
+                true,
+            );
+            assert!(tracking.observations["first"].has_unread);
+            // C/D: fresh trusted conversation/composer proof with provider zero.
+            let read = observe_provider_scoped(
+                &mut tracking,
+                "first",
+                false,
+                true,
+                Some(3),
+                &[],
+                false,
+                4,
+                true,
+            );
+            assert_eq!(read.accepted, vec![arrival]);
+            assert!(!tracking.observations["first"].has_unread);
+            assert_eq!(tracking.observations["first"].last_read_evidence, Some(4));
+            assert_presentations(&tracking, &settings);
+            // E/F: clear one service then the final service; aggregation is derived.
+            for id in ["first", "second"] {
+                let arrival = begin_event(&mut tracking, id, true, None);
+                observe_browser_event(&mut tracking, id, false, 5, true, arrival);
+                assert_presentations(&tracking, &settings);
+            }
+            observe_provider_scoped(
+                &mut tracking,
+                "first",
+                false,
+                true,
+                Some(3),
+                &[],
+                false,
+                6,
+                true,
+            );
+            assert!(!tracking.observations["first"].has_unread);
+            assert!(tracking.observations["second"].has_unread);
+            assert!(project(&tracking, &settings).aggregate.has_unread);
+            assert_presentations(&tracking, &settings);
+            tracking.foreground_service = Some("second".into());
+            tracking.presentation_generation = 4;
+            observe_provider_scoped(
+                &mut tracking,
+                "second",
+                false,
+                true,
+                Some(4),
+                &[],
+                false,
+                7,
+                true,
+            );
+            assert!(!project(&tracking, &settings).aggregate.has_unread);
+            assert_presentations(&tracking, &settings);
+        }
+    }
+
+    #[test]
+    fn provider_zero_cannot_read_pending_arrivals_or_positive_unknown_state() {
+        let mut tracking = Tracking {
+            foreground_service: Some("origin".into()),
+            presentation_generation: 4,
+            ..Default::default()
+        };
+        let completed = begin_event(&mut tracking, "origin", true, None);
+        observe_browser_event(&mut tracking, "origin", false, 1, true, completed);
+        let pending = begin_event(&mut tracking, "origin", true, None);
+        for (has_unread, proof_only) in [(true, false), (false, true)] {
+            observe_provider_scoped(
+                &mut tracking,
+                "origin",
+                has_unread,
+                true,
+                Some(4),
+                &[],
+                proof_only,
+                2,
+                true,
+            );
+            assert!(tracking.observations["origin"].has_unread);
+        }
+        let read = observe_provider_scoped(
+            &mut tracking,
+            "origin",
+            false,
+            true,
+            Some(4),
+            &[],
+            false,
+            3,
+            true,
+        );
+        assert_eq!(read.accepted, vec![completed]);
+        assert!(
+            tracking.observations["origin"].has_unread,
+            "pending arrival keeps every presentation unread"
+        );
+        assert!(!tracking.read_generations["origin"].includes(pending));
+        observe_browser_event(&mut tracking, "origin", false, 4, true, pending);
+        assert!(tracking.observations["origin"].has_unread);
+        tracking.observed_unread_overflow.insert("origin".into());
+        observe_provider_scoped(
+            &mut tracking,
+            "origin",
+            false,
+            true,
+            Some(4),
+            &[],
+            false,
+            5,
+            true,
+        );
+        assert!(!tracking.observations["origin"].has_unread);
+        assert!(!tracking.observed_unread_overflow.contains("origin"));
+    }
+
+    #[test]
+    fn loaded_foreground_conversation_is_still_unread_until_interacted_with() {
+        let mut tracking = Tracking::default();
+        let arrival = begin_event(&mut tracking, "origin", true, None);
+        assert!(observe_browser_event(
+            &mut tracking,
+            "origin",
+            true,
+            1,
+            true,
+            arrival
+        ));
+        assert!(tracking.observations["origin"].has_unread);
+    }
     #[test]
     fn desktop_aggregation_preserves_other_services() {
         let values = [
@@ -718,8 +1237,7 @@ mod tests {
         assert_eq!(states["service"].last_update, Some(2));
     }
     #[test]
-    fn new_native_message_revokes_earlier_input_but_does_not_invent_unread_for_a_viewed_conversation(
-    ) {
+    fn new_native_message_revokes_earlier_input_and_latches_even_a_viewed_conversation() {
         let mut tracking = Tracking {
             foreground_service: Some("selected".into()),
             presentation_generation: 4,
@@ -731,7 +1249,7 @@ mod tests {
         assert!(viewing_evidence_current(
             &tracking, "selected", true, 2, true
         ));
-        assert!(!observe_browser_event(
+        assert!(observe_browser_event(
             &mut tracking,
             "selected",
             true,
@@ -739,7 +1257,7 @@ mod tests {
             true,
             first
         ));
-        assert!(tracking.observations.is_empty());
+        assert!(tracking.observations["selected"].has_unread);
         assert!(!read_acknowledged(&tracking, "selected", true, Some(4)));
         assert_eq!(tracking.presentation_generation, 5);
         assert!(revoke_input(&mut tracking, "selected", true));
@@ -913,7 +1431,7 @@ mod tests {
             first_visibility,
             true
         ));
-        assert!(!observe_browser_event(
+        assert!(observe_browser_event(
             &mut tracking,
             "selected",
             true,
@@ -921,7 +1439,7 @@ mod tests {
             true,
             first
         ));
-        assert!(!observe_browser_event(
+        assert!(observe_browser_event(
             &mut tracking,
             "selected",
             true,
@@ -929,7 +1447,7 @@ mod tests {
             true,
             second
         ));
-        assert!(tracking.observations.is_empty());
+        assert!(tracking.observations["selected"].has_unread);
     }
 
     #[test]
@@ -1267,7 +1785,7 @@ mod tests {
             true,
             second_service
         ));
-        assert!(!observe_browser_event(
+        assert!(observe_browser_event(
             &mut tracking,
             "first",
             false,
@@ -1285,7 +1803,7 @@ mod tests {
             false,
             3,
         );
-        assert!(!partial.changed);
+        assert!(partial.changed);
         assert_eq!(partial.accepted, [first]);
         assert!(tracking.observations["first"].has_unread);
         assert_eq!(tracking.observed_unread_arrivals["first"].len(), 1);
@@ -1373,7 +1891,7 @@ mod tests {
             3,
         );
         assert_eq!(partial.accepted, [first]);
-        assert!(!partial.changed);
+        assert!(partial.changed);
         assert!(tracking.observations["origin"].has_unread);
         assert!(tracking.read_generations["origin"].includes(first));
         assert!(!tracking.read_generations["origin"].includes(later));
@@ -1425,7 +1943,7 @@ mod tests {
             3,
         );
         assert_eq!(read.accepted, [arrival]);
-        assert!(!read.changed);
+        assert!(read.changed);
         assert!(tracking.observations["origin"].has_unread);
         assert_eq!(tracking.observations["origin"].last_update, Some(1));
         assert!(tracking.read_generations["origin"].includes(arrival));

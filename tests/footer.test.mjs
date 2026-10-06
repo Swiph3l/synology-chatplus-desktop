@@ -171,7 +171,11 @@ test("unread and service refreshes preserve the footer node, status and enabled-
   f.events.get("update-state")({ payload: snapshot("available", "0.5.0") });
   const status = f.status().textContent;
   f.events.get("service-unread")({
-    payload: { chatplus: { hasUnread: true } },
+    payload: {
+      revision: 1,
+      services: { chatplus: { hasUnread: true } },
+      aggregate: { hasUnread: true },
+    },
   });
   f.events.get("services-changed")({ payload: f.settings });
   assert.equal(f.document.querySelector(".app-footer"), footer);

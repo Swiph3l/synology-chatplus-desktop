@@ -1,4 +1,6 @@
 //! Browser notification events through WebView2; no remote Tauri IPC capability.
+#[cfg(windows)]
+use tauri::Manager;
 #[cfg(any(windows, test))]
 const EVENT_HISTORY_LIMIT: usize = 256;
 
@@ -275,6 +277,14 @@ impl PendingNotification {
                 provider_viewed,
             )
         };
+        // Swiph3l: A trusted read can precede completion of this native query.
+        // Retry its current proof on completion instead of waiting for another gesture.
+        if let Some(view) = app.get_webview(&crate::services::label(&self.service.id)) {
+            let _ = view.eval(&format!(
+                "window.__chatplusCompleteArrival?.({})",
+                self.generation
+            ));
+        }
         // Swiph3l: A readonly query may retire its tag only after native visibility
         // revalidation and only when this arrival owns no cached unread.
         if viewed && !crate::unread::arrival_requires_read(app, &self.service.id, self.generation) {
@@ -436,6 +446,7 @@ pub fn attach(
                             unread.acknowledgement,
                             &unread.read_arrivals,
                             unread.proof_only,
+                            unread.provider_zero,
                         );
                     }
                 }
@@ -586,6 +597,7 @@ struct UnreadObservation {
     acknowledgement: Option<u64>,
     read_arrivals: Vec<u64>,
     proof_only: bool,
+    provider_zero: bool,
 }
 
 fn parse_unread(json: &str) -> Option<UnreadObservation> {
@@ -603,6 +615,7 @@ fn parse_unread(json: &str) -> Option<UnreadObservation> {
         read_arrivals: Vec<u64>,
         #[serde(default)]
         proof_only: bool,
+        read_scope: Option<String>,
     }
 
     // Swiph3l: Up to 256 u64 read proofs can exceed the old tiny badge payload;
@@ -627,6 +640,17 @@ fn parse_unread(json: &str) -> Option<UnreadObservation> {
         return None;
     }
     let has_unread = value.has_unread.or(value.unread)?;
+    // Swiph3l: Provider-wide zero is a distinct read scope, never inferred from
+    // an ordinary empty DOM observation or allowed to override partial unread.
+    let provider_zero = match value.read_scope.as_deref() {
+        None => false,
+        Some("provider-zero")
+            if !has_unread && !value.proof_only && value.acknowledgement.is_some() =>
+        {
+            true
+        }
+        _ => return None,
+    };
     let source = match value.source.as_deref() {
         Some("chatplus-dom") | None => crate::unread::Source::ChatPlusDom,
         Some("synology-chat-dom") => crate::unread::Source::SynologyChatDom,
@@ -646,6 +670,7 @@ fn parse_unread(json: &str) -> Option<UnreadObservation> {
         acknowledgement: value.acknowledgement,
         read_arrivals: value.read_arrivals,
         proof_only: value.proof_only,
+        provider_zero,
     })
 }
 #[cfg(not(windows))]
@@ -660,6 +685,18 @@ pub fn attach(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn provider_zero_scope_requires_current_acknowledged_boolean_zero() {
+        assert!(parse_unread(r#"{"chatplusUnread":1,"hasUnread":false,"acknowledgement":7,"readScope":"provider-zero"}"#).unwrap().provider_zero);
+        for value in [
+            r#"{"chatplusUnread":1,"hasUnread":true,"acknowledgement":7,"readScope":"provider-zero"}"#,
+            r#"{"chatplusUnread":1,"hasUnread":false,"readScope":"provider-zero"}"#,
+            r#"{"chatplusUnread":1,"hasUnread":false,"acknowledgement":7,"readScope":"unknown"}"#,
+            r#"{"chatplusUnread":1,"hasUnread":false,"acknowledgement":7,"readScope":"provider-zero","proofOnly":true,"readArrivals":[1]}"#,
+        ] {
+            assert!(parse_unread(value).is_none());
+        }
+    }
     #[test]
     fn browser_event_identity_is_retained_and_history_is_bounded() {
         #[derive(PartialEq)]

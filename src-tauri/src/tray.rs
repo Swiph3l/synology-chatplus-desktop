@@ -13,6 +13,11 @@ struct TrayState {
     actions: Vec<(MenuItem<tauri::Wry>, &'static str)>,
 }
 pub fn refresh(app: &AppHandle) {
+    let handle = app.clone();
+    let _ =
+        app.run_on_main_thread(move || refresh_unread(&handle, &crate::unread::current(&handle)));
+}
+pub fn refresh_unread(app: &AppHandle, unread: &crate::unread::Unread) {
     if let Some(state) = app.try_state::<TrayState>() {
         let connection_key = match connection::current(app) {
             connection::Connection::Unknown => "common.unknown",
@@ -24,7 +29,6 @@ pub fn refresh(app: &AppHandle) {
         let label = crate::i18n::t(app, "tray.connection")
             .replace("{state}", &crate::i18n::t(app, connection_key));
         let _ = state.status.set_text(&label);
-        let unread = crate::unread::current(app);
         let enabled = crate::state::current(app).unread_tray;
         let unread_label = if enabled {
             crate::i18n::t(

@@ -112,7 +112,7 @@ pub fn get_about_info(
 pub fn copy_diagnostics(window: tauri::WebviewWindow, app: tauri::AppHandle) -> Result<(), String> {
     local(&window, &["about", "settings"])?;
     app.clipboard()
-        .write_text(diagnostics::format(&diagnostics::snapshot(&app)))
+        .write_text(diagnostics::report(&app))
         .map_err(|_| "Could not copy diagnostics to the clipboard.".into())
 }
 #[tauri::command]
@@ -271,9 +271,9 @@ pub fn get_connection_state(
 pub fn get_unread_state(
     window: tauri::Webview,
     app: tauri::AppHandle,
-) -> Result<std::collections::HashMap<String, crate::unread::Unread>, String> {
+) -> Result<crate::unread::Snapshot, String> {
     local_view(&window, &["main"])?;
-    Ok(crate::unread::observations(&app))
+    Ok(crate::unread::snapshot(&app))
 }
 
 #[tauri::command]

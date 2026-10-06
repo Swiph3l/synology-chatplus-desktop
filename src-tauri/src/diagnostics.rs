@@ -5,6 +5,114 @@ use crate::{
     state::{self, Settings},
 };
 use serde::Serialize;
+use std::{collections::VecDeque, sync::Mutex};
+use tauri::Manager;
+
+const NOTIFICATION_HISTORY_LIMIT: usize = 128;
+
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NotificationEvent {
+    NotificationArrival,
+    UnreadLatched,
+    ReadCandidate,
+    ReadAccepted,
+    ReadRejected,
+    UnreadCleared,
+    ToastSubmitted,
+    ToastSuppressed,
+    ToastActivated,
+}
+
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NotificationReason {
+    BrowserEvent,
+    ProviderObservation,
+    ProviderZero,
+    ExactArrival,
+    StaleOrBackground,
+    UnprovenArrival,
+    ServiceMuted,
+    GlobalDisabled,
+    PermissionDenied,
+    ConversationViewed,
+    DuplicateEvent,
+    SubmitFailed,
+    NativeSubmission,
+    ExistingWindow,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationDiagnostic {
+    event: NotificationEvent,
+    service_id: String,
+    provider: crate::providers::ProviderId,
+    native_foreground: bool,
+    selected: bool,
+    generation: u64,
+    reason: NotificationReason,
+    timestamp: u64,
+}
+
+#[derive(Default)]
+pub struct NotificationHistory(Mutex<VecDeque<NotificationDiagnostic>>);
+
+fn retain_notification(
+    history: &mut VecDeque<NotificationDiagnostic>,
+    event: NotificationDiagnostic,
+) {
+    // Swiph3l: Bug-report diagnostics have a fixed memory bound and typed fields;
+    // chat text, provider tags and private URLs cannot enter this history.
+    if history.len() == NOTIFICATION_HISTORY_LIMIT {
+        history.pop_front();
+    }
+    history.push_back(event);
+}
+
+pub fn notification(
+    app: &tauri::AppHandle,
+    id: &str,
+    event: NotificationEvent,
+    reason: NotificationReason,
+    generation: u64,
+) {
+    let settings = state::current(app);
+    let Some(service) = settings.services.iter().find(|service| service.id == id) else {
+        return;
+    };
+    let Some(history) = app.try_state::<NotificationHistory>() else {
+        return;
+    };
+    let event = NotificationDiagnostic {
+        event,
+        reason,
+        generation,
+        service_id: service.id.clone(),
+        provider: service.provider,
+        native_foreground: crate::window::is_foreground(app),
+        selected: settings.active_service.as_deref() == Some(id),
+        timestamp: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64,
+    };
+    retain_notification(
+        &mut history.0.lock().unwrap_or_else(|error| error.into_inner()),
+        event,
+    );
+}
+
+pub fn report(app: &tauri::AppHandle) -> String {
+    let mut report = format(&snapshot(app));
+    if let Some(history) = app.try_state::<NotificationHistory>() {
+        let history = history.0.lock().unwrap_or_else(|error| error.into_inner());
+        report.push_str("\nRecent notification transitions (memory only):\n");
+        report.push_str(&serde_json::to_string_pretty(&*history).unwrap_or_default());
+    }
+    report
+}
 
 #[derive(Serialize)]
 pub struct RuntimeInfo {
@@ -96,6 +204,33 @@ pub fn format(info: &AboutInfo) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn notification_history_is_bounded_and_contains_only_typed_safe_metadata() {
+        let mut history = VecDeque::new();
+        for generation in 0..200 {
+            retain_notification(
+                &mut history,
+                NotificationDiagnostic {
+                    event: NotificationEvent::ReadRejected,
+                    service_id: "primary".into(),
+                    provider: crate::providers::ProviderId::Discord,
+                    native_foreground: false,
+                    selected: true,
+                    generation,
+                    reason: NotificationReason::StaleOrBackground,
+                    timestamp: generation,
+                },
+            );
+        }
+        assert_eq!(history.len(), NOTIFICATION_HISTORY_LIMIT);
+        assert_eq!(history.front().unwrap().generation, 72);
+        let json = serde_json::to_value(&history[0]).unwrap();
+        assert_eq!(json.as_object().unwrap().len(), 8);
+        for forbidden in ["title", "body", "tag", "url", "token", "credentials"] {
+            assert!(json.get(forbidden).is_none());
+        }
+        assert_eq!(json["reason"], "stale_or_background");
+    }
     #[test]
     fn diagnostics_are_an_allowlist_not_a_settings_dump() {
         let settings = Settings {

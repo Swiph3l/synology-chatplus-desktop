@@ -7,12 +7,17 @@ import { providerIcon, railIcon } from "./rail-icons";
 import { setLanguage, t } from "../i18n";
 import { updates, type UpdateSnapshot } from "../app/updates";
 import { createFooter } from "./footer";
+import { acceptUnreadSnapshot, type UnreadSnapshot } from "../app/unread";
 export async function renderServices() {
   document.body.classList.add("services-page");
   const app = document.getElementById("app")!;
   app.replaceChildren();
   await bindShellTheme();
-  let unread: Record<string, { hasUnread: boolean }> = {};
+  let unread: UnreadSnapshot = {
+    revision: -1,
+    services: {},
+    aggregate: { hasUnread: false },
+  };
   let settings = await getSettings();
   setLanguage(settings.language ?? "en");
   const version = await invoke<string>("get_current_version").catch(() => "");
@@ -69,7 +74,7 @@ export async function renderServices() {
       const provider = providers[service.provider];
       button.append(providerIcon(service.provider));
       button.title = `${service.name} · ${provider.name}${provider.experimental ? ` (${t("rail.experimental")})` : ""}`;
-      const hasUnread = unread[service.id]?.hasUnread ?? false;
+      const hasUnread = unread.services[service.id]?.hasUnread ?? false;
       button.setAttribute(
         "aria-label",
         `${button.title}${hasUnread ? `, ${t("rail.unread")}` : ""}`,
@@ -155,7 +160,7 @@ export async function renderServices() {
   let unreadObserved = false;
   await listen<typeof unread>("service-unread", ({ payload }) => {
     unreadObserved = true;
-    unread = payload;
+    unread = acceptUnreadSnapshot(unread, payload);
     render();
   });
   let updateObserved = false;
@@ -201,7 +206,7 @@ export async function renderServices() {
     initialUnread.status === "fulfilled" &&
     initialUnread.value
   ) {
-    unread = initialUnread.value;
+    unread = acceptUnreadSnapshot(unread, initialUnread.value);
     render();
   }
 }
