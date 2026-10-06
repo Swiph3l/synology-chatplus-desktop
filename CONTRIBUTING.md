@@ -1,40 +1,35 @@
 # Contributing
 
-Maintained by Swiph3l. Contributions should preserve the lightweight Tauri 2,
-Rust and vanilla TypeScript architecture and the clearly unofficial branding.
+ChatPlus Desktop is maintained by Swiph3l. Contributions to bugs, provider integration,
+translations, accessibility, Windows testing and documentation are welcome.
 
-By submitting contributions, you understand that accepted contributions become
-part of ChatPlus Desktop and are distributed under the current
-[GNU GPLv3 (GPL-3.0-only)](LICENSE). You retain your copyright;
-submitting a contribution does not transfer it to the maintainer. Submit only
-work you have the right to contribute under these terms. Preserve third-party
-licenses and required notices. There is currently no contributor license
-agreement (CLA).
+Start with [local development](docs/DEVELOPMENT.md), [architecture](docs/ARCHITECTURE.md)
+and [testing](docs/TESTING.md). The lightweight Tauri 2, Rust and vanilla TypeScript
+architecture and clearly unofficial branding should remain intact.
 
-Install the prerequisites in the README, then run:
+- Use focused changes and small logical commits matching recent history. Reproduce
+  bugs and add regression coverage; run tests after each meaningful subsystem change.
+- Preserve useful maintainer comments. New non-obvious project constraints use
+  `// Swiph3l: <why>` or `# Swiph3l: <why>`; avoid restating obvious code.
+- Add provider-specific semantic adapters and fixtures; inspect the actual provider
+  DOM. Keep shared lifecycle/state logic outside adapters and remote views outside
+  native capabilities. Do not add undocumented private APIs or automatic media grants.
+- Notification diagnostics must omit message content, credentials/tokens, tags and
+  private URLs. Never commit test accounts, profiles, keys, logs or private screenshots.
+- Before review, run `git diff --check`, inspect staged/untracked files and record
+  automatic results and native Windows checks actually performed. Keep release notes
+  user-readable; investigations belong in docs.
 
-```sh
-npm ci
-npm run format
-npm run typecheck
-npm test
-npm run build
-cargo fmt --manifest-path src-tauri/Cargo.toml
-cargo check --locked --manifest-path src-tauri/Cargo.toml
-cargo test --locked --manifest-path src-tauri/Cargo.toml
-npm run tauri build
-```
+Current development CI validates Windows; Linux/macOS are experimental. Native
+runtime acceptance is separate from a successful build. Tags enter a signed draft
+release workflow; routine contributions must not tag, publish or push a release.
 
-Keep platform-specific behavior isolated and test changes on the affected system.
-Do not add undocumented server API integrations or automatic media permissions.
-Use specific ChatPlus selectors and EOS variables for theme adjustments.
+By submitting a contribution, you agree that accepted work is distributed under
+[GNU GPLv3 (GPL-3.0-only)](LICENSE). You retain your copyright; there is no copyright
+transfer or CLA. Contribute only work you have the right to submit and preserve
+third-party licenses/notices. See [licensing notes](docs/LICENSING.md) and
+[security reporting](SECURITY.md).
 
-Before committing, review `git diff --check`, `git diff --cached` and untracked
-files. Search for credentials, tokens, private addresses, authentication headers,
-logs, temporary files and personal screenshots. Keep experiments and private
-reference material outside the repository. Use concise logical commits and
-explain validation and remaining limitations in pull requests.
-
-CI validates Windows, Linux and macOS builds. Cross-platform runtime behavior
-still requires testing. Release automation is disabled; do not create tags or
-publish packages as part of routine development.
+Useful issue-label suggestions for maintainers: bug, good first issue, help wanted,
+notifications, provider, windows, translations and documentation. These are
+recommendations; contribution changes do not create repository labels/settings.

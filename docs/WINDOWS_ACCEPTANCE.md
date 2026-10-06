@@ -1,3 +1,6 @@
+> Current source checklist: [2026-10-07 reliability pass](#current-reliability-pass-2026-10-07).
+> Earlier numbered sections retain historical observed/pending evidence for their stated revision.
+
 # Windows acceptance — 2026-10-01 follow-up
 
 This report preserves observations and development validation through the
@@ -540,3 +543,152 @@ native visual checks are **PENDING**; prior browser fixture results are historic
 The updater implementation is unchanged in beta.4. Existing signed updater,
 installed profile/login-retention and stable-release acceptance gates remain open.
 No tag, publication, installer release or stable release is implied by this build.
+
+## Current reliability pass (2026-10-07)
+
+Status: **PENDING MANUAL WINDOWS ACCEPTANCE**. Unit tests, compiled COM hooks and
+production assets do not establish these results. Record app commit/build, Windows
+version, WebView2 version and provider/server version for each run. Use dedicated
+private test conversations and consenting test accounts; keep accounts, messages,
+URLs, profiles and screenshots containing private information outside Git/reports.
+
+Enable global desktop notifications and the target service's saved notification
+preference. Enable provider notifications and allow Windows notifications. Disable
+Do Not Disturb for the initial banner test, then repeat with it enabled. The legacy
+conversation cooldown is no longer an active delivery control. Check existing saved
+mute preferences explicitly after upgrading. Previously activated provider sessions
+may notify when hidden; activate each tested service once before testing it.
+
+### Synology ChatPlus
+
+1. Select ChatPlus and open a known private conversation at its newest messages.
+2. Minimize the native ChatPlus Desktop window while that conversation stays loaded.
+3. Send one message from the controlled second account.
+4. Confirm exactly one eligible native Windows toast (and Notification Center entry).
+5. Restore without interacting with the conversation; confirm its service rail dot.
+6. Confirm tray unread remains and title/taskbar agree when their preferences are on.
+7. Wait or select the same service only: unread must remain; restore alone is no read.
+8. Click/scroll within the correct latest message pane, then repeat using the main
+   composer to type and successfully send a reply. With provider unread zero,
+   confirm the stale native latch clears after genuine engagement in both cases.
+9. Confirm rail and aggregate/tray clear together when no other service is unread.
+
+### Synology Chat
+
+1. Select Synology Chat and open a known private conversation at its newest messages.
+2. Minimize ChatPlus Desktop while that channel remains selected/loaded.
+3. Send one ordinary message (not just a mention) from the controlled second account.
+4. Confirm exactly one eligible Windows toast and Notification Center entry.
+5. Restore only; confirm the Synology Chat rail dot persists.
+6. Confirm tray/title/taskbar unread persists when presentation is enabled.
+7. Select the service or focus its child view without conversation input: no clear.
+8. Click/scroll the correct latest message pane, then repeat with its sibling main
+   composer to type and successfully reply. With reliable provider zero, unread clears.
+9. Confirm the service dot and final aggregate/tray clear together. Repeat with
+   collapsed/starred groups and ordinary-unread rows whose mention count is zero.
+
+### Discord
+
+1. Select Discord and open a controlled DM/channel at its newest messages.
+2. Minimize ChatPlus Desktop while Discord retains its selected conversation.
+3. Send one message from the controlled second account.
+4. Confirm one eligible native toast; provider DND/mute must permit browser emission.
+5. Restore only and confirm Discord's rail dot remains.
+6. Confirm tray/title/taskbar remain unread when presentation is enabled.
+7. Select/focus Discord only: no acknowledgement.
+8. Click/scroll its actual latest message pane, then repeat with the scoped channel
+   composer to type and successfully reply. Confirm accepted reliable read/zero proof
+   clears the stale latch; unrelated guild/DM unread must remain.
+9. Confirm rail and final tray aggregate clear together. Repeat DM-only, muted DM,
+   collapsed guild and request/spam layouts; incomplete zero remains unknown and must
+   be reported distinctly, without claiming global read parity.
+
+### Multi-provider and rejection cases
+
+1. Activate two providers, minimize, then receive one message in each.
+2. Confirm both rail dots and unread tray aggregate.
+3. Restore/read one conversation with valid evidence: only its dot clears.
+4. Confirm the other service stays unread and tray remains unread.
+5. Read the second: rail, aggregate and tray clear immediately together.
+6. Repeat with another service selected, native window backgrounded, hidden to tray
+   and auxiliary Settings/About windows open. Child focus must not substitute for
+   native main-window foreground.
+7. Selection/restore/toast click alone, provider header/sidebar clicks and unrelated
+   conversation interaction must not clear the target service.
+8. In an isolated developer test session, dispatch synthetic input and replay stale
+   foreground-generation packets: neither may clear. Do not fabricate real-provider
+   acceptance from developer fixture events.
+9. Cause provider unread badges to disappear while backgrounded: native unread remains.
+10. Send two distinct consecutive messages, including identical previews: both remain
+    eligible, with no content/cooldown deduplication loss. Replay the same exact event
+    or duplicate DOM mutations: at most one native toast.
+11. Start a native arrival while a read query is pending: older proof cannot clear it;
+    completion may retry still-current trusted proof, without a timer-based clear.
+12. Repeat global-off, service mute, provider mute, Windows denial, sound off and each
+    Full/Sender/Generic privacy mode. Mute must not independently clear unread.
+
+### Toast activation
+
+1. Minimize or hide the existing ChatPlus process and receive a controlled message.
+2. Click its Windows toast.
+3. Confirm that same process/window becomes visible, unminimized, foreground and focused.
+4. Confirm the originating enabled service activates, including an initially inactive
+   service. No second process/window appears and no unverified conversation route is used.
+5. Confirm unread persists after activation alone; genuine current conversation
+   engagement clears afterward. Repeat with two services and a local test toast.
+
+### PDF and attachment downloads
+
+Use real provider download controls and both regular/same-origin-blob attachment
+popups where available; use Discord's actual signed CDN attachment URL without copying
+it into a report. Keep authentication in the provider profile.
+
+1. Download PDF, ZIP, TXT, PNG/JPEG and supplied Office formats (DOCX/XLSX/PPTX).
+2. Download a PDF named `Quarterly report.pdf`: verify native save/download UI,
+   final extension/spaces and unchanged file bytes against a known test file.
+3. Download URL-encoded and Unicode filenames (for example `Budget%20report.pdf`
+   and a non-ASCII name) and a provider Content-Disposition filename; verify decoded,
+   safe name and extension. Confirm filename handling in the actual browser pipeline.
+4. Download the same attachment twice and from two service profiles simultaneously:
+   existing bytes remain untouched; a unique `(n)` filename is used.
+5. Download an attachment requiring the already-authenticated session; it must work
+   without re-entering credentials or moving cookies into a desktop HTTP request.
+6. Confirm default folder and Save As location follow native WebView2 policy. Cancel
+   before/during transfer: cancellation is graceful and another download can start.
+7. Test failed/expired links, network interruption and retry; native UI exposes the
+   error, shell startup failure is generic and no private URL/filename is logged.
+8. Verify inline PDF/image popup preview and use its native download button. The
+   originating provider view stays loaded; popups receive no desktop IPC permission.
+9. Confirm files are never opened/executed automatically, Windows security warnings
+   remain available, and no automatic-download/security protection is bypassed.
+
+The implementation uses DownloadStarting with native handling retained, not a custom
+HTTP downloader. Native dialogs, authenticated transfer and actual Content-Disposition
+resolution have not been manually verified for this revision.
+
+### Updater and desktop layout
+
+- Enable optional automatic checks: one startup check after ten seconds, then at most
+  six-hour attempts; manual check remains usable, and offline automatic failure is quiet.
+- Check Stable versus Pre-release eligibility and channel changes during check/download.
+- Use an authorized signed installer for download/cancel/signature rejection and explicit
+  install/restart acceptance; preserve profile/login data. This checklist does not
+  authorize making a tag, publishing an artifact or changing signing keys.
+- Verify tray open/hide/restore, close/minimize-to-tray preferences and app exit.
+- Inspect EN/PL/ES Settings, update notes, rail and footer at 1366x768 and larger/minimum
+  windows, light/dark/system appearance and actual 100%/125%/150% Windows monitor DPI.
+- Verify native menus, keyboard focus/scrolling, long service names and accessible unread
+  labels. Historical rendering emulation is not a monitor-DPI acceptance result.
+
+| Area                                                                       | Current manual result |
+| -------------------------------------------------------------------------- | --------------------- |
+| Synology ChatPlus A-K, foreground/background/minimized and reply clearing  | PENDING               |
+| Synology Chat A-K, ordinary unread, composer and reply clearing            | PENDING               |
+| Discord A-K, guild/DM constraints, mute and reply clearing                 | PENDING               |
+| Two-provider rail/tray aggregation and native toast activation             | PENDING               |
+| Real authenticated files, names, cancel/expired/security/native Save As    | PENDING               |
+| Signed updater installation/restart and upgrade session retention          | PENDING               |
+| Native permissions, privacy/sound/DND, actual DPI/resolution/accessibility | PENDING               |
+
+Attach only privacy-safe [diagnostics](NOTIFICATIONS.md#privacy-safe-diagnostics) and
+safe reproduction steps to reports; keep observed, failed and pending results explicit.

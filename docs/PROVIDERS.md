@@ -64,34 +64,25 @@ values are preserved; enabling a newly supported capability does not silently un
 existing configurations. Provider-side settings and Windows permission/policy still
 control whether a browser notification is emitted and displayed.
 
-Adapters publish boolean unread with unavailable counts. Provider mention badges,
-duplicate Starred/Favorites rows, collapsed groups and virtualized lists cannot be
-summed into a trustworthy total. Missing or ambiguous provider UI is unknown and
-retains the service's cache. Selecting/showing/focusing a service does not acknowledge
-read. Empty provider evidence must coincide with trusted interaction in its actual
-conversation, at latest, and the current native foreground generation. New arrivals
-revoke earlier gestures. Reading one service cannot clear another service's state.
-An arrival also records the current conversation-content context. An empty pane
-cannot acknowledge an unverified incoming native event, even after a native view
-query completes. Only exact originating-message view proof can release that native
-read barrier; unrelated content mutations, pane replacement and route changes are
-insufficient. ChatPlus and Synology Chat lack audited tag mapping, so their cached
-native-arrival unread can remain after reading until restart reobserves provider
-state. This candidate read-clear limitation is explicit; live acceptance is pending.
-Each trusted gesture recomputes exact proofs rather than reusing an earlier query or
-rejected gesture. Native foreground/generation validation confirms only the proven
-subset before the renderer retires its tags. Individual event reads can progress
-while another event remains unread or the provider aggregate is unknown. A proof-only
-packet from an unknown aggregate cannot change the provider unread boolean; full
-clearing still requires known provider zero, no unproven observed native arrivals
-and an unsaturated retained history.
+Adapters supply observations to the authoritative native per-service unread model;
+rail dots and tray/title/taskbar aggregation derive from its revisioned snapshot.
+Counts remain unavailable: mention badges, duplicated rows and incomplete navigation
+do not give a trustworthy total. Missing/ambiguous UI retains the native cache.
 
-Native foreground requires a visible, non-minimized main window that is actually
-active, plus the selected service. This alone is insufficient to suppress a browser
-notification: the adapter must also identify the originating conversation/message
-as currently viewed at latest. Unknown identity, unavailable DOM and failed queries
-permit notification delivery. Toast activation restores the existing host before
-selecting the source service; it does not guess provider conversation routes.
+A trusted current-generation interaction in the actual latest conversation/composer,
+with native foreground and service selection, can acknowledge reliable provider
+aggregate zero. This retires completed native arrivals without requiring exact tags,
+fixing the Synology sticky latch. It cannot retire an in-flight arrival; native completion can retry still-current
+trusted proof. It cannot acknowledge
+synthetic/header/sidebar input or reuse a gesture after route/content changes.
+Positive/unknown aggregates preserve service unread while permitting exact individual
+message proofs where available. See [read rules](NOTIFICATIONS.md#read-acknowledgement).
+
+Native foreground alone cannot suppress a toast: the provider must identify the
+originating message as currently visible at latest, and native policy rechecks that
+context. Unknown tags/DOM or failed queries allow delivery. Every accepted native
+arrival latches unread before toast policy is considered. Activation restores the
+existing process/window and selects the originating service without guessing routes.
 
 ## ChatPlus
 
@@ -105,8 +96,8 @@ Navigation/popups require the exact configured origin; external HTTP(S) links ca
 use the default browser. ChatPlus alone receives the project-authored theme.
 Its separate unread adapter observes tab indicators from existing authenticated-layout evidence
 (`sidebar-tab-item-*` / `tab-item-indicator`). A real visible conversation scroller
-at bottom and trusted interaction provide read evidence; a selected tab or flashing
-document title does not. Sidebar markers produce boolean state without message/title
+at bottom and trusted interaction in that pane or its uniquely mapped main composer
+provide read evidence; a selected tab or flashing document title does not. Sidebar markers produce boolean state without message/title
 scraping or private APIs. The audited notification event has no reliable conversation
 tag mapping, so ChatPlus conservatively delivers actual incoming browser notifications
 even when the selected service is foreground.
@@ -118,7 +109,9 @@ marker, upstream focus/read and notification behavior remain manual acceptance g
 The service rail uses the green [Synology Chat provider icon](https://nascompares.com/wp-content/uploads/2018/08/Synology-Chat-logo.png),
 bundled locally as `public/providers/synology-chat.png`.
 
-Distinct experimental provider with an isolated profile. Synology documents a
+Synology Chat has supported unread/native-notification integration and an isolated
+profile. Its general provider UI still carries an Experimental badge while
+authenticated Windows acceptance remains pending. Synology documents a
 [browser client](https://www.synology.com/en-us/dsm/feature/chat) and a
 [matching desktop interface](https://kb.synology.com/en-global/DSM/help/ChatClient/chatclient?version=6).
 A dedicated adapter uses Synology Chat's independently audited server templates,
@@ -126,7 +119,9 @@ including channel-list highlights and group unread badges; it does not reuse
 ChatPlus selectors or styling. Starred duplicates channel rows and channel badges
 can count mentions, so the adapter publishes a boolean rather than a total.
 Read evidence checks the actual `#channels/<id>` conversation, its visible message
-pane and transformed FleXcroll content end/newest-message control. Partial or
+pane and transformed FleXcroll content end/newest-message control. Its main composer
+is a sibling of the message panel inside the audited center panel; thread/edit/search
+inputs cannot acknowledge the main conversation. Partial or
 unrecognized aggregate UI remains unknown.
 
 The source audit inspected the official
@@ -167,7 +162,9 @@ is claimed.
 
 ## Discord
 
-Experimental web sessions start at `https://discord.com/app/`. Top-level navigation
+Discord unread/native-notification integration is supported functionality. Its
+general provider UI still carries an Experimental badge pending authenticated
+Windows acceptance. Web sessions start at `https://discord.com/app/`. Top-level navigation
 and same-origin popups permit only `https://discord.com` on port 443, with no URL
 credentials. Configurations also reject query parameters and fragments. Off-origin
 HTTP(S) links use the existing external-browser preference; no popup WebViews are
@@ -300,3 +297,31 @@ Invalid active IDs select the first enabled service; zero enabled services leave
 no active session. Invalid service configuration retains the disk record and falls
 back to the legacy URL in memory. A failed migration write restores the old store
 record while the migrated in-memory configuration runs; next startup retries.
+
+## Adding a provider
+
+1. Inspect its actual DOM and documented/public notification behavior independently.
+2. Add a typed registry entry in Rust and TypeScript with accurate capability/status
+   flags, entry URL and strict navigation/origin policy; preserve per-service profiles.
+3. Implement the common semantic adapter contract in src/theme/providers:
+   snapshot, observe, readContext, contentContext, interactionContext,
+   providerUnreadZero and isViewingNotification. Keep selectors provider-specific and
+   shared lifecycle/state policy in provider-unread.ts and native unread modules.
+4. Map only the uniquely active conversation and composer. Unknown identity/layout
+   must remain unknown. Do not scrape message text or private provider APIs.
+5. Add independent minimized/read/composer/synthetic/generation fixtures and native
+   origin/capability regressions. Include service mute and multiple instances.
+6. Complete authenticated [Windows acceptance](WINDOWS_ACCEPTANCE.md#current-reliability-pass-2026-10-07)
+   before claiming provider parity. Never commit test accounts, tokens or private URLs.
+
+## Attachments
+
+Windows attachment transfers use the originating WebView2 download pipeline and
+profile, preserving authentication cookies without exporting them. Normal provider
+Content-Disposition suggestions and URL-encoded names pass through filename safety
+and duplicate reservation. Downloads never auto-execute. The native DownloadStarting observer leaves Handled=false so WebView2 retains its
+save/download/cancel/retry/security UI. A narrow related popup may show same-origin
+blob attachments or exact Discord CDN /attachments/ URLs without navigating away
+from the originating view. Inline PDF/image previews use their native download
+button. Other external-document handling remains governed by navigation policy.
+Provider-specific live attachment acceptance remains pending. See the [download checklist](WINDOWS_ACCEPTANCE.md#current-reliability-pass-2026-10-07).

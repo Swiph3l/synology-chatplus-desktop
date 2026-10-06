@@ -22,8 +22,8 @@ Windows installation and downgrade prevention. `updaterEnabled` controls runtime
 availability only; it does not require a private key to compile or package the app.
 Normal local and push/PR CI builds force createUpdaterArtifacts to false and remove
 signing credentials from the CLI environment. They still embed the runtime public
-key and can receive signed updates. Windows NSIS, Linux DEB and macOS app test
-packages are built without updater signatures; CI archives the macOS app separately.
+key and can receive signed updates. Normal local packages are built without updater signatures. Current branch CI
+checks Windows development only; Linux/macOS remain experimental.
 
 Only `CHATPLUS_RELEASE_BUILD=1` selects signed release packaging through
 `npm run tauri build`. This mode validates the enabled runtime, public key and
@@ -58,7 +58,8 @@ A channel change during checking discards the result. Download and installation
 recheck eligibility. Release notes are plain text.
 
 Automatic checks are opt-in, begin after ten seconds and occur at most once per six
-hours. Successful check times persist; failed automatic attempts are rate-limited
+hours. Successful check times persist as history; each process still schedules its startup
+check. Failed automatic attempts are rate-limited
 in memory. Automatic errors stay quiet; manual checks expose errors and retries.
 About reads cached local state without requesting GitHub.
 

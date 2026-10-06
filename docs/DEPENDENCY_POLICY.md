@@ -80,16 +80,16 @@ not a claim that every latest release improves this application.
 
 ### Applied
 
-| Dependency                 | Before ? after                  | Class | Reason / migration                                                                                                                        |
-| -------------------------- | ------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| Rust Tauri                 | 2.11.5 ? 2.11.6                 | A     | Security backport binds queued IPC replies to their owning WebView; no application API migration. Both manifest requirements use ~2.11.6. |
-| Tauri CLI                  | 2.11.4 ? 2.11.5                 | A     | Compatible packaging patch. CLI stays on ~2.11.5; JavaScript API remains 2.11.1 to keep the audited 2.11 integration.                     |
-| @types/node                | 22.20.2 ? 22.20.5               | A     | Patch on the Node 22 CI typing line.                                                                                                      |
-| esbuild                    | 0.28.1 ? 0.28.2                 | A     | Patch for existing test/theme bundling; no new dependency.                                                                                |
-| Prettier                   | 3.9.6 ? 3.9.9                   | A     | Markdown formatting fixes for the documentation pass.                                                                                     |
-| Vite                       | 7.3.6 ? 7.3.7                   | A     | Compatible production/development build patch.                                                                                            |
-| source-map-js (transitive) | 1.2.1 ? 1.2.2                   | A     | Fix indexed source-map denial of service through the existing PostCSS graph; no override or direct dependency added.                      |
-| CodeQL Action              | pinned v4.38.0 ? pinned v4.38.2 | A     | Same major, refreshed default CodeQL bundle; SHA pin and minimal permissions retained.                                                    |
+| Dependency                 | Before / after                   | Class | Reason / migration                                                                                                                        |
+| -------------------------- | -------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Rust Tauri                 | 2.11.5 to 2.11.6                 | A     | Security backport binds queued IPC replies to their owning WebView; no application API migration. Both manifest requirements use ~2.11.6. |
+| Tauri CLI                  | 2.11.4 to 2.11.5                 | A     | Compatible packaging patch. CLI stays on ~2.11.5; JavaScript API remains 2.11.1 to keep the audited 2.11 integration.                     |
+| @types/node                | 22.20.2 to 22.20.5               | A     | Patch on the Node 22 CI typing line.                                                                                                      |
+| esbuild                    | 0.28.1 to 0.28.2                 | A     | Patch for existing test/theme bundling; no new dependency.                                                                                |
+| Prettier                   | 3.9.6 to 3.9.9                   | A     | Markdown formatting fixes for the documentation pass.                                                                                     |
+| Vite                       | 7.3.6 to 7.3.7                   | A     | Compatible production/development build patch.                                                                                            |
+| source-map-js (transitive) | 1.2.1 to 1.2.2                   | A     | Fix indexed source-map denial of service through the existing PostCSS graph; no override or direct dependency added.                      |
+| CodeQL Action              | pinned v4.38.0 to pinned v4.38.2 | A     | Same major, refreshed default CodeQL bundle; SHA pin and minimal permissions retained.                                                    |
 
 The Tauri update addresses [GHSA-w28w-mhc8-qvjv](https://github.com/tauri-apps/tauri/security/advisories/GHSA-w28w-mhc8-qvjv)
 using the [2.11.6 backport](https://github.com/tauri-apps/tauri/releases/tag/tauri-v2.11.6).
@@ -113,6 +113,8 @@ and [CodeQL Action v4.38.2](https://github.com/github/codeql-action/releases/tag
 | Tauri 3 alpha                                                     | C     | Prerelease architecture and API migration; outside this maintenance pass.                                                                                                                                                                                                |
 | checkout 7, setup-node 7, upload-artifact 7, download-artifact 8  | C     | Actions major/runtime/behavior changes need hosted-runner validation. Current full-SHA pins are the latest patch on their existing major lines.                                                                                                                          |
 | Rust stable/tooling, linkedom, remaining direct Rust dependencies | A/B   | Audit found no application fix requiring broad graph churn. Rust 1.98.1 is available locally; CI already uses stable. linkedom 0.18.13 is current. Keep locked plugins, HTTP/TLS, serialization and test-signing crates; review each proposed change independently.      |
+| Tokio 1.53.2                                                      | A     | Compatible patch available; retain 1.53.1 because this pass reproduces no Tokio defect and the targeted Tauri backport does not require it. Avoid unrelated async graph churn.                                                                                           |
+| winreg 0.56 / minisign 0.10                                       | B     | Registry and signing-fixture changes need focused API/verification review; existing registration/signature paths are covered and no migration is needed for this pass.                                                                                                   |
 | Linux GTK/glib and transitive Unicode maintenance debt            | B     | Parent constraints still need migration; the narrow existing Linux advisory policy remains in force.                                                                                                                                                                     |
 
 Upstream migration references: [Tauri 2.12](https://github.com/tauri-apps/tauri/releases/tag/tauri-v2.12.0),
@@ -121,10 +123,24 @@ Upstream migration references: [Tauri 2.12](https://github.com/tauri-apps/tauri/
 Registry versions were checked against [npm](https://www.npmjs.com/) and
 [crates.io](https://crates.io/); Actions tags were checked in each official repository.
 Gitleaks 8.30.1, cargo-audit 0.22.2, cargo-deny 0.20.2 and cargo-cyclonedx 0.5.9
-remain pinned, with Gitleaks archive checksum verification unchanged. No updater key,
+already match the current published release and remain pinned, with Gitleaks
+archive checksum verification unchanged. No updater key,
 signature policy, TLS verification, CI permission or release trigger was weakened.
 
 Lockfiles are updated with targeted npm installs and cargo update -p tauri --precise
 2.11.6. Run the full commands in [TESTING.md](TESTING.md), including npm audit,
 production frontend build, Rust tests, Tauri build and release isolation checks.
 A local workflow parse cannot establish hosted CodeQL execution; CI remains required.
+
+### Retained direct graph inventory
+
+Registry review also checked the locked Rust graph: tauri-build 2.6.3; store 2.4.4,
+autostart 2.5.1, opener 2.5.5, window-state 2.4.1, clipboard-manager 2.3.3,
+single-instance 2.4.4, notification 2.4.0 and updater 2.11.0. New plugin lines are
+part of the coordinated Tauri/native migration above. Current serialization/HTTP/TLS
+versions already match published stable: semver 1.0.28, serde 1.0.229, serde_json
+1.0.151, url 2.5.8, reqwest 0.13.5, rustls 0.23.45 and time 0.3.55. Test dependencies
+base64 0.23.1 and rcgen 0.14.10 are current; minisign 0.9.1 remains as classified.
+Direct Windows dependencies remain winreg 0.55.0, windows 0.61.3, webview2-com 0.38.2
+and tauri-winrt-notification 0.7.3. The frontend test runner is Node's built-in runner;
+linkedom 0.18.13 is current and no new testing framework was added.
