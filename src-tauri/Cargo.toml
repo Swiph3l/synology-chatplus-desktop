@@ -36,7 +36,7 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 
 [target.'cfg(windows)'.dependencies]
 tauri-winrt-notification = "0.7.3"
-webview2-com = "0.38"
+webview2-com = "0.39"
 windows = { version = "0.61", features = ["UI_Notifications"] }
 winreg = "0.55"
 
