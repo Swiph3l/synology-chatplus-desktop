@@ -93,6 +93,7 @@ repository settings during routine development. See [CONTRIBUTING.md](../CONTRIB
 - Dated evidence: [development status](DEVELOPMENT_STATUS.md),
   [maintainer follow-up](MAINTAINER_FOLLOWUP.md), [beta.4 reliability](BETA4_RELIABILITY.md)
   and [minimized notification investigation](MINIMIZED_NOTIFICATION_REVIEW.md).
+- Current pass: [2026-10-07 reliability report](RELIABILITY_2026-10-07.md).
 
 Dated reports preserve the behavior and limitations of their original revision;
 current subsystem guides describe the latest source.
