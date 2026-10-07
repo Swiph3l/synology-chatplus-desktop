@@ -248,6 +248,11 @@ fn download_state(
 }
 
 #[cfg(windows)]
+fn reservation_finished(state: &str, resumable: bool) -> bool {
+    matches!(state, "completed" | "cancelled") || (state == "failed" && !resumable)
+}
+
+#[cfg(windows)]
 pub fn attach(app: &AppHandle, view: &Webview, service_id: &str) -> tauri::Result<()> {
     use webview2_com::{
         DownloadStartingEventHandler, Microsoft::Web::WebView2::Win32::*, StateChangedEventHandler,
@@ -301,11 +306,15 @@ pub fn attach(app: &AppHandle, view: &Webview, service_id: &str) -> tauri::Resul
                                     operation.InterruptReason(&mut reason)?;
                                 }
                                 let state = download_state(state, reason);
-                                if matches!(state, "completed" | "cancelled") {
+                                let mut can_resume = Default::default();
+                                let resumable = state != "failed"
+                                    || operation.CanResume(&mut can_resume).is_err()
+                                    || can_resume.as_bool();
+                                if reservation_finished(state, resumable) {
                                     reservation.borrow_mut().take();
                                 }
-                                // Paused/resumable failures retain their reservation until completion,
-                                // cancellation, or the native operation/handler is released.
+                                // Swiph3l: The browser can retain failed downloads in its UI history;
+                                // only resumable operations still own an in-flight filename.
                                 event(&state_app, &state_service, state);
                                 Ok(())
                             })),
@@ -576,5 +585,11 @@ mod tests {
         ] {
             assert_eq!(download_state(state, reason), expected);
         }
+        assert!(reservation_finished("completed", true));
+        assert!(reservation_finished("cancelled", true));
+        assert!(reservation_finished("failed", false));
+        assert!(!reservation_finished("failed", true));
+        assert!(!reservation_finished("paused", false));
+        assert!(!reservation_finished("in-progress", false));
     }
 }
