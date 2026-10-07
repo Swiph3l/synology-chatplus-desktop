@@ -64,9 +64,6 @@ export async function renderSettings() {
           <button id="notification-settings" type="button" class="secondary" hidden>${t("notifications.windowsSettings")}</button>
           <label for="notification-preview">${t("notifications.preview")}</label>
           <select id="notification-preview"><option value="full">${t("notifications.full")}</option><option value="sender">${t("notifications.sender")}</option><option value="generic">${t("notifications.generic")}</option></select>
-          <label for="notification-cooldown">${t("notifications.cooldown")}</label>
-          <select id="notification-cooldown"><option value="0">${t("notifications.noCooldown")}</option>${[30, 60, 90].map((seconds) => `<option value="${seconds}">${t("notifications.seconds", { seconds })}</option>`).join("")}</select>
-          <small>${t("notifications.cooldownHelp")}</small>
           <small>${t("notifications.privacyHelp")}</small>
         </fieldset>
         <small>${t("notifications.serviceMuteHelp")}</small>
@@ -260,9 +257,6 @@ export async function renderSettings() {
     (
       document.getElementById("notification-preview") as HTMLSelectElement
     ).value = original.notificationPreview;
-    (
-      document.getElementById("notification-cooldown") as HTMLSelectElement
-    ).value = String(original.notificationCooldown);
     (document.getElementById("update-channel") as HTMLSelectElement).value =
       original.updateChannel;
     const channel = document.getElementById(
@@ -535,13 +529,9 @@ export async function renderSettings() {
                   "notification-preview",
                 ) as HTMLSelectElement
               ).value as Settings["notificationPreview"],
-              notificationCooldown: Number(
-                (
-                  document.getElementById(
-                    "notification-cooldown",
-                  ) as HTMLSelectElement
-                ).value,
-              ) as Settings["notificationCooldown"],
+              // Swiph3l: Keep the legacy saved field for downgrade compatibility;
+              // delivery now deduplicates exact events without dropping later messages.
+              notificationCooldown: original.notificationCooldown,
               notificationSound: input("notification-sound").checked,
               unreadTitle: input("unread-title").checked,
               unreadTray: input("unread-tray").checked,
