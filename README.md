@@ -1,185 +1,129 @@
 # ChatPlus Desktop
 
-<img src="public/chatplus.png" alt="ChatPlus Desktop icon" width="64" />
+<img src="public/chatplus.png" alt="ChatPlus Desktop Windows app icon" width="64" />
 
-ChatPlus Desktop is an unofficial Windows desktop client for Synology ChatPlus.
-It connects to your Synology NAS ChatPlus installation through Microsoft WebView2,
-adding native desktop controls around your server's own web application.
-Synology ChatPlus remains the primary use case; a small provider model also supports
-multiple configured communication services.
+ChatPlus Desktop is an unofficial open-source Windows desktop client for Synology
+ChatPlus and Synology Chat, with multi-service messaging support. It brings your
+self-hosted chat on a Synology NAS and services such as Discord into one lightweight
+Tauri application.
 
-An independent community project maintained by **Swiph3l**, without affiliation
-with or endorsement by Synology Inc. No Synology server software or proprietary
-application bundles are redistributed.
+[![Latest release](https://img.shields.io/github/v/release/Swiph3l/synology-chatplus-desktop?include_prereleases)](https://github.com/Swiph3l/synology-chatplus-desktop/releases)
+[![Windows x64](https://img.shields.io/badge/Windows-x64-0078D4)](https://github.com/Swiph3l/synology-chatplus-desktop/releases)
+[![GPLv3](https://img.shields.io/badge/license-GPLv3-blue)](LICENSE)
+[![CI](https://github.com/Swiph3l/synology-chatplus-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/Swiph3l/synology-chatplus-desktop/actions/workflows/ci.yml)
+[![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8DB)](https://v2.tauri.app/)
 
-## Windows features
+## Why ChatPlus Desktop?
 
-- Compact native menus, a narrow service sidebar, zoom and fullscreen.
-- System tray, minimize/close to tray, saved geometry and start with Windows.
-- Light, Dark and System themes, including project-authored ChatPlus dark styling.
-- Native Windows notifications with preview privacy, sound and conversation cooldown.
-- Boolean unread indicators in the title, tray, taskbar and service sidebar.
-- Settings that stay open after Save, with inline confirmation and separate Close.
-- A signature-verified updater with explicit installation/restart confirmation.
-- About and license windows; version and diagnostics derive from build metadata.
+- Keep Synology ChatPlus or Synology Chat close at hand with a convenient Windows app.
+- Switch between multiple communication services and separate account profiles.
+- See unread indicators and native notifications while working in other applications.
+- Keep the app in the system tray and choose your theme, language and update channel.
 
-The current prerelease target is **0.5.0-beta.4**, focused on unread and notification
-reliability. Windows x64 is the supported development target.
-Real-server and installed Windows validation remain release gates. Linux/macOS are
-experimental and have not been validated for the new child-WebView layout.
+## Supported services
 
-## Providers
+| Service           | Status                                                                           |
+| ----------------- | -------------------------------------------------------------------------------- |
+| Synology ChatPlus | Supported / primary; dedicated theme, unread and notification integration        |
+| Synology Chat     | Supported unread/notification integration; broader web-client acceptance pending |
+| Discord           | Supported unread/notification integration; broader web-client acceptance pending |
+| Mattermost        | Experimental web sessions; desktop unread/notifications disabled                 |
+| Slack             | Experimental web sessions; desktop unread/notifications disabled                 |
 
-| Provider          | Status              | Desktop integration                                                                                                |
-| ----------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Synology ChatPlus | Primary / Supported | Theme, sidebar unread and WebView2 notification adapters                                                           |
-| Synology Chat     | Experimental        | Separate Synology Chat unread adapter, WebView2 notifications and persistent profile                               |
-| Slack             | Experimental        | HTTPS Slack origins, web authentication, activation and persistent profile; unread/native notifications disabled   |
-| Discord           | Experimental        | Dedicated Discord unread/focus adapter, WebView2 notifications and separate account profiles                       |
-| Mattermost        | Experimental        | Custom HTTP(S) server, separate account profiles and exact configured origin; unread/native notifications disabled |
+Synology Chat and Discord still carry Experimental badges in the general service UI.
+Their notification integration is supported functionality in this reliability pass;
+authenticated Windows acceptance remains pending. Provider login/SSO, calls and other
+features depend on each web app and its policies. [Provider details](docs/PROVIDERS.md)
+explain the current boundaries; no Slack/Discord desktop-client parity is claimed.
 
-ChatPlus, Synology Chat and Discord have independently implemented unread adapters;
-authenticated Windows notification/read acceptance remains pending for all three.
-Slack and Mattermost desktop unread/notifications remain disabled. Slack and Discord
-have no desktop-client parity claim. Embedded authentication and cross-origin SSO
-remain unvalidated.
-See [provider boundaries and limitations](docs/PROVIDERS.md).
+## Features
 
-## Setup and services
+- Multiple chat services in one app, with persistent per-service sessions.
+- Native Windows notifications with Full, Sender/chat or Generic previews and sound.
+- Per-service unread dots and shared tray, title and taskbar unread presentation.
+- Service-specific desktop notification mute and tray restore/hide controls.
+- Automatic update checks (optional), signed updates and Stable/Pre-release channels.
+- PDF and ordinary attachment downloads through the provider's WebView2 session,
+  with native save/download controls and safe duplicate filenames.
+- Light, Dark and System themes; English, Polish and Spanish interface.
+- Native menus, zoom/fullscreen, saved window geometry and optional start with Windows.
 
-Enter your ChatPlus URL, such as `https://example.com/chat/`, and choose **Connect**.
-Sign in through the provider's own interface. The shell does not collect passwords;
-WebView2 manages cookies and sessions.
+Current development is `0.5.0-beta.4`, focused on reliability. Native notifications,
+authenticated attachments and installed updater behavior still need the
+[Windows acceptance checks](docs/WINDOWS_ACCEPTANCE.md#current-reliability-pass-2026-10-07)
+for this revision. Windows x64 is the supported target; Linux/macOS are experimental.
 
-Open Settings from the menu, tray or sidebar. **Save** persists preferences, keeps
-Settings open and confirms inline. **Close** is separate and discards unsaved edits.
-Theme changes apply live. Changing a service URL/provider recreates its view;
-finish drafts and calls first.
+## Download
 
-Settings > Services adds, renames, enables or removes configured services. Select
-one from the narrow service rail; there are no browser tabs or address bar. Sessions
-are created on first activation, then remain in memory while another service is
-shown. Additional services use separate profile directories. The rail's context menu
-offers Open, Rename/Service settings and confirmed Remove service. ChatPlus, Synology
-Chat and Discord also offer desktop notification mute/unmute. Removal is persisted immediately, closes the
-view and retains its disk profile without saving unrelated Settings edits.
+**[Download Windows builds from GitHub Releases](https://github.com/Swiph3l/synology-chatplus-desktop/releases).**
 
-Multiple instances of the same provider have separate stable service IDs and
-profiles. Use custom names such as Personal Discord and GameDev Discord; tooltips
-identify each instance. Discord needs a display name rather than a custom server
-URL. Authentication stays in Discord's own web interface and may require manual
-MFA or CAPTCHA; the application never supplies credentials or reads private APIs.
+Choose a published Windows x64 setup installer. Stable releases are intended for
+regular use; Pre-release builds include beta/RC changes for testing. The saved update
+channel stays under your control, and installation/restart requires confirmation.
+Development work described here may be newer than the latest published release.
 
-Mattermost requires a custom server URL and supports separate instances such as
-Mattermost — Company and Mattermost — Private. It reuses the persistent per-service
-profiles and desktop menu. Native unread/notifications are disabled; authenticated
-login, SSO and account retention remain pending live validation.
-
-Existing single-server settings migrate automatically to a deterministic ChatPlus
-service, retaining preferences and the original default WebView profile path.
-Migration does not intentionally require a new login. Cookie retention across an
-installed upgrade still requires Windows verification.
-
-## Notifications and unread
-
-Supported Windows WebView2 runtimes intercept browser notifications for ChatPlus,
-Synology Chat and Discord, validate the source origin and suppress duplicate browser
-display before native delivery. Enable global Desktop notifications and the desired
-service's Desktop notifications preference. Previously saved disabled service
-preferences stay disabled after upgrade; explicitly enable those services as needed.
-The provider's own notification settings and Windows permissions also apply.
-
-Selecting a service or logically focusing its WebView cannot suppress a toast or
-clear unread while ChatPlus is backgrounded/minimized. Suppression requires actual
-native foreground visibility plus reliable evidence that the originating conversation
-is being viewed at latest; unknown conversation identity permits delivery. Clicking
-a toast restores, unminimizes and focuses the existing main window before selecting
-the originating service. The host does not derive conversation navigation from an
-unverified notification tag or create another application process/window. There is
-no background push after the application exits.
-
-Preview modes are Full, Sender/chat and Generic. Save feedback never sends a Windows
-notification. **Send test notification** is separate. Windows permission and Do Not
-Disturb can suppress banners. Notification content and service URLs are not logged.
-
-Each supported provider owns independent boolean unread state. Dedicated adapters
-observe provider-specific sidebar/aggregate markers. Missing, incomplete or ambiguous
-UI retains the cached state; focus, service switching and notification activation
-alone cannot clear it. Clearing requires provider empty/read evidence and a real
-conversation interaction in the current native foreground generation. Flashing
-titles and message text are not unread sources; exact counts are unavailable.
-Native arrivals also revoke earlier gestures. An empty pane cannot acknowledge an
-unverified native arrival; exact originating-message view proof is required to
-release that read barrier. ChatPlus and Synology Chat lack audited event-tag mapping,
-so their native-arrival dot can remain after reading until restart reobserves provider
-state. This candidate limitation has not passed live read-clear acceptance.
-Exact individual reads can progress while the provider aggregate remains unread or
-unknown. Only native-confirmed proofs retire event tags; the service dot still needs
-known provider zero and no remaining unproven native arrival before clearing.
-Discord cannot assert global
-zero from an empty mention-only DM group: missing/incomplete private-sidebar metadata,
-muted/selected/hovered DMs and message-request/spam scope remain unknown. These
-limitations need controlled Windows acceptance; the desktop does not guess unread
-state through private provider APIs.
-Automated regressions cover these rules, while authenticated foreground, background,
-minimized, toast and toast-click checks remain pending Windows acceptance.
-See [notification testing](docs/NOTIFICATIONS.md).
-
-## Updates
-
-**Stable** receives production releases only. **Pre-release** accepts beta/RC builds
-and newer stable releases, selecting the highest eligible SemVer. The saved channel
-is never changed automatically. Optional automatic checks run after startup, then
-at most every six hours. The official Tauri updater verifies signatures before
-installation, which requires confirmation.
-
-Updater signatures are distinct from Windows Authenticode. Local installers may be
-unsigned. See [signed updates](docs/UPDATER_SIGNING.md), [Windows beta validation](docs/WINDOWS_BETA.md)
-and the [release checklist](docs/RELEASE_CHECKLIST.md).
-
-## Build and test
-
-Use Node.js, Rust, Windows C++ build tools and WebView2:
-
-```sh
-npm ci
-npm run format:check
-npm run typecheck
-npm test
-npm run build
-npm run check:release
-cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-cargo check --locked --manifest-path src-tauri/Cargo.toml
-cargo test --locked --manifest-path src-tauri/Cargo.toml
-cargo test --release --locked --manifest-path src-tauri/Cargo.toml
-```
-
-Use `npm.cmd` when PowerShell script execution is restricted. `npm run tauri dev`
-starts development. Ordinary `npm run tauri build` produces local packages without
-release signing credentials; release packaging is a separately authorized process.
-
-Tests cover settings interactions, migration, provider validation, unread observations,
-notification policy and signed HTTPS updater fixtures. They do not replace installed
-Windows testing. See [development validation](docs/DEVELOPMENT_STATUS.md).
+Updater signatures verify updates separately from Windows Authenticode. Unsigned
+Windows builds may display a SmartScreen prompt. See [update details](docs/UPDATER.md).
 
 ## Screenshots
 
-The [existing images](docs/screenshots/README.md) are historical visual references,
-not screenshots of this revision. The historical About image has an outdated version.
-Capture fresh images from the actual build before release, including the service rail.
+![ChatPlus Desktop service sidebar with separate ChatPlus and Discord profiles](docs/screenshots/service-rail.png)
 
-## Security, contributing and license
+This Windows development capture shows the service rail from 2026-10-01 and excludes
+private provider content. It is an earlier visual reference, not acceptance evidence
+for this revision. [Screenshot provenance and more images](docs/screenshots/README.md).
 
-Remote provider views have no native Tauri IPC permissions. Local commands validate
-their invoking view and origin. Navigation is restricted to provider origins; external
-HTTP(S) links use the default browser when enabled. This is not a subresource firewall.
-TLS and updater signature verification remain enabled.
+## Installation
 
-See [SECURITY.md](SECURITY.md), [dependency policy](docs/DEPENDENCY_POLICY.md),
-[CONTRIBUTING.md](CONTRIBUTING.md) and [licensing notes](docs/LICENSING.md).
-[Report bugs on GitHub](https://github.com/Swiph3l/synology-chatplus-desktop/issues).
-Diagnostics omit private URLs, credentials, cookies and chat content.
+1. Download the Windows x64 setup from [Releases](https://github.com/Swiph3l/synology-chatplus-desktop/releases).
+2. Run the installer; Microsoft WebView2 is required and can be installed by setup.
+3. Enter your Synology ChatPlus/Synology Chat server URL, for example
+   `https://example.com/chat/`, and sign in through the provider's own interface.
+4. Use **Settings > Services** to add other services or separate accounts. Enable global
+   Desktop notifications and the desired service preference, then Save.
 
-GNU GPLv3 (GPL-3.0-only); see [LICENSE](LICENSE) and [NOTICE](NOTICE). Dependencies
-retain their own licenses. Synology, ChatPlus, DSM and Slack names identify
-compatibility and remain trademarks of their respective owners.
+Provider notification preferences and Windows permissions also apply. Settings Save
+keeps the window open with inline confirmation; Close is separate. Sessions are
+managed locally by WebView2. Finish drafts/calls before changing a service URL/provider.
+
+## Privacy
+
+ChatPlus Desktop adds no advertising and does not monetize conversation content.
+Providers load from their own services; the shell does not collect sign-in passwords.
+WebView2 handles local cookies/session profiles, with separate profiles for added
+services. Removing a service retains its disk profile.
+
+Optional update checks contact GitHub for release metadata/packages. Notification
+previews use the provider's supplied content according to your preference. Diagnostics
+omit message content, credentials, cookies/tokens and private URLs. Your provider's
+own privacy policy still applies. See [security reporting](SECURITY.md).
+
+## Contributing
+
+Start with [developer documentation](docs/DEVELOPMENT.md) and
+[CONTRIBUTING.md](CONTRIBUTING.md). Contributions to bug fixes, provider integration,
+translations, accessibility, documentation and Windows testing are welcome.
+
+See also [architecture](docs/ARCHITECTURE.md), [notifications](docs/NOTIFICATIONS.md),
+[provider integration](docs/PROVIDERS.md) and [testing](docs/TESTING.md).
+
+## Reporting bugs
+
+[Open a GitHub issue](https://github.com/Swiph3l/synology-chatplus-desktop/issues/new/choose)
+with app/Windows/WebView2 versions, provider version and safe reproduction steps.
+For unread issues, describe foreground/background/minimized state, selected service,
+restore versus actual conversation input/reply, and sidebar/tray/toast results.
+About > **Copy diagnostics** supplies bounded privacy-safe transition information.
+Do not include private messages, credentials/tokens, server/attachment URLs or profiles.
+
+## License
+
+GNU GPLv3 (GPL-3.0-only). See [LICENSE](LICENSE), [NOTICE](NOTICE) and
+[licensing notes](docs/LICENSING.md). Dependencies retain their own licenses.
+
+## Disclaimer
+
+ChatPlus Desktop is an independent community project maintained by **Swiph3l**. It
+is not affiliated with or endorsed by Synology or other supported providers. Product
+names and trademarks identify compatibility and belong to their respective owners.
+No proprietary Synology server application bundles are redistributed.
