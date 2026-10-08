@@ -215,7 +215,7 @@ pub fn deliver_for(
     if let Some(reason) = suppression_reason(
         settings.desktop_notifications,
         permission(app).granted,
-        config.notifications && config.provider.definition().notifications,
+        config.notifications && config.supports_notifications(),
         focused,
     ) {
         return suppress(reason);

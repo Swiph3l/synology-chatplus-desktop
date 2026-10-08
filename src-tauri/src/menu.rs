@@ -173,9 +173,7 @@ impl ServiceAction {
     fn allowed(self, service: &ServiceConfig) -> bool {
         service.enabled
             && match self {
-                Self::Mute | Self::Unmute | Self::Notifications => {
-                    service.provider.definition().notifications
-                }
+                Self::Mute | Self::Unmute | Self::Notifications => service.supports_notifications(),
                 _ => true,
             }
     }
@@ -194,7 +192,7 @@ fn service_actions(service: &ServiceConfig) -> Vec<ServiceAction> {
         return Vec::new();
     }
     let mut actions = vec![ServiceAction::Open];
-    if service.provider.definition().notifications {
+    if service.supports_notifications() {
         actions.push(if service.notifications {
             ServiceAction::Mute
         } else {
@@ -670,6 +668,7 @@ mod tests {
             url: "https://example.com/chat/".into(),
             enabled: true,
             notifications: true,
+            notification_color: crate::providers::NotificationColor::Auto,
         }
     }
     #[test]

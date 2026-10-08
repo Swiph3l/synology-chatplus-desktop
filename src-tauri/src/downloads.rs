@@ -509,6 +509,7 @@ mod tests {
             url: "https://chat.example.com/".into(),
             enabled: true,
             notifications: true,
+            notification_color: crate::providers::NotificationColor::Auto,
         }
     }
     #[test]

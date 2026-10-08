@@ -159,6 +159,7 @@ mod tests {
                     url: "https://example.com/chat/".into(),
                     enabled: true,
                     notifications: true,
+                    notification_color: crate::providers::NotificationColor::Auto,
                 })
                 .collect();
             for active in ["origin", "selected"] {
