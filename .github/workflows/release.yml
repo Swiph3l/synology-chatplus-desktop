@@ -16,6 +16,8 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+          # Pin the event commit; a tag moved after the event must fail identity checks.
+          ref: ${{ github.sha }}
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6 (Node 24)
         with:
           node-version: 22
@@ -61,6 +63,13 @@ jobs:
         run: node scripts/check-binary-privacy.mjs
       - name: Collect standalone application and signed setup
         run: node scripts/collect-release.mjs windows-x86_64
+      - name: Verify collected updater signature with the production public key
+        shell: pwsh
+        run: |
+          $releaseVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $env:CHATPLUS_SIGNED_ARTIFACT = (Resolve-Path -LiteralPath "release-artifacts/windows-x86_64--ChatPlus-Desktop_${releaseVersion}_x64-setup.exe").Path
+          cargo test --release --locked --manifest-path src-tauri/Cargo.toml updates::updater_tests::production_artifact_signature_verifies -- --ignored --exact
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - run: cargo install cargo-cyclonedx --version 0.5.9 --locked
       - run: npm run sbom -- security-output
       - name: Collect dependency evidence
@@ -87,6 +96,8 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5 (Node 24)
         with:
           persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.sha }}
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6 (Node 24)
         with:
           node-version: 22
@@ -109,6 +120,8 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
           GH_REPO: ${{ github.repository }}
         run: |
+          node scripts/release-identity.mjs --verify-remote-tag
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $releaseArgs = @('release','create',$env:RELEASE_TAG,'--draft','--verify-tag','--title',"ChatPlus Desktop $env:RELEASE_TAG",'--notes-file','CHANGELOG.md')
           if ($env:RELEASE_TAG -match '^v\d+\.\d+\.\d+-') { $releaseArgs += '--prerelease' }
           gh @releaseArgs
