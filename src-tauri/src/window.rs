@@ -5,7 +5,7 @@ use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 pub fn is_foreground(app: &AppHandle) -> bool {
     app.get_window("main").is_some_and(|window| {
         foreground_state(
-            window.is_focused().unwrap_or(false),
+            frame_has_focus(&window),
             window.is_visible().unwrap_or(false),
             window.is_minimized().unwrap_or(true),
         )
@@ -18,10 +18,31 @@ pub(crate) fn foreground_state(focused: bool, visible: bool, minimized: bool) ->
     focused && visible && !minimized
 }
 
+fn frame_has_focus(window: &tauri::Window) -> bool {
+    #[cfg(windows)]
+    {
+        // A child WebView owns keyboard focus, so Tao's frame focus flag can be
+        // false even while this native top-level window is in the foreground.
+        window.hwnd().is_ok_and(|hwnd| unsafe {
+            windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() == hwnd
+        })
+    }
+    #[cfg(not(windows))]
+    {
+        window.is_focused().unwrap_or(false)
+    }
+}
+
 pub fn focus(window: &tauri::Window) -> tauri::Result<()> {
-    window.unminimize()?;
-    window.show()?;
-    window.set_focus()?;
+    if !window.is_visible()? {
+        window.show()?;
+    }
+    if window.is_minimized()? {
+        window.unminimize()?;
+    }
+    if !frame_has_focus(window) {
+        window.set_focus()?;
+    }
     if window.label() == "main" {
         if let Some(view) = crate::services::active(window.app_handle()) {
             view.set_focus()?;
@@ -48,25 +69,28 @@ fn notification_destination<'a>(
     service_id.filter(|id| settings.services.iter().any(|s| s.id == *id && s.enabled))
 }
 
-pub fn restore_existing(app: &AppHandle) -> Result<bool, String> {
-    if let Some(w) = app.get_window("main") {
-        focus(&w).map_err(|_| "Could not focus ChatPlus.".to_string())?;
-        return Ok(true);
+pub fn show_main_window(app: &AppHandle) -> Result<bool, String> {
+    let Some(window) = app.get_window("main") else {
+        return Ok(false);
+    };
+    focus(&window).map_err(|_| "Could not focus ChatPlus.".to_string())?;
+    if !frame_has_focus(&window) {
+        // Windows can refuse foreground activation after later user input.
+        let _ = window.request_user_attention(Some(tauri::UserAttentionType::Informational));
     }
-    if let Some(w) = app.get_webview_window("settings") {
-        focus(&w.as_ref().window()).map_err(|_| "Could not focus setup.".to_string())?;
-        return Ok(true);
-    }
-    if let Some(w) = app.get_webview_window("about") {
-        focus(&w.as_ref().window()).map_err(|_| "Could not focus About.".to_string())?;
-        return Ok(true);
-    }
-    Ok(false)
+    #[cfg(debug_assertions)]
+    eprintln!(
+        "[single-instance] main window restored: visible={} minimized={} focused={}",
+        window.is_visible().unwrap_or(false),
+        window.is_minimized().unwrap_or(true),
+        frame_has_focus(&window),
+    );
+    Ok(true)
 }
 
 pub fn open(app: &AppHandle) -> Result<(), String> {
-    if let Some(w) = app.get_window("main") {
-        return focus(&w).map_err(|_| "Could not focus ChatPlus.".into());
+    if show_main_window(app)? {
+        return Ok(());
     }
     let settings = state::current(app);
     if settings.server_url.is_empty() {
@@ -86,9 +110,13 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
     .on_navigation(crate::navigation::local_settings)
     .build()
     .map_err(|_| "Could not create desktop window.")?;
+    crate::native_shortcuts::attach(app, window.as_ref())
+        .map_err(|_| "Could not register desktop shortcuts.")?;
     crate::services::show(app)?;
     apply_theme(app)?;
-    focus(&window.as_ref().window()).map_err(|_| "Could not show ChatPlus.")?;
+    show_main_window(app)?
+        .then_some(())
+        .ok_or("Could not show ChatPlus.")?;
     let handle = app.clone();
     let event_window = window.clone();
     window.on_window_event(move |event| match event {
