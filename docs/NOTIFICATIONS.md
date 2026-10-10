@@ -75,7 +75,10 @@ guessed, so incomplete provider navigation can still retain a dot.
 Selection, restore, child focus, toast activation, header/sidebar clicks, synthetic
 input, stale generations, unrelated conversation activity and background badge
 disappearance do not acknowledge unread. A send action cannot clear another unread
-conversation/service. Tests cover new arrivals racing proof queries and foreground
+conversation/service. Child-document blur/focus and visibility loss revoke old
+conversation gestures even when the native window remains foreground. A covered
+Discord notification row is not accepted as exact viewing evidence.
+Tests cover new arrivals racing proof queries and foreground
 changes. [TESTING.md](TESTING.md#notification-transition-matrix) maps cases A-K.
 
 ## Provider adapters
@@ -110,26 +113,51 @@ exact repeated event identities are deduplicated; conversation cooldown no longe
 silences legitimate consecutive messages. The legacy saved cooldown field remains
 for profile compatibility but does not control delivery.
 
+Windows provider WebViews retain the browser's native `Notification` API, which
+feeds the WebView2 bridge. The Tauri notification plugin is registered only on
+other platforms: its JavaScript polyfill would replace the browser constructor,
+report a separate permission state and send provider notifications through Tauri
+IPC, which is unavailable to remote provider pages. Windows desktop permission
+checks and toast delivery use the native sender directly.
+
 Preview modes are Full, Sender/chat (default) and Generic. Notification content is
 used only for requested display and is not logged/persisted. Failed submissions
 release delivery reservations for retry. Native WebView2 completion stays on its
 owning apartment, and callback/timeout/error races cannot complete the same event
 twice. No background push runs after the application exits.
+Provider `IsSilent` also disables sound; enabling application sound cannot override
+a provider's silent notification. Bridge availability and source-session identity
+are tracked per service, so a stale WebView callback cannot publish into its replacement.
+
+Windows toasts show the provider icon framed in the service's saved RGB color.
+Full preview keeps the provider's sender/chat title and a message excerpt of at
+most 240 Unicode characters. Sender/chat hides the message body; Generic also
+hides the sender and custom service name, showing only the provider identity.
+Full and Sender/chat include the configured service name and provider below the
+preview. Named colors and Auto remain supported; Auto follows the app accent.
+The local `notification-icons` cache stores provider/color PNG artwork only, with
+no message text, service names, URLs or credentials. The explicit test notification
+uses the active service's icon/color and fixed sample text without changing unread.
 
 ## Toast activation
 
 Activation uses the existing process and main window, shows it if hidden, unminimizes,
 brings it foreground/focuses it and selects the originating enabled service. It never
-creates another window/process or clears unread merely by activation. There is no
-reliable destination mapping across all providers, so it does not guess conversation
-routes from arbitrary tags/titles. Actual foreground read evidence clears afterward.
+creates another window/process or clears unread merely by activation. After restore,
+the retained originating WebView notification receives `ReportClicked` on its COM
+apartment, allowing the provider's own click handler to route the conversation.
+No route is guessed from tags/titles. The bounded activation history retains 256
+contexts; evicted or replaced-source contexts fall back to service restore only.
+Actual foreground read evidence clears afterward. Closed-process activation still
+requires Windows acceptance; this change handles the running application.
 
 ## Privacy-safe diagnostics
 
 About's existing **Copy diagnostics** includes a bounded in-memory history of 128
-notification transitions. Event types include notification_arrival, unread_latched,
+notification transitions. Event types include detected, normalized, duplicate_suppressed,
+notification_arrival, unread_latched,
 read_candidate/read_accepted/read_rejected, unread_cleared, toast_submitted,
-toast_suppressed and toast_activated. Metadata is allowlisted: service/provider,
+toast_suppressed, toast_activated and provider_activated. Metadata is allowlisted: service/provider,
 native foreground, selected state, generation, fixed reason code and timestamp. Copy diagnostics appends the safe
 JSON event history; typed events/reasons prevent arbitrary content entering it.
 Message bodies, credentials/tokens, private URLs, event tags and conversation content
@@ -149,6 +177,13 @@ supported origin on capable WebView2 versions; save the preference for incoming 
 It cannot bypass Windows policy. **Open Windows notification settings** opens
 ms-settings:notifications when access is blocked/unavailable. Settings rechecks access
 when focused. The sound option applies immediately to the test.
+
+Windows development/debug builds use the registered Windows PowerShell notification
+sender because their executable has no installer-created shortcut/AUMID registration.
+Windows displays a Windows PowerShell sender header with the ChatPlus Desktop title;
+permission checks and delivery use this same development sender. Installed release
+builds retain ChatPlus Desktop's own identifier and sender. This development fallback
+does not change Windows notification settings or register another application.
 
 Submission success does not prove a visible banner: Windows Do Not Disturb may keep
 it in Notification Center. Follow the exact provider, multi-service, activation,

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { build } from "esbuild";
 import { parseHTML } from "linkedom";
 import { runInNewContext } from "node:vm";
+import { bridgeMessages } from "./helpers/bridge-messages.mjs";
 
 const built = await build({
   entryPoints: ["src/theme/unread.ts"],
@@ -38,7 +39,8 @@ function fixture(provider) {
   const { document, window: dom } = parseHTML(
     `<html><body class="eos-scope">${markup[provider]}</body></html>`,
   );
-  const messages = [];
+  const bridge = bridgeMessages();
+  const { messages, diagnostics } = bridge;
   const tasks = [];
   const observers = [];
   const listeners = new Map();
@@ -68,7 +70,7 @@ function fixture(provider) {
       overflowY: node.style.overflowY || "",
     }),
     chrome: {
-      webview: { postMessage: (value) => messages.push(JSON.parse(value)) },
+      webview: { postMessage: bridge.postMessage },
     },
     addEventListener(type, callback, capture = false) {
       const entries = listeners.get(type) ?? [];
@@ -196,6 +198,7 @@ function fixture(provider) {
       '[data-testid="message-create-box-text-area"], .msg-inputarea-textarea, [role="textbox"]',
     ),
     messages,
+    diagnostics,
     rawHasFocus,
     flush,
     gesture,

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { build } from "esbuild";
 import { parseHTML } from "linkedom";
 import { runInNewContext } from "node:vm";
+import { bridgeMessages } from "./helpers/bridge-messages.mjs";
 
 const built = await build({
   entryPoints: ["src/theme/unread.ts"],
@@ -17,7 +18,8 @@ function fixture(provider, frame = false) {
     <div class="syno-chat"><div class="channel-list-main"><div class="channel-list-view"><div class="channel-list-item highlight"></div></div></div></div>
     <div data-list-id="private-channels-example"><span class="unreadPill_current"></span></div>
   </body></html>`);
-  const messages = [];
+  const bridge = bridgeMessages();
+  const { messages, diagnostics } = bridge;
   const tasks = [];
   const listeners = new Map();
   const host = {
@@ -25,7 +27,7 @@ function fixture(provider, frame = false) {
     location: { href: "https://example.com/", pathname: "/", hash: "" },
     MutationObserver: dom.MutationObserver,
     chrome: {
-      webview: { postMessage: (value) => messages.push(JSON.parse(value)) },
+      webview: { postMessage: bridge.postMessage },
     },
     addEventListener: (type, listener) => listeners.set(type, listener),
     removeEventListener: (type) => listeners.delete(type),
@@ -45,7 +47,7 @@ function fixture(provider, frame = false) {
     queueMicrotask: (callback) => tasks.push(callback),
   });
   while (tasks.length) tasks.shift()();
-  return { messages, host, document };
+  return { messages, diagnostics, host, document };
 }
 
 for (const [provider, source] of [

@@ -195,6 +195,13 @@ pub fn begin_incoming_for(
         crate::diagnostics::notification(
             app,
             id,
+            crate::diagnostics::NotificationEvent::Detected,
+            crate::diagnostics::NotificationReason::BrowserEvent,
+            read,
+        );
+        crate::diagnostics::notification(
+            app,
+            id,
             crate::diagnostics::NotificationEvent::NotificationArrival,
             crate::diagnostics::NotificationReason::BrowserEvent,
             read,

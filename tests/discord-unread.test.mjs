@@ -108,8 +108,10 @@ function fixture({
     },
   };
   Object.defineProperty(document, "defaultView", { value: view });
+  // Browser hit testing returns the visible message content, rather than the
+  // ancestor list. Exact-notification occlusion checks need that distinction.
   document.elementFromPoint = () =>
-    document.querySelector('[data-list-id="chat-messages"]');
+    document.querySelector('[data-list-id="chat-messages"] li div');
   const bounds = {
     x: 0,
     y: 0,
@@ -538,6 +540,34 @@ test("Discord native notification tags match message snowflakes rather than chan
   );
 });
 
+test("Discord notification hit testing rejects ancestor lists, sibling messages and overlays", () => {
+  const f = fixture();
+  assert.equal(f.adapter.isViewingNotification({ tag: message }), true);
+  for (const selector of [
+    '[data-list-id="chat-messages"]',
+    '[class*="scroller__"]',
+    "#header",
+  ]) {
+    f.document.elementFromPoint = () => f.document.querySelector(selector);
+    assert.equal(
+      f.adapter.isViewingNotification({ tag: message }),
+      false,
+      selector,
+    );
+  }
+  f.document
+    .querySelector('[data-list-id="chat-messages"]')
+    .insertAdjacentHTML(
+      "beforeend",
+      `<li id="chat-messages-${channel}-${otherMessage}"><div id="other-content">Other message</div></li>`,
+    );
+  f.document.elementFromPoint = () =>
+    f.document.getElementById("other-content");
+  assert.equal(f.adapter.isViewingNotification({ tag: message }), false);
+  f.document.elementFromPoint = () => null;
+  assert.equal(f.adapter.isViewingNotification({ tag: message }), false);
+});
+
 test("Discord thread routes only acknowledge the actual thread message viewport", () => {
   const f = fixture({
     path: `/channels/${guild}/${otherChannel}/threads/${channel}`,
@@ -549,6 +579,7 @@ test("Discord thread routes only acknowledge the actual thread message viewport"
     chat: conversation({ id: otherChannel }),
   });
   assert.equal(wrong.adapter.readContext(), null);
+  assert.equal(wrong.adapter.isViewingNotification({ tag: message }), false);
 });
 
 test("native foreground projection fixes Discord's public blur predicate despite logically focused minimized WebViews", () => {
