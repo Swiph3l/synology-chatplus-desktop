@@ -8,6 +8,8 @@ import { setLanguage, t } from "../i18n";
 import { updates, type UpdateSnapshot } from "../app/updates";
 import { createFooter } from "./footer";
 import { acceptUnreadSnapshot, type UnreadSnapshot } from "../app/unread";
+import { applyNotificationColor } from "../app/notification-colors";
+import { bindRailReorder } from "./rail-reorder";
 export async function renderServices() {
   document.body.classList.add("services-page");
   const app = document.getElementById("app")!;
@@ -23,6 +25,29 @@ export async function renderServices() {
   const version = await invoke<string>("get_current_version").catch(() => "");
   const footer = createFooter(version ?? "");
   app.append(footer.element);
+  let reorder: ReturnType<typeof bindRailReorder> | undefined;
+  let reorderSaving = false;
+  let deferredRender = false;
+  let settingsRevision = 0;
+  let settingsObserved = false;
+  const persistOrder = async (ids: string[]) => {
+    if (reorderSaving) return;
+    reorderSaving = true;
+    const revision = settingsRevision;
+    try {
+      const saved = await invoke<Settings>("reorder_services", { ids });
+      // Settings broadcasts can contain newer mute/active/preferences changes.
+      if (settingsRevision === revision) {
+        settings = saved;
+        settingsObserved = true;
+      }
+    } catch {
+      footer.report(t("rail.reorderError"));
+    } finally {
+      reorderSaving = false;
+      render();
+    }
+  };
   let contextRequest = 0;
   const openContextMenu = async (
     button: HTMLButtonElement,
@@ -48,6 +73,14 @@ export async function renderServices() {
     }
   };
   const render = () => {
+    if (reorder?.interacting()) {
+      deferredRender = true;
+      return;
+    }
+    deferredRender = false;
+    const scrollTop =
+      app.querySelector<HTMLElement>(".rail-services")?.scrollTop ?? 0;
+    reorder?.dispose();
     const focused = document.activeElement as HTMLElement | null;
     // Swiph3l: An inactive shell retains activeElement while a provider WebView
     // owns input; unread refreshes must not steal focus back from that provider.
@@ -70,21 +103,45 @@ export async function renderServices() {
       const button = document.createElement("button");
       button.type = "button";
       button.dataset.railKey = service.id;
+      applyNotificationColor(button, service);
       button.setAttribute("aria-haspopup", "menu");
       const provider = providers[service.provider];
       button.append(providerIcon(service.provider));
       button.title = `${service.name} · ${provider.name}${provider.experimental ? ` (${t("rail.experimental")})` : ""}`;
-      const hasUnread = unread.services[service.id]?.hasUnread ?? false;
+      const serviceUnread = unread.services[service.id];
+      button.title += `\n${t("rail.reorderHint")}`;
+      button.setAttribute("aria-keyshortcuts", "Alt+ArrowUp Alt+ArrowDown");
+      const hasUnread = serviceUnread?.hasUnread ?? false;
+      const count = serviceUnread?.totalUnreadCount;
+      const unreadCount =
+        hasUnread &&
+        typeof count === "number" &&
+        Number.isSafeInteger(count) &&
+        count > 0
+          ? count
+          : null;
+      const unreadLabel =
+        unreadCount === null
+          ? t("rail.unread")
+          : `${t("rail.unread")}: ${unreadCount}`;
       button.setAttribute(
         "aria-label",
-        `${button.title}${hasUnread ? `, ${t("rail.unread")}` : ""}`,
+        `${button.title}${hasUnread ? `, ${unreadLabel}` : ""}`,
       );
       button.setAttribute(
         "aria-pressed",
         String(service.id === settings.activeService),
       );
-      button.classList.toggle("has-unread", hasUnread);
-      button.addEventListener("click", () => {
+      button.classList.toggle("has-unread", hasUnread && unreadCount === null);
+      if (unreadCount !== null) {
+        const badge = document.createElement("span");
+        badge.className = "notification-badge rail-unread-count";
+        badge.textContent = unreadCount > 99 ? "99+" : String(unreadCount);
+        badge.setAttribute("aria-hidden", "true");
+        button.append(badge);
+      }
+      button.addEventListener("click", (event) => {
+        if (railReorder.consumeClick(service.id, event)) return;
         void invoke("activate_service", { id: service.id }).catch(() => {
           footer.report(t("rail.openError"));
         });
@@ -102,6 +159,22 @@ export async function renderServices() {
       });
       button.addEventListener("keydown", (event) => {
         if (
+          event.altKey &&
+          (event.key === "ArrowUp" || event.key === "ArrowDown")
+        ) {
+          event.preventDefault();
+          if (reorderSaving || railReorder.interacting()) return;
+          const ids = settings.services
+            .filter((item) => item.enabled)
+            .map((item) => item.id);
+          const index = ids.indexOf(service.id);
+          const target = index + (event.key === "ArrowUp" ? -1 : 1);
+          if (index < 0 || target < 0 || target >= ids.length) return;
+          [ids[index], ids[target]] = [ids[target], ids[index]];
+          void persistOrder(ids);
+          return;
+        }
+        if (
           event.key !== "ContextMenu" &&
           !(event.shiftKey && event.key === "F10")
         )
@@ -112,6 +185,15 @@ export async function renderServices() {
       });
       services.append(button);
     }
+    const railReorder = bindRailReorder(services, {
+      busy: () => reorderSaving,
+      commit: (ids) => void persistOrder(ids),
+      end: () => {
+        // Keep the original click target alive until its pointerup/click sequence ends.
+        if (deferredRender) window.setTimeout(render, 0);
+      },
+    });
+    reorder = railReorder;
     rail.append(services);
     const actions = document.createElement("div");
     actions.className = "rail-actions";
@@ -140,6 +222,7 @@ export async function renderServices() {
     const previous = app.querySelector(".service-rail");
     if (previous) previous.replaceWith(rail);
     else app.prepend(rail);
+    services.scrollTop = scrollTop;
     if (focusKey) {
       const target = [
         ...app.querySelectorAll<HTMLButtonElement>("button"),
@@ -149,9 +232,18 @@ export async function renderServices() {
       });
     }
   };
-  let settingsObserved = false;
   await listen<Settings>("services-changed", ({ payload }) => {
     settingsObserved = true;
+    settingsRevision++;
+    const enabledIds = (value: Settings) =>
+      value.services.filter((item) => item.enabled).map((item) => item.id);
+    const previousIds = enabledIds(settings);
+    const nextIds = enabledIds(payload);
+    if (
+      previousIds.length !== nextIds.length ||
+      previousIds.some((id, index) => id !== nextIds[index])
+    )
+      reorder?.cancel();
     settings = payload;
     setLanguage(settings.language ?? "en");
     footer.refresh();

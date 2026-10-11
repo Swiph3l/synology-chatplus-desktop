@@ -9,6 +9,7 @@
   --border: #cbd1d9;
   --muted: #586474;
   --accent: #2563c5;
+  --accent-foreground: #fff;
   --danger: #b42332;
 }
 
@@ -20,6 +21,7 @@
   --border: #363d47;
   --muted: #aab2bd;
   --accent: #397edb;
+  --accent-foreground: #101318;
   --danger: #ff8992;
 }
 
@@ -32,6 +34,7 @@
     --border: #363d47;
     --muted: #aab2bd;
     --accent: #397edb;
+    --accent-foreground: #101318;
     --danger: #ff8992;
   }
 }
@@ -91,12 +94,41 @@ body.services-page {
   gap: 6px;
 }
 .rail-services {
+  position: relative;
   min-height: 0;
   width: 46px;
   padding: 3px;
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-width: thin;
+}
+.rail-services button {
+  touch-action: none;
+  user-select: none;
+}
+.rail-services img {
+  -webkit-user-drag: none;
+  pointer-events: none;
+}
+.rail-services.rail-reordering,
+.rail-reordering button {
+  cursor: grabbing;
+}
+.rail-services button.rail-dragging {
+  transform: translateY(var(--rail-drag-offset, 0px));
+  z-index: 3;
+  opacity: 0.85;
+  outline: 1px dashed var(--accent);
+  outline-offset: -1px;
+}
+.rail-drop-marker {
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  height: 0;
+  border-top: 2px dashed var(--accent);
+  pointer-events: none;
+  z-index: 2;
 }
 .rail-actions {
   flex-shrink: 0;
@@ -177,9 +209,36 @@ body.services-page {
   top: 3px;
   width: 8px;
   height: 8px;
-  background: #e34b56;
+  background: var(--notification-color, var(--accent));
   border: 2px solid var(--surface);
   border-radius: 50%;
+}
+.notification-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  min-height: 20px;
+  padding: 1px 5px;
+  border-radius: 10px;
+  background: var(--notification-color, var(--accent));
+  color: var(--notification-foreground, var(--accent-foreground));
+  font-size: 11px;
+  line-height: 1.3;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.rail-unread-count {
+  position: absolute;
+  right: 0;
+  top: 0;
+  min-width: 16px;
+  min-height: 16px;
+  padding: 0 3px;
+  border: 2px solid var(--surface);
+  border-radius: 9px;
+  font-size: 9px;
 }
 .app-footer {
   grid-column: 1 / -1;
@@ -281,6 +340,19 @@ body.services-page {
 .confirmation-dialog .actions {
   justify-content: flex-end;
   margin-top: 18px;
+}
+.confirmation-dialog[open] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.confirmation-dialog-content {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+.confirmation-dialog .actions {
+  flex-shrink: 0;
 }
 
 main {
@@ -785,7 +857,6 @@ dd {
 .update-summary p {
   margin: 8px 0;
 }
-
 .update-page #update-details {
   display: flex;
   flex-direction: column;

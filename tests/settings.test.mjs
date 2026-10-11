@@ -3,9 +3,19 @@ import assert from "node:assert/strict";
 import { build } from "esbuild";
 import { runInNewContext } from "node:vm";
 import { parseHTML } from "linkedom";
+import {
+  servicesDom,
+  dispatch,
+  setServiceField,
+  applyServiceDialog,
+  chooseProvider,
+} from "./helpers/services-dom.mjs";
 
 const result = await build({
-  entryPoints: ["src/settings/settings.ts"],
+  stdin: {
+    contents: 'export { renderSettings } from "./src/settings/settings.ts";',
+    resolveDir: process.cwd(),
+  },
   bundle: true,
   write: false,
   format: "iife",
@@ -42,6 +52,7 @@ async function fixture(options = {}) {
   const { window, document } = parseHTML(
     '<html><body><main id="app"></main></body></html>',
   );
+  const dom = servicesDom(window, document);
   // LinkeDOM implements select reading but not browser value assignment.
   Object.defineProperty(window.HTMLSelectElement.prototype, "value", {
     configurable: true,
@@ -119,6 +130,20 @@ async function fixture(options = {}) {
   };
   const calls = [],
     listeners = new Map();
+  let updateState = {
+    configured: true,
+    channel: settings.updateChannel,
+    phase: "idle",
+    currentVersion: "0.5.0-beta.3",
+    latestVersion: null,
+    notes: "",
+    downloaded: 0,
+    total: null,
+    message: "",
+    messageCode: "",
+    lastSuccessfulCheck: null,
+    ...options.updateState,
+  };
   const deferred = new Map();
   let failSave = false;
   let failRemove = false;
@@ -129,7 +154,13 @@ async function fixture(options = {}) {
     navigator: { userAgent: "Windows" },
     structuredClone,
     URL,
+    URLSearchParams,
+    ...(options.search === undefined
+      ? {}
+      : { location: { search: options.search } }),
     crypto: globalThis.crypto,
+    AbortController,
+    ...dom,
     setTimeout: () => 1,
     clearTimeout() {},
     nativeListen: async (event, callback) => {
@@ -141,6 +172,8 @@ async function fixture(options = {}) {
       args = structuredClone(args);
       calls.push({ command, args });
       if (command === "get_settings") return structuredClone(settings);
+      if (command === "get_validation_fixture_service_ids")
+        return structuredClone(options.fixtureServiceIds ?? []);
       if (command === "get_status") return null;
       if (command === "take_service_settings_target") {
         const target = settingsTarget;
@@ -154,11 +187,38 @@ async function fixture(options = {}) {
           webviewState: "granted",
           message: "Fixture",
         };
-      if (command === "get_update_state") return { configured: true };
+      if (command === "get_update_state") {
+        await options.beforeUpdateReady?.({ document, window, listeners });
+        return structuredClone(updateState);
+      }
       if (command === "save_settings") {
         await deferred.get(command)?.promise;
         if (failSave) throw "Could not save settings.";
-        listeners.get("settings-changed")?.({ payload: args.settings });
+        Object.assign(settings, structuredClone(args.settings));
+        updateState = {
+          ...updateState,
+          channel: settings.updateChannel,
+        };
+        listeners.get("update-state")?.({
+          payload: structuredClone(updateState),
+        });
+        if (
+          !settings.services.some(
+            (service) =>
+              service.enabled && service.id === settings.activeService,
+          )
+        )
+          settings.activeService =
+            settings.services.find((service) => service.enabled)?.id ?? null;
+        settings.serverUrl =
+          settings.services.find(
+            (service) => service.id === settings.activeService,
+          )?.url ?? "";
+        listeners.get("settings-changed")?.({
+          payload: structuredClone(settings),
+        });
+        if (failRemoveAfterSave)
+          throw "Settings saved. Restart to apply service changes.";
       }
       if (command === "remove_service") {
         await deferred.get(command)?.promise;
@@ -214,6 +274,71 @@ async function fixture(options = {}) {
   };
 }
 
+test("first-run Connect persists a complete first service when the profile already uses schema 1", async () => {
+  const f = await fixture({
+    settings: {
+      serverUrl: "",
+      services: [],
+      activeService: null,
+      serviceSchema: 1,
+      updateChannel: "pre-release",
+    },
+  });
+  const server = f.document.getElementById("server");
+  server.value = "http://127.0.0.1:17830/beta6/a";
+  dispatch(f.window, server, "input");
+  submitSettings(f);
+  await f.flush();
+  const saved = f.calls.find((call) => call.command === "save_settings").args
+    .settings;
+  assert.equal(saved.serviceSchema, 1);
+  assert.equal(saved.activeService, "chatplus");
+  assert.equal(saved.serverUrl, "http://127.0.0.1:17830/beta6/a/");
+  assert.deepEqual(saved.services, [
+    {
+      id: "chatplus",
+      provider: "synology-chatplus",
+      name: "ChatPlus",
+      url: "http://127.0.0.1:17830/beta6/a/",
+      enabled: true,
+      notifications: true,
+      notificationColor: "auto",
+    },
+  ]);
+  assert.equal(f.settings.services.length, 1);
+  assert.equal(f.settings.activeService, "chatplus");
+  assert.equal(server.value, saved.serverUrl);
+  assert.equal(saved.updateChannel, "pre-release");
+  assert.equal(saved.autostart, false);
+  assert.equal(saved.automaticUpdates, false);
+  assert.equal(saved.desktopNotifications, false);
+  assert.ok(f.document.getElementById("save-feedback").textContent);
+});
+
+test("failed first-run Connect retains the URL without adding a persisted service", async () => {
+  const f = await fixture({
+    settings: {
+      serverUrl: "",
+      services: [],
+      activeService: null,
+      serviceSchema: 1,
+    },
+  });
+  const server = f.document.getElementById("server");
+  server.value = "http://127.0.0.1:17830/beta6/a/";
+  dispatch(f.window, server, "input");
+  f.fail();
+  submitSettings(f);
+  await f.flush();
+  assert.equal(f.settings.services.length, 0);
+  assert.equal(server.value, "http://127.0.0.1:17830/beta6/a/");
+  assert.match(
+    f.document.getElementById("status").textContent,
+    /Could not save/,
+  );
+  assert.equal(f.document.getElementById("save").disabled, false);
+});
+
 test("six Settings sections keep keyboard navigation and route requests outside the scrolling content", async () => {
   const f = await fixture();
   const tabs = [...f.document.querySelectorAll('[role="tab"]')];
@@ -238,6 +363,207 @@ test("six Settings sections keep keyboard navigation and route requests outside 
   assert.equal(f.document.querySelector(".server-section").hidden, true);
 });
 
+test("external Updates requests focus the named update summary and preserve unsaved settings", async () => {
+  const f = await fixture();
+  f.document.getElementById("theme").value = "dark";
+  f.listeners.get("settings-section-requested")({ payload: "updates" });
+  const summary = f.document.getElementById("update-summary");
+  assert.equal(f.document.getElementById("panel-updates").hidden, false);
+  assert.equal(f.document.activeElement, summary);
+  assert.equal(summary.tabIndex, -1);
+  assert.equal(summary.getAttribute("role"), "region");
+  assert.equal(summary.getAttribute("aria-labelledby"), "update-heading");
+  assert.ok(f.document.getElementById("update-heading").textContent);
+  assert.equal(f.scrolled(), "update-summary");
+  assert.equal(f.document.getElementById("theme").value, "dark");
+
+  const updatesTab = f.document.getElementById("tab-updates");
+  updatesTab.focus();
+  const arrow = new f.window.Event("keydown", { cancelable: true });
+  arrow.key = "ArrowLeft";
+  updatesTab.dispatchEvent(arrow);
+  assert.equal(
+    f.document.activeElement,
+    f.document.getElementById("tab-notifications"),
+  );
+});
+
+test("the initial Updates route waits for the update summary to finish mounting", async () => {
+  let mounting = false;
+  const f = await fixture({
+    search: "?section=updates",
+    beforeUpdateReady: ({ document }) => {
+      mounting = true;
+      assert.equal(document.getElementById("panel-updates").hidden, false);
+      assert.equal(document.activeElement, null);
+    },
+  });
+  assert.equal(mounting, true);
+  assert.equal(
+    f.document.activeElement,
+    f.document.getElementById("update-summary"),
+  );
+  assert.equal(f.scrolled(), "update-summary");
+});
+
+test("an Updates event during mounting also waits for the ready summary", async () => {
+  const f = await fixture({
+    beforeUpdateReady: ({ document, listeners }) => {
+      listeners.get("settings-section-requested")({ payload: "updates" });
+      assert.equal(document.getElementById("panel-updates").hidden, false);
+      assert.equal(document.activeElement, null);
+    },
+  });
+  assert.equal(
+    f.document.activeElement,
+    f.document.getElementById("update-summary"),
+  );
+});
+
+test("pending Updates focus yields to navigation, control interaction, and open dialogs", async () => {
+  for (const interaction of [
+    "navigate",
+    "pointerdown",
+    "keydown",
+    "focusin",
+    "blur",
+    "dialog",
+  ]) {
+    const f = await fixture({
+      search: "?section=updates",
+      beforeUpdateReady: ({ document, window }) => {
+        const preference = document.getElementById("update-channel");
+        if (interaction === "navigate") {
+          document.getElementById("tab-general").click();
+          document.getElementById("server").focus();
+        } else if (interaction === "dialog") {
+          const dialog = document.createElement("dialog");
+          document.body.append(dialog);
+          dialog.showModal();
+          dialog.focus();
+        } else if (interaction === "blur") {
+          window.dispatchEvent(new window.Event("blur"));
+          preference.focus();
+        } else {
+          preference.dispatchEvent(
+            new window.Event(interaction, { bubbles: true }),
+          );
+          preference.focus();
+        }
+      },
+    });
+    assert.notEqual(
+      f.document.activeElement,
+      f.document.getElementById("update-summary"),
+      interaction,
+    );
+    assert.equal(f.scrolled(), null, interaction);
+  }
+});
+
+test("an external Updates request preserves an already open modal's focus", async () => {
+  const f = await fixture();
+  f.document.getElementById("add-service").click();
+  const dialog = f.document.querySelector("dialog[open]");
+  assert.ok(dialog);
+  const previous = f.document.activeElement;
+  assert.ok(dialog.contains(previous));
+  f.listeners.get("settings-section-requested")({ payload: "updates" });
+  assert.equal(f.document.activeElement, previous);
+  assert.equal(f.scrolled(), null);
+});
+
+test("ordinary Settings Save preserves authorized fixture notification preferences", async () => {
+  const mm = {
+    id: "fixture-mm",
+    provider: "mattermost",
+    name: "Synthetic Mattermost",
+    url: "http://127.0.0.1:17830/mm/",
+    enabled: true,
+    notifications: true,
+    notificationColor: "#123456",
+  };
+  const f = await fixture({
+    settings: { services: [mm], activeService: mm.id },
+    fixtureServiceIds: [mm.id],
+  });
+  f.document.getElementById("theme").value = "dark";
+  submitSettings(f);
+  await f.flush();
+  assert.equal(f.settings.services[0].notifications, true);
+  openEdit(f, mm.id);
+  setServiceField(f, "name", "Renamed fixture");
+  setServiceField(f, "notifications", false);
+  applyServiceDialog(f);
+  submitSettings(f);
+  await f.flush();
+  assert.equal(f.settings.services[0].name, "Renamed fixture");
+  assert.equal(f.settings.services[0].notifications, false);
+  f.document.getElementById("theme").value = "light";
+  submitSettings(f);
+  await f.flush();
+  assert.equal(f.settings.services[0].notifications, false);
+});
+
+test("Settings fixture metadata never enables production Mattermost or an unauthorized local service", async () => {
+  for (const [url, fixtureServiceIds] of [
+    ["https://mattermost.example.com/", ["mm"]],
+    ["http://127.0.0.1:17830/mm/", []],
+  ]) {
+    const mm = {
+      id: "mm",
+      provider: "mattermost",
+      name: "Mattermost",
+      url,
+      enabled: true,
+      notifications: true,
+    };
+    const f = await fixture({
+      settings: { services: [mm], activeService: mm.id },
+      fixtureServiceIds,
+    });
+    openEdit(f, mm.id);
+    assert.equal(
+      f.document.getElementById("service-dialog-notifications").disabled,
+      true,
+    );
+    f.document.querySelector(".service-dialog-footer .secondary").click();
+    f.document.getElementById("theme").value = "dark";
+    submitSettings(f);
+    await f.flush();
+    assert.equal(f.settings.services[0].notifications, false);
+  }
+});
+
+test("fresh native fixture metadata updates an open editor without changing its mute preference", async () => {
+  const mm = {
+    id: "mm",
+    provider: "mattermost",
+    name: "Synthetic Mattermost",
+    url: "http://127.0.0.1:17830/mm/",
+    enabled: true,
+    notifications: false,
+  };
+  const fixtureServiceIds = [];
+  const f = await fixture({
+    settings: { services: [mm], activeService: mm.id },
+    fixtureServiceIds,
+  });
+  openEdit(f, mm.id);
+  const toggle = f.document.getElementById("service-dialog-notifications");
+  assert.equal(toggle.disabled, true);
+  fixtureServiceIds.push(mm.id);
+  f.listeners.get("settings-changed")({ payload: structuredClone(f.settings) });
+  await f.flush();
+  assert.equal(toggle.disabled, false);
+  assert.equal(toggle.checked, false);
+  setServiceField(f, "notifications", true);
+  applyServiceDialog(f);
+  submitSettings(f);
+  await f.flush();
+  assert.equal(f.settings.services[0].notifications, true);
+});
+
 test("Spanish localizes Settings sections and service confirmations and persists language", async () => {
   const f = await fixture({ settings: { language: "es" } });
   assert.equal(f.document.querySelector("h1").textContent, "Configuración");
@@ -252,8 +578,10 @@ test("Spanish localizes Settings sections and service confirmations and persists
   assert.equal(f.document.getElementById("tab-about").textContent, "Acerca de");
   assert.equal(f.document.getElementById("language").value, "es");
   assert.equal(
-    f.document.getElementById("service-chatplus-remove").textContent,
-    "Eliminar servicio",
+    f.document
+      .getElementById("service-chatplus-remove")
+      .getAttribute("aria-label"),
+    "Eliminar ChatPlus",
   );
   f.document.getElementById("service-chatplus-remove").click();
   await f.flush();
@@ -263,6 +591,7 @@ test("Spanish localizes Settings sections and service confirmations and persists
   );
   f.document.querySelector("dialog .secondary:not(.danger)").click();
   await f.flush();
+  f.document.getElementById("theme").value = "dark";
   f.document
     .querySelector("form")
     .dispatchEvent(new f.window.Event("submit", { cancelable: true }));
@@ -290,7 +619,9 @@ test("Save persists edited preferences, confirms inline, and Close is separate",
     .settings;
   assert.equal(saved.theme, "dark");
   assert.equal(saved.updateChannel, "pre-release");
+  assert.equal("includeBetaUpdates" in saved, false);
   assert.equal(saved.services[0].id, "chatplus");
+  assert.equal(saved.services[0].notificationColor, "auto");
   assert.match(
     f.document.getElementById("save-feedback").textContent,
     /Settings saved/,
@@ -326,52 +657,72 @@ test("failed Save keeps edits visible and does not announce success", async () =
   assert.equal(f.document.getElementById("save").disabled, false);
 });
 
-test("Save restores its keyboard focus after success and failure", async () => {
+test("Save restores focus to Close after success and Save after failure", async () => {
   for (const failure of [false, true]) {
     const f = await fixture();
     const save = f.document.getElementById("save");
-    let focused = save;
-    Object.defineProperty(f.document, "activeElement", { get: () => focused });
     let restored = false;
+    const focusSave = save.focus.bind(save);
     save.focus = () => {
-      focused = save;
+      focusSave();
       restored = true;
     };
+    save.focus();
+    restored = false;
     if (failure) f.fail();
+    f.document.getElementById("theme").value = "dark";
     f.document
       .querySelector("form")
       .dispatchEvent(new f.window.Event("submit", { cancelable: true }));
-    focused = f.document.body;
+    f.document.body.focus();
     await f.flush();
-    assert.equal(restored, true);
-    assert.equal(f.document.activeElement, save);
-    assert.equal(save.disabled, false);
+    assert.equal(restored, failure);
+    assert.equal(
+      f.document.activeElement.id,
+      failure ? "save" : "close-settings",
+    );
+    assert.equal(save.disabled, !failure);
   }
 });
 
-test("service menu destinations reuse existing Settings, scroll and focus the correct field", async () => {
-  const second = {
-    id: "second",
-    provider: "synology-chatplus",
-    name: "Second service",
-    url: "https://example.com/chat/",
+function submitSettings(f) {
+  dispatch(f.window, f.document.getElementById("settings"), "submit");
+}
+function openEdit(f, id = "chatplus") {
+  f.document.getElementById(`service-${id}-edit`).click();
+}
+function twoServices(provider = "discord") {
+  return ["first", "second"].map((id) => ({
+    id,
+    provider,
+    name: id,
+    url:
+      provider === "discord"
+        ? "https://discord.com/app/"
+        : `https://example.com/${id}/`,
     enabled: true,
     notifications: true,
-  };
+    notificationColor: id === "first" ? "blue" : "amber",
+  }));
+}
+
+test("service menu destinations reuse Settings and open the selected modal field", async () => {
   for (const field of ["name", "notifications", "settings"]) {
-    const f = await fixture({
-      settings: { services: [second] },
-      target: { id: "second", field },
-    });
+    const f = await fixture({ target: { id: "chatplus", field } });
     assert.equal(
       f.document
         .querySelector('[data-tab="services"]')
-        .getAttribute("aria-pressed"),
+        .getAttribute("aria-selected"),
       "true",
     );
-    assert.equal(f.scrolled(), "service-second-settings");
-    assert.equal(f.document.activeElement.id, `service-second-${field}`);
-    if (field === "name") assert.equal(f.selected(), "service-second-name");
+    assert.equal(f.scrolled(), "service-chatplus-settings");
+    assert.equal(
+      f.document.activeElement.id,
+      field === "notifications"
+        ? "service-dialog-notifications"
+        : "service-dialog-name",
+    );
+    assert.ok(f.document.querySelector("dialog[open]"));
     assert.equal(
       f.calls.filter((call) => call.command === "save_settings").length,
       0,
@@ -379,17 +730,16 @@ test("service menu destinations reuse existing Settings, scroll and focus the co
   }
 });
 
-test("existing Settings retargets without losing edits and reports unavailable draft targets", async () => {
+test("Settings retargeting preserves the active dialog and reports missing targets", async () => {
   const f = await fixture();
-  f.document.getElementById("service-chatplus-name").value =
-    "Unsaved display name";
+  openEdit(f);
+  setServiceField(f, "name", "Unsaved name");
   f.target({ id: "chatplus", field: "name" });
   f.listeners.get("service-settings-requested")();
   await f.flush();
-  assert.equal(f.document.activeElement.id, "service-chatplus-name");
   assert.equal(
-    f.document.getElementById("service-chatplus-name").value,
-    "Unsaved display name",
+    f.document.getElementById("service-dialog-name").value,
+    "Unsaved name",
   );
   f.target({ id: "removed", field: "name" });
   f.listeners.get("service-settings-requested")();
@@ -400,166 +750,172 @@ test("existing Settings retargets without losing edits and reports unavailable d
   );
 });
 
-test("context-menu mute syncs clean drafts while preserving explicit unsaved notification edits", async () => {
+test("context-menu mute updates clean services while explicit draft notification edits survive", async () => {
   for (const edited of [false, true]) {
     const f = await fixture();
-    const checkbox = f.document.getElementById(
-      "service-chatplus-notifications",
-    );
     if (edited) {
-      checkbox.checked = false;
-      checkbox.dispatchEvent(new f.window.Event("change", { bubbles: true }));
+      openEdit(f);
+      setServiceField(f, "notifications", false);
+      applyServiceDialog(f);
     }
     const changed = structuredClone(f.settings);
     changed.services[0].notifications = false;
     f.listeners.get("settings-changed")({ payload: changed });
-    assert.equal(checkbox.checked, false);
     const unmuted = structuredClone(changed);
     unmuted.services[0].notifications = true;
     f.listeners.get("settings-changed")({ payload: unmuted });
+    openEdit(f);
     assert.equal(
-      checkbox.checked,
+      f.document.getElementById("service-dialog-notifications").checked,
       !edited,
-      "a later unmute must not overwrite an explicit draft edit",
     );
-    f.document
-      .querySelector("form")
-      .dispatchEvent(new f.window.Event("submit", { cancelable: true }));
-    await f.flush();
-    const saved = f.calls.findLast((call) => call.command === "save_settings")
-      .args.settings;
-    assert.equal(saved.services[0].notifications, !edited);
+    f.document.querySelector(".service-dialog-footer .secondary").click();
+    // A retained explicit edit conflicts with a newer external unmute; Save is blocked.
+    if (edited) assert.equal(f.document.getElementById("save").disabled, true);
+    else
+      assert.equal(
+        f.document
+          .getElementById("draft-status")
+          .classList.contains("has-unsaved"),
+        false,
+      );
   }
 });
 
-test("renaming through existing form saves stable ID and new name for immediate rail broadcast", async () => {
-  const f = await fixture({ target: { id: "chatplus", field: "name" } });
-  const name = f.document.getElementById("service-chatplus-name");
-  name.value = "Renamed desktop service";
-  name.dispatchEvent(new f.window.Event("input"));
-  f.document
-    .querySelector("form")
-    .dispatchEvent(new f.window.Event("submit", { cancelable: true }));
-  await f.flush();
-  const saved = f.calls.findLast((call) => call.command === "save_settings")
-    .args.settings;
-  assert.equal(saved.services[0].id, "chatplus");
-  assert.equal(saved.services[0].name, "Renamed desktop service");
-});
-
-test("Services removal confirms and persists immediately without a separate Save", async () => {
-  const f = await fixture();
-  const remove = f.document.getElementById("service-chatplus-remove");
-  remove.focus();
-  remove.click();
-  await f.flush();
-  assert.ok(f.document.querySelector("dialog[open]"));
-  f.document.querySelector("dialog .secondary:not(.danger)").click();
-  await f.flush();
-  assert.equal(
-    f.calls.filter((call) => call.command === "remove_service").length,
-    0,
-  );
-  assert.ok(f.document.getElementById("service-chatplus-settings"));
-  assert.equal(f.document.activeElement, remove);
-  remove.click();
-  await f.flush();
-  f.document.querySelector("dialog .danger").click();
-  await f.flush();
-  const call = f.calls.find((call) => call.command === "remove_service");
-  assert.equal(call.args.id, "chatplus");
-  assert.equal(call.args.confirmed, true);
-  assert.equal(f.document.getElementById("service-chatplus-settings"), null);
-  assert.equal(
-    f.calls.filter((call) => call.command === "save_settings").length,
-    0,
-  );
-  assert.equal(f.document.activeElement.id, "add-service");
-});
-
-test("context-menu Remove uses the same confirmation and failed removal keeps the service", async () => {
-  const f = await fixture({ target: { id: "chatplus", field: "remove" } });
-  f.failRemoval();
-  assert.ok(f.document.querySelector("dialog[open]"));
-  f.document.querySelector("dialog .danger").click();
-  await f.flush();
-  assert.ok(f.document.getElementById("service-chatplus-settings"));
-  assert.equal(
-    f.document.getElementById("service-chatplus-remove").disabled,
-    false,
-  );
-  assert.match(
-    f.document.getElementById("status").textContent,
-    /Could not remove/,
-  );
-});
-
-test("removing an unsaved added service does not call the persisted-service API", async () => {
-  const f = await fixture();
-  f.document.getElementById("add-service").click();
-  const rows = [...f.document.querySelectorAll(".service-config")];
-  rows[1].querySelector(".service-removal button").click();
-  await f.flush();
-  f.document.querySelector("dialog .danger").click();
-  await f.flush();
-  assert.equal(f.document.querySelectorAll(".service-config").length, 1);
-  assert.equal(
-    f.calls.filter((call) => call.command === "remove_service").length,
-    0,
-  );
-});
-
-test("immediate removal leaves other unsaved service edits in the form without saving them", async () => {
-  const services = ["first", "second"].map((id) => ({
-    id,
-    provider: "synology-chatplus",
-    name: id,
-    url: "https://example.com/chat/",
-    enabled: true,
-    notifications: true,
-  }));
-  const f = await fixture({ settings: { services, activeService: "first" } });
-  const name = f.document.getElementById("service-first-name");
-  name.value = "Unsaved name";
-  name.dispatchEvent(new f.window.Event("input"));
-  f.document.getElementById("service-second-remove").click();
-  await f.flush();
-  f.document.querySelector("dialog .danger").click();
-  await f.flush();
-  assert.equal(
-    f.document.getElementById("service-first-name").value,
-    "Unsaved name",
-  );
+test("modal Apply changes only the Settings draft; Save persists stable service identity", async () => {
+  const f = await fixture({
+    settings: { services: twoServices(), activeService: "first" },
+  });
+  openEdit(f, "first");
+  setServiceField(f, "name", "Personal Discord");
+  applyServiceDialog(f);
   assert.equal(f.settings.services[0].name, "first");
   assert.equal(
     f.calls.filter((call) => call.command === "save_settings").length,
     0,
   );
+  submitSettings(f);
+  await f.flush();
+  assert.equal(f.settings.services[0].id, "first");
+  assert.equal(f.settings.services[0].provider, "discord");
+  assert.equal(f.settings.services[0].name, "Personal Discord");
+  assert.equal(f.settings.services[1].id, "second");
+  assert.equal(f.settings.services[1].name, "second");
 });
 
-test("Save cannot overlap a confirmation or pending removal and later saves the remaining draft", async () => {
-  const services = ["first", "second"].map((id) => ({
-    id,
-    provider: "synology-chatplus",
-    name: id,
-    url: "https://example.com/chat/",
-    enabled: true,
-    notifications: true,
-  }));
-  const f = await fixture({ settings: { services, activeService: "first" } });
-  const finishRemoval = f.defer("remove_service");
-  const name = f.document.getElementById("service-first-name");
-  name.value = "Unsaved name";
-  name.dispatchEvent(new f.window.Event("input"));
-  const submit = () =>
-    f.document
-      .querySelector("form")
-      .dispatchEvent(new f.window.Event("submit", { cancelable: true }));
-  f.document.getElementById("service-second-remove").click();
+test("Services Remove confirms and edits only the draft until Settings Save", async () => {
+  const f = await fixture();
+  const remove = f.document.getElementById("service-chatplus-remove");
+  remove.focus();
+  remove.click();
+  f.document.querySelector("dialog .secondary:not(.danger)").click();
   await f.flush();
-  assert.ok(f.document.querySelector("dialog[open]"));
-  assert.equal(f.document.getElementById("save").disabled, true);
-  submit();
+  assert.ok(f.document.getElementById("service-chatplus-settings"));
+  assert.equal(f.document.activeElement, remove);
+  remove.click();
+  f.document.querySelector("dialog .danger").click();
+  await f.flush();
+  assert.equal(f.document.getElementById("service-chatplus-settings"), null);
+  assert.equal(
+    f.settings.services.length,
+    1,
+    "persisted settings still contain the service",
+  );
+  assert.equal(
+    f.calls.filter(
+      (call) =>
+        call.command === "remove_service" || call.command === "save_settings",
+    ).length,
+    0,
+  );
+  submitSettings(f);
+  await f.flush();
+  assert.equal(f.settings.services.length, 0);
+  assert.equal(f.settings.activeService, null);
+});
+
+test("menu Remove uses draft confirmation and cancellation leaves persisted settings untouched", async () => {
+  const f = await fixture();
+  f.target({ id: "chatplus", field: "remove" });
+  f.listeners.get("service-settings-requested")();
+  await f.flush();
+  assert.match(f.document.querySelector("dialog").textContent, /ChatPlus/);
+  f.document.querySelector("dialog .secondary:not(.danger)").click();
+  await f.flush();
+  assert.ok(f.document.getElementById("service-chatplus-settings"));
+  assert.equal(f.settings.services.length, 1);
+  assert.equal(
+    f.calls.filter(
+      (call) =>
+        call.command === "remove_service" || call.command === "save_settings",
+    ).length,
+    0,
+  );
+});
+
+test("Add Apply and Remove remain local until Save and do not use immediate-removal IPC", async () => {
+  const f = await fixture();
+  f.document.getElementById("add-service").click();
+  chooseProvider(f, "discord");
+  setServiceField(f, "name", "Temporary Discord");
+  applyServiceDialog(f);
+  const rows = [...f.document.querySelectorAll(".service-card")];
+  assert.equal(rows.length, 2);
+  rows[1].querySelector('[data-action="remove"]').click();
+  f.document.querySelector("dialog .danger").click();
+  await f.flush();
+  assert.equal(f.document.querySelectorAll(".service-card").length, 1);
+  assert.equal(
+    f.calls.filter(
+      (call) =>
+        call.command === "remove_service" || call.command === "save_settings",
+    ).length,
+    0,
+  );
+  assert.equal(
+    f.document.getElementById("draft-status").classList.contains("has-unsaved"),
+    false,
+  );
+});
+
+test("Remove preserves another same-provider instance's unsaved edits", async () => {
+  const f = await fixture({
+    settings: { services: twoServices(), activeService: "first" },
+  });
+  openEdit(f, "first");
+  setServiceField(f, "name", "Unsaved Personal");
+  applyServiceDialog(f);
+  f.document.getElementById("service-second-remove").click();
+  f.document.querySelector("dialog .danger").click();
+  await f.flush();
+  assert.equal(
+    f.document.querySelector(".service-card-name").textContent,
+    "Unsaved Personal",
+  );
+  assert.equal(f.settings.services[0].name, "first");
+  assert.equal(f.settings.services.length, 2);
+  submitSettings(f);
+  await f.flush();
+  assert.equal(f.settings.services.length, 1);
+  assert.equal(f.settings.services[0].id, "first");
+  assert.equal(f.settings.services[0].name, "Unsaved Personal");
+});
+
+test("Settings Save cannot overlap an editor or removal confirmation", async () => {
+  const f = await fixture({
+    settings: { services: twoServices(), activeService: "first" },
+  });
+  f.document.getElementById("theme").value = "dark";
+  openEdit(f, "first");
+  submitSettings(f);
+  await f.flush();
+  assert.equal(
+    f.calls.filter((call) => call.command === "save_settings").length,
+    0,
+  );
+  f.document.querySelector(".service-dialog-footer .secondary").click();
+  f.document.getElementById("service-second-remove").click();
+  submitSettings(f);
   await f.flush();
   assert.equal(
     f.calls.filter((call) => call.command === "save_settings").length,
@@ -567,81 +923,45 @@ test("Save cannot overlap a confirmation or pending removal and later saves the 
   );
   f.document.querySelector("dialog .danger").click();
   await f.flush();
-  assert.equal(f.document.getElementById("save").disabled, true);
-  assert.equal(f.document.getElementById("add-service").disabled, true);
-  assert.equal(
-    f.document.getElementById("service-first-remove").disabled,
-    true,
-  );
-  submit();
+  submitSettings(f);
   await f.flush();
-  assert.equal(
-    f.calls.filter((call) => call.command === "save_settings").length,
-    0,
-  );
-  finishRemoval();
-  await f.flush();
-  assert.equal(f.document.getElementById("service-second-settings"), null);
-  assert.equal(f.document.getElementById("save").disabled, false);
-  assert.equal(f.document.getElementById("add-service").disabled, false);
-  submit();
-  await f.flush();
-  const saved = f.calls.find((call) => call.command === "save_settings").args
-    .settings;
-  assert.equal(saved.services.length, 1);
-  assert.equal(saved.services[0].id, "first");
-  assert.equal(saved.services[0].name, "Unsaved name");
+  assert.equal(f.settings.services.length, 1);
+  assert.equal(f.settings.theme, "dark");
 });
 
-test("pending Save locks draft controls and restores previously disabled states before language reload", async () => {
+test("pending Save locks preferences and card actions and restores disabled controls", async () => {
   const f = await fixture();
   const finishSave = f.defer("save_settings");
   f.document.getElementById("language").value = "es";
   f.document.getElementById("unread-tray").disabled = true;
-  f.document
-    .querySelector("form")
-    .dispatchEvent(new f.window.Event("submit", { cancelable: true }));
+  submitSettings(f);
   await f.flush();
-  assert.equal(f.document.getElementById("language").disabled, true);
-  assert.equal(f.document.getElementById("theme").disabled, true);
-  assert.equal(
-    f.document.getElementById("service-chatplus-name").disabled,
-    true,
-  );
-  assert.equal(
-    f.document.getElementById("service-chatplus-url").disabled,
-    true,
-  );
+  for (const id of [
+    "language",
+    "theme",
+    "service-chatplus-edit",
+    "service-chatplus-remove",
+    "add-service",
+  ])
+    assert.equal(f.document.getElementById(id).disabled, true);
   finishSave();
   await f.flush();
   assert.equal(f.document.getElementById("language").disabled, false);
   assert.equal(
-    f.document.getElementById("service-chatplus-name").disabled,
+    f.document.getElementById("service-chatplus-edit").disabled,
     false,
   );
   assert.equal(f.document.getElementById("unread-tray").disabled, true);
-  assert.equal(
-    f.calls.find((call) => call.command === "save_settings").args.settings
-      .language,
-    "es",
-  );
+  assert.equal(f.settings.language, "es");
 });
 
-test("pending Save blocks repeated submission and both form and menu removal", async () => {
+test("pending Save blocks repeated submission and menu removal", async () => {
   const f = await fixture();
   const finishSave = f.defer("save_settings");
-  const submit = () =>
-    f.document
-      .querySelector("form")
-      .dispatchEvent(new f.window.Event("submit", { cancelable: true }));
-  submit();
+  f.document.getElementById("theme").value = "dark";
+  submitSettings(f);
   await f.flush();
-  assert.equal(
-    f.document.getElementById("service-chatplus-remove").disabled,
-    true,
-  );
-  submit();
-  f.document.getElementById("service-chatplus-remove").click();
+  submitSettings(f);
   f.target({ id: "chatplus", field: "remove" });
   f.listeners.get("service-settings-requested")();
   await f.flush();
@@ -650,82 +970,216 @@ test("pending Save blocks repeated submission and both form and menu removal", a
     f.calls.filter((call) => call.command === "save_settings").length,
     1,
   );
-  assert.equal(
-    f.calls.filter((call) => call.command === "remove_service").length,
-    0,
-  );
   finishSave();
   await f.flush();
   assert.equal(
     f.document.getElementById("service-chatplus-remove").disabled,
     false,
   );
-  f.document.getElementById("service-chatplus-remove").click();
+});
+
+test("saved ordering, colors and duplicate provider IDs reload from one service array", async () => {
+  const f = await fixture({
+    settings: { services: twoServices(), activeService: "first" },
+  });
+  f.document
+    .getElementById("service-second-settings")
+    .querySelector('[data-action="up"]')
+    .click();
+  submitSettings(f);
   await f.flush();
-  assert.ok(f.document.querySelector("dialog[open]"));
+  const serialized = JSON.parse(JSON.stringify(f.settings));
+  assert.deepEqual(
+    serialized.services.map((service) => [
+      service.id,
+      service.notificationColor,
+    ]),
+    [
+      ["second", "amber"],
+      ["first", "blue"],
+    ],
+  );
+  const reopened = await fixture({ settings: serialized });
+  assert.deepEqual(
+    [...reopened.document.querySelectorAll(".service-card")].map(
+      (card) => card.dataset.serviceId,
+    ),
+    ["second", "first"],
+  );
+  assert.equal(
+    reopened.document
+      .getElementById("draft-status")
+      .classList.contains("has-unsaved"),
+    false,
+  );
+});
+
+test("custom RGB colors persist through Settings Save and reopen independently for duplicate providers", async () => {
+  const f = await fixture({
+    settings: { services: twoServices(), activeService: "first" },
+  });
+  openEdit(f, "first");
+  setServiceField(f, "color-hex", "#aB12Ef");
+  applyServiceDialog(f);
+  submitSettings(f);
+  await f.flush();
+  assert.equal(f.settings.services[0].notificationColor, "#ab12ef");
+  assert.equal(f.settings.services[1].notificationColor, "amber");
+  const reopened = await fixture({
+    settings: JSON.parse(JSON.stringify(f.settings)),
+  });
+  openEdit(reopened, "first");
+  assert.equal(
+    reopened.document.getElementById("service-dialog-color-hex").value,
+    "#ab12ef",
+  );
+  assert.equal(
+    reopened.document.getElementById("service-dialog-color-r").value,
+    "171",
+  );
+  assert.equal(
+    reopened.document.getElementById("service-dialog-color-g").value,
+    "18",
+  );
+  assert.equal(
+    reopened.document.getElementById("service-dialog-color-b").value,
+    "239",
+  );
+});
+
+test("external rail ordering merges into dirty name and RGB fields when Settings order is untouched", async () => {
+  const f = await fixture({
+    settings: { services: twoServices(), activeService: "first" },
+  });
+  openEdit(f, "first");
+  setServiceField(f, "name", "Personal Discord");
+  setServiceField(f, "color-hex", "#abcdef");
+  applyServiceDialog(f);
+  const external = structuredClone(f.settings);
+  external.services.reverse();
+  f.listeners.get("settings-changed")({ payload: external });
+  assert.deepEqual(
+    [...f.document.querySelectorAll(".service-card")].map(
+      (card) => card.dataset.serviceId,
+    ),
+    ["second", "first"],
+  );
+  assert.equal(
+    f.document
+      .getElementById("service-first-settings")
+      .querySelector(".service-card-name").textContent,
+    "Personal Discord",
+  );
+  submitSettings(f);
+  await f.flush();
+  const saved = f.calls.find((call) => call.command === "save_settings").args
+    .settings;
+  assert.deepEqual(
+    saved.services.map((service) => service.id),
+    ["second", "first"],
+  );
+  assert.equal(saved.services[1].name, "Personal Discord");
+  assert.equal(saved.services[1].notificationColor, "#abcdef");
+  assert.equal(saved.services[0].notificationColor, "amber");
+});
+
+test("external rail ordering preserves an explicit Settings reorder and dirty RGB value", async () => {
+  const services = twoServices();
+  services.push({
+    ...services[0],
+    id: "third",
+    name: "third",
+    notificationColor: "#123456",
+  });
+  const f = await fixture({ settings: { services, activeService: "first" } });
+  openEdit(f, "first");
+  setServiceField(f, "color-hex", "#987654");
+  applyServiceDialog(f);
+  f.document
+    .getElementById("service-third-settings")
+    .querySelector('[data-action="up"]')
+    .click();
+  const external = structuredClone(f.settings);
+  external.services.reverse();
+  f.listeners.get("settings-changed")({ payload: external });
+  assert.deepEqual(
+    [...f.document.querySelectorAll(".service-card")].map(
+      (card) => card.dataset.serviceId,
+    ),
+    ["first", "third", "second"],
+  );
+  submitSettings(f);
+  await f.flush();
+  const saved = f.calls.find((call) => call.command === "save_settings").args
+    .settings;
+  assert.deepEqual(
+    saved.services.map((service) => service.id),
+    ["first", "third", "second"],
+  );
+  assert.equal(saved.services[0].notificationColor, "#987654");
+  assert.equal(saved.services[1].notificationColor, "#123456");
+});
+
+test("failed save keeps the applied Services draft and valid persisted settings available", async () => {
+  const f = await fixture();
+  const before = JSON.stringify(f.settings);
+  openEdit(f);
+  setServiceField(f, "name", "Recoverable draft");
+  f.document.querySelector('.service-color-swatch[aria-label="Green"]').click();
+  applyServiceDialog(f);
+  f.fail();
+  submitSettings(f);
+  await f.flush();
+  assert.equal(JSON.stringify(f.settings), before);
+  assert.equal(
+    f.document.querySelector(".service-card-name").textContent,
+    "Recoverable draft",
+  );
+  assert.match(
+    f.document.getElementById("status").textContent,
+    /Could not save/,
+  );
+  assert.equal(f.document.getElementById("save").disabled, false);
+  assert.equal(
+    f.document.getElementById("draft-status").classList.contains("has-unsaved"),
+    true,
+  );
+});
+
+test("Close discards applied removal, ordering and colors without writing", async () => {
+  const f = await fixture({
+    settings: { services: twoServices(), activeService: "first" },
+  });
+  const before = JSON.stringify(f.settings);
+  openEdit(f, "second");
+  f.document.querySelector('.service-color-swatch[aria-label="Red"]').click();
+  applyServiceDialog(f);
+  f.document
+    .getElementById("service-second-settings")
+    .querySelector('[data-action="up"]')
+    .click();
+  f.document.getElementById("service-first-remove").click();
   f.document.querySelector("dialog .danger").click();
   await f.flush();
-  assert.equal(f.document.getElementById("service-chatplus-settings"), null);
+  f.document.getElementById("close-settings").click();
+  await f.flush();
+  assert.equal(JSON.stringify(f.settings), before);
+  assert.equal(
+    f.calls.filter((call) => call.command === "save_settings").length,
+    0,
+  );
+  assert.equal(f.calls.at(-1).command, "close_settings");
 });
 
-test("removal preserves unsaved General preferences and the fallback service URL", async () => {
-  const services = ["first", "second"].map((id) => ({
-    id,
-    provider: "synology-chatplus",
-    name: id,
-    url: `https://example.com/${id}/`,
-    enabled: true,
-    notifications: true,
-  }));
-  for (const field of ["remove", "settings"]) {
-    const f = await fixture({ settings: { services, activeService: "first" } });
-    f.document.getElementById("theme").value = "dark";
-    f.document.getElementById("autostart").checked = true;
-    f.document.getElementById("minimize").checked = false;
-    f.document.getElementById("update-channel").value = "pre-release";
-    const url = f.document.getElementById("service-second-url");
-    url.value = "https://example.com/unsaved/";
-    url.dispatchEvent(new f.window.Event("input"));
-    if (field === "remove") {
-      f.target({ id: "first", field });
-      f.listeners.get("service-settings-requested")();
-      await f.flush();
-    } else f.document.getElementById("service-first-remove").click();
-    await f.flush();
-    f.document.querySelector("dialog .danger").click();
-    await f.flush();
-    assert.equal(f.document.getElementById("theme").value, "dark");
-    assert.equal(f.document.getElementById("autostart").checked, true);
-    assert.equal(f.document.getElementById("minimize").checked, false);
-    assert.equal(
-      f.document.getElementById("update-channel").value,
-      "pre-release",
-    );
-    assert.equal(
-      f.document.getElementById("service-second-url").value,
-      "https://example.com/unsaved/",
-    );
-    assert.equal(
-      f.document.getElementById("server").value,
-      "https://example.com/unsaved/",
-    );
-    assert.equal(f.settings.theme, "system");
-    assert.equal(f.settings.autostart, false);
-    assert.equal(f.settings.services[0].url, "https://example.com/second/");
-    assert.equal(
-      f.calls.filter((call) => call.command === "save_settings").length,
-      0,
-    );
-  }
-});
-
-test("a native view-close failure after persistence cannot resurrect the removed service", async () => {
+test("a native reconciliation failure after Save retains the committed removal", async () => {
   const f = await fixture();
   f.failRemovalAfterSave();
   f.document.getElementById("service-chatplus-remove").click();
-  await f.flush();
   f.document.querySelector("dialog .danger").click();
   await f.flush();
+  submitSettings(f);
+  await f.flush();
+  assert.equal(f.settings.services.length, 0);
   assert.equal(f.document.getElementById("service-chatplus-settings"), null);
   assert.match(
     f.document.getElementById("status").textContent,

@@ -14,8 +14,12 @@ import { mountAboutPanel } from "../ui/about";
 import { renderChangelog } from "./changelog";
 import { localizeError, setLanguage, t, type Language } from "../i18n";
 import { serviceEditor } from "./services";
-import { providers, type ServiceConfig } from "../app/providers";
-import { confirmServiceRemoval } from "../ui/service-removal";
+import {
+  providers,
+  serviceSupportsNotifications,
+  type ServiceConfig,
+} from "../app/providers";
+import { normalizeNotificationColor } from "../app/notification-colors";
 
 export async function renderSettings() {
   const app = document.querySelector<HTMLElement>("#app")!;
@@ -28,6 +32,18 @@ export async function renderSettings() {
     app.innerHTML = `<h1>${t("common.settings")}</h1><p role="alert">${t("settings.loadError")}</p>`;
     return;
   }
+  const readFixtureServiceIds = async (): Promise<string[] | undefined> => {
+    const ids = await invoke<unknown>(
+      "get_validation_fixture_service_ids",
+    ).catch(() => undefined);
+    return Array.isArray(ids)
+      ? ids.filter((id): id is string => typeof id === "string")
+      : undefined;
+  };
+  const fixtureServiceIds = new Set((await readFixtureServiceIds()) ?? []);
+  const supportsNotifications = (
+    service: Pick<ServiceConfig, "id" | "provider" | "url">,
+  ) => serviceSupportsNotifications(service, fixtureServiceIds);
   setLanguage(original.language);
   const firstRun = !original.services.length;
   const serviceDraft = structuredClone(original.services);
@@ -74,7 +90,10 @@ export async function renderSettings() {
         </fieldset>
         <button id="test-notification" type="button" class="secondary">${t("notifications.test")}</button>
       </div>
-      <div data-panel="services" hidden><div id="service-editor"></div><button id="add-service" class="secondary" type="button">${t("services.add")}</button><small>${t("services.help")}</small></div>
+      <div data-panel="services" hidden>
+        <div class="services-heading"><div><h2>${t("common.services")}</h2><p>${t("services.description")}</p></div><button id="add-service" class="secondary" type="button"><span aria-hidden="true">+</span> ${t("services.add")}</button></div>
+        <div id="service-editor"></div><small class="services-help">${t("services.help")}</small>
+      </div>
       <div data-panel="updates" hidden>
         <fieldset><legend>${t("common.updates")}</legend>
           <label class="toggle"><input id="automatic-updates" type="checkbox">${t("updates.automatic")}</label>
@@ -90,7 +109,7 @@ export async function renderSettings() {
       }
       </div>
       <p id="status" role="status" aria-live="polite"></p>
-      <div class="form-footer"><button id="close-settings" type="button" class="secondary">${t("common.close")}</button><button id="save" type="submit">${firstRun ? t("settings.connect") : t("common.save")}</button></div>
+      <div class="form-footer"><span id="draft-status" role="status" aria-live="polite"></span><button id="close-settings" type="button" class="secondary">${t("common.close")}</button><button id="save" type="submit">${firstRun ? t("settings.connect") : t("common.save")}</button></div>
       <p id="save-feedback" aria-live="polite"></p>
     </form>
     <footer><span>${t("settings.community")}</span></footer>`;
@@ -99,7 +118,32 @@ export async function renderSettings() {
   const status = document.getElementById("status")!;
   const button = document.querySelector<HTMLButtonElement>("#save")!;
   const saveFeedback = document.getElementById("save-feedback")!;
+  const settingsForm = document.querySelector<HTMLFormElement>("#settings")!;
+  settingsForm.addEventListener("submit", (event) => event.preventDefault());
+  button.disabled = true;
+  let readyToSave = false;
   let persistencePending = false;
+  let serviceManager: ReturnType<typeof serviceEditor> | undefined;
+  let fixtureCapabilityRevision = 0;
+  const refreshFixtureCapabilities = async () => {
+    const revision = ++fixtureCapabilityRevision;
+    const ids = await readFixtureServiceIds();
+    if (!ids || fixtureCapabilityRevision !== revision) return;
+    const next = new Set(ids);
+    if (
+      next.size === fixtureServiceIds.size &&
+      [...next].every((id) => fixtureServiceIds.has(id))
+    )
+      return;
+    fixtureServiceIds.clear();
+    for (const id of next) fixtureServiceIds.add(id);
+    serviceManager?.refresh();
+  };
+  let updateDirty = () => {};
+  let pendingSettings: Settings | undefined;
+  let settingsEventRevision = 0;
+  let permissionPending = false;
+  let externalConflict = false;
   const lockedControls = new Map<
     HTMLInputElement | HTMLSelectElement,
     boolean
@@ -111,10 +155,14 @@ export async function renderSettings() {
       "add-service",
     ) as HTMLButtonElement | null;
     if (add) add.disabled = pending;
-    for (const remove of document.querySelectorAll<HTMLButtonElement>(
-      ".service-removal button",
-    ))
-      remove.disabled = pending;
+    (document.getElementById("close-settings") as HTMLButtonElement).disabled =
+      pending;
+    const enableNotifications = document.getElementById(
+      "enable-notifications",
+    ) as HTMLButtonElement | null;
+    if (enableNotifications)
+      enableNotifications.disabled = pending || permissionPending;
+    serviceManager?.setDisabled(pending);
     // Swiph3l: IPC captures the saved draft before awaiting persistence; lock edits so a successful language reload cannot discard newer input.
     if (pending) {
       for (const control of app.querySelectorAll<
@@ -129,6 +177,7 @@ export async function renderSettings() {
         if (control.isConnected) control.disabled = disabled;
       lockedControls.clear();
     }
+    updateDirty();
   };
   let saveFeedbackTimer: ReturnType<typeof setTimeout> | undefined;
   const clearSaveFeedback = () => {
@@ -185,59 +234,19 @@ export async function renderSettings() {
     void invoke("close_settings");
   });
   if (!firstRun) {
-    const add = serviceEditor(
+    serviceManager = serviceEditor(
       document.getElementById("service-editor")!,
       serviceDraft,
-      (service) => {
-        if (service.id === original.activeService) {
-          input("server").value = service.url;
-          configureServerField(service);
-        }
+      (change) => {
+        if (change?.notificationServiceId)
+          notificationDraftEdits.add(change.notificationServiceId);
+        clearSaveFeedback();
+        updateDirty();
       },
-      async (service) => {
-        if (persistencePending) return false;
-        setPersistencePending(true);
-        try {
-          if (!(await confirmServiceRemoval(service.name))) return false;
-          if (original.services.some((item) => item.id === service.id)) {
-            await invoke("remove_service", { id: service.id, confirmed: true });
-          }
-          status.textContent = t("services.removed");
-          return true;
-        } catch (error) {
-          status.textContent = localizeError(error, "services.removeError");
-          // Swiph3l: Persistence can succeed while closing a native view fails. Reflect the
-          // saved configuration and retain the restart warning rather than resurrecting it.
-          try {
-            const saved = await getSettings();
-            if (!saved.services.some((item) => item.id === service.id))
-              return true;
-          } catch {
-            /* Keep the draft if the persisted state cannot be verified. */
-          }
-          return false;
-        } finally {
-          setPersistencePending(false);
-        }
-      },
+      supportsNotifications,
     );
     document.getElementById("add-service")!.addEventListener("click", () => {
-      if (!persistencePending) add();
-    });
-    document
-      .getElementById("service-editor")!
-      .addEventListener("change", (event) => {
-        const control = event.target as HTMLInputElement;
-        const service = serviceDraft.find(
-          (item) => control.id === `service-${item.id}-notifications`,
-        );
-        if (service) notificationDraftEdits.add(service.id);
-        // Provider changes can replace the row while a save is in flight.
-        if (persistencePending) setPersistencePending(true);
-      });
-    input("server").addEventListener("input", () => {
-      const active = serviceDraft.find((s) => s.id === original.activeService);
-      if (active) active.url = input("server").value;
+      if (!persistencePending) serviceManager?.add();
     });
   }
   applyTheme(original.theme);
@@ -254,9 +263,6 @@ export async function renderSettings() {
     input("unread-title").checked = original.unreadTitle;
     input("unread-tray").checked = original.unreadTray;
     input("automatic-updates").checked = original.automaticUpdates;
-    (
-      document.getElementById("notification-preview") as HTMLSelectElement
-    ).value = original.notificationPreview;
     (document.getElementById("update-channel") as HTMLSelectElement).value =
       original.updateChannel;
     const channel = document.getElementById(
@@ -270,11 +276,168 @@ export async function renderSettings() {
     };
     channel.addEventListener("change", describeChannel);
     describeChannel();
+    (
+      document.getElementById("notification-preview") as HTMLSelectElement
+    ).value = original.notificationPreview;
     theme.addEventListener("change", () => applyTheme(theme.value as Theme));
   }
+  const preferenceControls = [
+    ["theme", "theme"],
+    ["language", "language"],
+    ["autostart", "autostart"],
+    ["minimize", "minimizeToTray"],
+    ["close", "closeToTray"],
+    ["external", "externalLinks"],
+    ["desktop-notifications", "desktopNotifications"],
+    ["notification-preview", "notificationPreview"],
+    ["notification-sound", "notificationSound"],
+    ["unread-title", "unreadTitle"],
+    ["unread-tray", "unreadTray"],
+    ["automatic-updates", "automaticUpdates"],
+    ["update-channel", "updateChannel"],
+  ] as const;
+  const hydratePreferences = (settings: Settings) => {
+    for (const [id, key] of preferenceControls) {
+      const control = document.getElementById(id) as
+        HTMLInputElement | HTMLSelectElement | null;
+      if (!control) continue;
+      if (typeof settings[key] === "boolean")
+        (control as HTMLInputElement).checked = settings[key] as boolean;
+      else control.value = String(settings[key]);
+    }
+    applyTheme(settings.theme);
+  };
+  const readDraft = (): Settings => ({
+    ...original,
+    services: structuredClone(serviceDraft),
+    serverUrl: firstRun
+      ? input("server").value
+      : (serviceDraft.find((service) => service.id === original.activeService)
+          ?.url ?? ""),
+    ...(theme
+      ? {
+          theme: theme.value as Theme,
+          language: (document.getElementById("language") as HTMLSelectElement)
+            .value as Language,
+          autostart: input("autostart").checked,
+          minimizeToTray: input("minimize").checked,
+          closeToTray: input("close").checked,
+          externalLinks: input("external").checked,
+          desktopNotifications: input("desktop-notifications").checked,
+          notificationPreview: (
+            document.getElementById("notification-preview") as HTMLSelectElement
+          ).value as Settings["notificationPreview"],
+          notificationSound: input("notification-sound").checked,
+          unreadTitle: input("unread-title").checked,
+          unreadTray: input("unread-tray").checked,
+          automaticUpdates: input("automatic-updates").checked,
+          updateChannel: (
+            document.getElementById("update-channel") as HTMLSelectElement
+          ).value as Settings["updateChannel"],
+        }
+      : {}),
+  });
+  const serviceKey = (service: ServiceConfig) =>
+    JSON.stringify({
+      id: service.id,
+      provider: service.provider,
+      name: service.name,
+      url: service.url,
+      enabled: service.enabled,
+      notifications: service.notifications,
+      notificationColor: normalizeNotificationColor(service.notificationColor),
+    });
+  const settingsKey = (settings: Settings) =>
+    JSON.stringify({
+      services: settings.services.map(serviceKey),
+      serverUrl: firstRun ? settings.serverUrl : undefined,
+      theme: settings.theme,
+      language: settings.language,
+      autostart: settings.autostart,
+      minimizeToTray: settings.minimizeToTray,
+      closeToTray: settings.closeToTray,
+      externalLinks: settings.externalLinks,
+      automaticUpdates: settings.automaticUpdates,
+      updateChannel: settings.updateChannel,
+      desktopNotifications: settings.desktopNotifications,
+      notificationPreview: settings.notificationPreview,
+      notificationSound: settings.notificationSound,
+      unreadTitle: settings.unreadTitle,
+      unreadTray: settings.unreadTray,
+    });
+  updateDirty = () => {
+    const dirty = settingsKey(readDraft()) !== settingsKey(original);
+    const label = document.getElementById("draft-status")!;
+    label.textContent = t(
+      dirty ? "settings.unsavedChanges" : "settings.noChanges",
+    );
+    label.classList.toggle("has-unsaved", dirty);
+    const add = document.getElementById(
+      "add-service",
+    ) as HTMLButtonElement | null;
+    if (add) {
+      add.disabled = persistencePending || serviceDraft.length >= 12;
+      add.title = t(
+        serviceDraft.length >= 12 ? "services.limit" : "services.add",
+      );
+    }
+    button.disabled =
+      !readyToSave ||
+      persistencePending ||
+      permissionPending ||
+      externalConflict ||
+      (!firstRun && !dirty);
+    window.dispatchEvent(new Event("settings-draft-changed"));
+  };
+  for (const eventName of ["input", "change"])
+    settingsForm.addEventListener(eventName, () => {
+      clearSaveFeedback();
+      updateDirty();
+    });
+  updateDirty();
   const tabs = [...document.querySelectorAll<HTMLButtonElement>("[data-tab]")];
-  const showSection = (section: string) =>
-    tabs.find((tab) => tab.dataset.tab === section)?.click();
+  let updateSummary: HTMLElement | null = null;
+  let updateFocusPending = false;
+  const cancelUpdateFocus = () => {
+    updateFocusPending = false;
+  };
+  const focusUpdateSection = () => {
+    if (!updateFocusPending || !updateSummary) return;
+    updateFocusPending = false;
+    if (
+      document.getElementById("panel-updates")?.hidden ||
+      document.querySelector("dialog[open]")
+    )
+      return;
+    updateSummary.focus({ preventScroll: true });
+    updateSummary.scrollIntoView({ block: "nearest" });
+  };
+  const showSection = (section: string) => {
+    cancelUpdateFocus();
+    const tab = tabs.find((tab) => tab.dataset.tab === section);
+    if (!tab) return;
+    tab.click();
+    if (section === "updates") {
+      updateFocusPending = true;
+      focusUpdateSection();
+    }
+  };
+  // Updates mounts asynchronously. A later response must not take focus after
+  // someone has started using another control or left this window.
+  const focusCancelEvents = ["pointerdown", "keydown", "click", "focusin"];
+  for (const event of focusCancelEvents)
+    document.addEventListener(event, cancelUpdateFocus, true);
+  window.addEventListener("blur", cancelUpdateFocus);
+  window.addEventListener(
+    "pagehide",
+    () => {
+      for (const event of focusCancelEvents)
+        document.removeEventListener(event, cancelUpdateFocus, true);
+      window.removeEventListener("blur", cancelUpdateFocus);
+      cancelUpdateFocus();
+    },
+    { once: true },
+  );
   for (const tab of tabs) {
     tab.addEventListener("click", () => {
       for (const panel of document.querySelectorAll<HTMLElement>(
@@ -319,10 +482,155 @@ export async function renderSettings() {
     showSection(
       new URLSearchParams(location.search).get("section") ?? "general",
     );
+  const acceptExternalSettings = (payload: Settings) => {
+    // Merge saved menu actions by ID. Never replace an edited draft with an event
+    // emitted by another window, or bring a locally removed service back.
+    const draftIds = new Set(serviceDraft.map((service) => service.id));
+    const originalIds = new Set(original.services.map((service) => service.id));
+    const draftOrderEdited =
+      JSON.stringify(serviceDraft.map((service) => service.id)) !==
+      JSON.stringify([
+        ...original.services
+          .filter((service) => draftIds.has(service.id))
+          .map((service) => service.id),
+        ...serviceDraft
+          .filter((service) => !originalIds.has(service.id))
+          .map((service) => service.id),
+      ]);
+    if (
+      notificationDraftEdits.size === 0 &&
+      JSON.stringify(serviceDraft.map(serviceKey)) ===
+        JSON.stringify(original.services.map(serviceKey))
+    ) {
+      serviceDraft.splice(
+        0,
+        serviceDraft.length,
+        ...structuredClone(payload.services),
+      );
+    } else {
+      for (let index = serviceDraft.length - 1; index >= 0; index--) {
+        const draft = serviceDraft[index];
+        const before = original.services.find(
+          (service) => service.id === draft.id,
+        );
+        if (
+          before &&
+          !payload.services.some((service) => service.id === draft.id)
+        ) {
+          if (serviceKey(draft) === serviceKey(before))
+            serviceDraft.splice(index, 1);
+          else externalConflict = true;
+        }
+      }
+      for (const after of payload.services) {
+        const before = original.services.find(
+          (service) => service.id === after.id,
+        );
+        const draft = serviceDraft.find((service) => service.id === after.id);
+        if (!before) {
+          if (!draft) serviceDraft.push(structuredClone(after));
+          else if (serviceKey(draft) !== serviceKey(after))
+            externalConflict = true;
+          continue;
+        }
+        if (!draft) continue;
+        for (const key of [
+          "provider",
+          "name",
+          "url",
+          "enabled",
+          "notifications",
+          "notificationColor",
+        ] as const) {
+          const beforeValue =
+            key === "notificationColor"
+              ? normalizeNotificationColor(before[key])
+              : before[key];
+          const afterValue =
+            key === "notificationColor"
+              ? normalizeNotificationColor(after[key])
+              : after[key];
+          const draftValue =
+            key === "notificationColor"
+              ? normalizeNotificationColor(draft[key])
+              : draft[key];
+          if (
+            draftValue === beforeValue &&
+            !(key === "notifications" && notificationDraftEdits.has(draft.id))
+          )
+            Object.assign(draft, { [key]: after[key] });
+          else if (beforeValue !== afterValue && draftValue !== afterValue)
+            externalConflict = true;
+        }
+      }
+      if (!draftOrderEdited) {
+        // Swiph3l: Rail ordering is saved immediately; merge it into field edits
+        // so a later Settings Save cannot restore an untouched stale order.
+        const positions = new Map(
+          payload.services.map((service, index) => [service.id, index]),
+        );
+        serviceDraft.sort(
+          (left, right) =>
+            (positions.get(left.id) ?? payload.services.length) -
+            (positions.get(right.id) ?? payload.services.length),
+        );
+      }
+    }
+    for (const [id, key] of preferenceControls) {
+      const control = document.getElementById(id) as
+        HTMLInputElement | HTMLSelectElement | null;
+      if (!control) continue;
+      const local =
+        control instanceof HTMLInputElement && control.type === "checkbox"
+          ? control.checked
+          : control.value;
+      if (local === original[key]) {
+        if (typeof payload[key] === "boolean")
+          (control as HTMLInputElement).checked = payload[key] as boolean;
+        else control.value = String(payload[key]);
+      } else if (original[key] !== payload[key] && local !== payload[key])
+        externalConflict = true;
+    }
+    original = structuredClone(payload);
+    if (!firstRun) input("server").value = payload.serverUrl;
+    configureServerField(
+      payload.services.find((service) => service.id === payload.activeService),
+    );
+    serviceManager?.refresh();
+    applyTheme(theme ? (theme.value as Theme) : payload.theme);
+    if (externalConflict) status.textContent = t("settings.externalConflict");
+    updateDirty();
+  };
+  await listen<Settings>("settings-changed", ({ payload }) => {
+    settingsEventRevision++;
+    void refreshFixtureCapabilities();
+    if (persistencePending) {
+      pendingSettings = payload;
+      return;
+    }
+    acceptExternalSettings(payload);
+  });
+  // Subscribe before asynchronous panels mount, then close the initial-read gap.
+  const beforeRefresh = settingsEventRevision;
+  const refreshed = await getSettings().catch(() => undefined);
+  await refreshFixtureCapabilities();
+  if (refreshed && settingsEventRevision === beforeRefresh)
+    acceptExternalSettings(refreshed);
   if (!firstRun) {
     renderChangelog(document.getElementById("changelog-content")!);
     await mountAboutPanel(document.getElementById("about-content")!);
     await mountUpdatePanel(document.getElementById("update-details")!);
+    // #update-details uses display: contents, so focus its rendered summary.
+    updateSummary = document.querySelector<HTMLElement>(
+      "#update-details .update-summary",
+    );
+    if (updateSummary) {
+      updateSummary.id = "update-summary";
+      updateSummary.tabIndex = -1;
+      updateSummary.setAttribute("role", "region");
+      updateSummary.setAttribute("aria-labelledby", "update-heading");
+    }
+    focusUpdateSection();
     const testButton = document.getElementById(
       "test-notification",
     ) as HTMLButtonElement;
@@ -384,8 +692,11 @@ export async function renderSettings() {
       }
     };
     const enable = async () => {
+      if (persistencePending || permissionPending) return;
+      permissionPending = true;
       enableButton.disabled = true;
       input("desktop-notifications").disabled = true;
+      updateDirty();
       try {
         const result = await notifications.requestPermission();
         input("desktop-notifications").checked = result.granted;
@@ -397,8 +708,10 @@ export async function renderSettings() {
         status.textContent = localizeError(error, "notifications.enableError");
         await refreshPermission();
       } finally {
-        enableButton.disabled = false;
-        input("desktop-notifications").disabled = false;
+        permissionPending = false;
+        enableButton.disabled = persistencePending;
+        input("desktop-notifications").disabled = persistencePending;
+        updateDirty();
       }
     };
     enableButton.addEventListener("click", () => {
@@ -426,46 +739,6 @@ export async function renderSettings() {
       status.textContent = t("settings.statusError");
     }
   };
-  await listen<Settings>("settings-changed", ({ payload }) => {
-    setLanguage(payload.language);
-    window.dispatchEvent(new window.Event("language-changed"));
-    // Swiph3l: Context-menu mute updates persisted state; untouched drafts follow it,
-    // but retain a user's explicit unsaved checkbox edit.
-    for (const draft of serviceDraft) {
-      const before = original.services.find(
-        (service) => service.id === draft.id,
-      );
-      const after = payload.services.find((service) => service.id === draft.id);
-      if (
-        before &&
-        after &&
-        draft.provider === after.provider &&
-        !notificationDraftEdits.has(draft.id) &&
-        draft.notifications === before.notifications
-      )
-        draft.notifications = after.notifications;
-      const checkbox = document.getElementById(
-        `service-${draft.id}-notifications`,
-      ) as HTMLInputElement | null;
-      if (checkbox) checkbox.checked = draft.notifications;
-    }
-    if (payload.activeService !== original.activeService) {
-      input("server").value =
-        serviceDraft.find((service) => service.id === payload.activeService)
-          ?.url ?? payload.serverUrl;
-    }
-    configureServerField(
-      payload.services.find((s) => s.id === payload.activeService),
-    );
-    if (theme) {
-      // Swiph3l: Immediate service actions must not discard unrelated unsaved General preferences.
-      if (theme.value === original.theme) theme.value = payload.theme;
-      if (input("autostart").checked === original.autostart)
-        input("autostart").checked = payload.autostart;
-      applyTheme(theme.value as Theme);
-    } else applyTheme(payload.theme);
-    original = payload;
-  });
   await listen("operation-error", () => {
     void showError();
   });
@@ -476,10 +749,10 @@ export async function renderSettings() {
       field: "settings" | "name" | "notifications" | "remove";
     } | null>("take_service_settings_target");
     if (!target) return;
-    const control = document.getElementById(
-      `service-${target.id}-${target.field}`,
-    );
-    if (!control) {
+    if (
+      !serviceManager ||
+      !serviceDraft.some((service) => service.id === target.id)
+    ) {
       status.textContent = t("services.unavailableDraft");
       return;
     }
@@ -487,9 +760,12 @@ export async function renderSettings() {
     document
       .getElementById(`service-${target.id}-settings`)
       ?.scrollIntoView({ block: "start" });
-    control.focus({ preventScroll: true });
-    if (target.field === "name") (control as HTMLInputElement).select();
-    if (target.field === "remove") (control as HTMLButtonElement).click();
+    if (target.field === "remove") await serviceManager.remove(target.id);
+    else
+      serviceManager.edit(
+        target.id,
+        target.field === "settings" ? undefined : target.field,
+      );
   };
   await listen("service-settings-requested", () => {
     void showServiceSettings().catch(() => {
@@ -497,76 +773,158 @@ export async function renderSettings() {
     });
   });
   await showServiceSettings();
-  document.querySelector("form")!.addEventListener("submit", async (event) => {
+  settingsForm.addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (persistencePending) return;
+    if (
+      !readyToSave ||
+      persistencePending ||
+      permissionPending ||
+      externalConflict ||
+      serviceManager?.isDialogOpen()
+    )
+      return;
+    if (!firstRun && settingsKey(readDraft()) === settingsKey(original)) return;
     const restoreSaveFocus = document.activeElement === button;
     const previousLanguage = original.language ?? "en";
+    const snapshot = readDraft();
+    let expectedSaved: Settings | undefined;
+    let committed = false;
+    let saveWarning = false;
     setPersistencePending(true);
+    pendingSettings = undefined;
     status.textContent = "";
     clearSaveFeedback();
-    try {
-      await saveSettings({
-        ...original,
-        services: serviceDraft,
-        serviceSchema: firstRun ? 0 : original.serviceSchema,
-        serverUrl: input("server").value
-          ? normalizeServer(input("server").value)
-          : "",
-        ...(theme
-          ? {
-              theme: theme.value as Theme,
-              language: (
-                document.getElementById("language") as HTMLSelectElement
-              ).value as Language,
-              autostart: input("autostart").checked,
-              minimizeToTray: input("minimize").checked,
-              closeToTray: input("close").checked,
-              externalLinks: input("external").checked,
-              desktopNotifications: input("desktop-notifications").checked,
-              notificationPreview: (
-                document.getElementById(
-                  "notification-preview",
-                ) as HTMLSelectElement
-              ).value as Settings["notificationPreview"],
-              // Swiph3l: Keep the legacy saved field for downgrade compatibility;
-              // delivery now deduplicates exact events without dropping later messages.
-              notificationCooldown: original.notificationCooldown,
-              notificationSound: input("notification-sound").checked,
-              unreadTitle: input("unread-title").checked,
-              unreadTray: input("unread-tray").checked,
-              automaticUpdates: input("automatic-updates").checked,
-              updateChannel: (
-                document.getElementById("update-channel") as HTMLSelectElement
-              ).value as Settings["updateChannel"],
-            }
-          : {}),
-      });
+    const acceptSaved = (saved: Settings) => {
+      committed = true;
+      original = structuredClone(saved);
+      serviceDraft.splice(
+        0,
+        serviceDraft.length,
+        ...structuredClone(saved.services),
+      );
       notificationDraftEdits.clear();
-      // Swiph3l: Saving no longer closes this page, so users can tweak several sections without reopening Settings.
+      input("server").value = saved.serverUrl;
+      hydratePreferences(saved);
+      serviceManager?.refresh();
+    };
+    const readSaved = async () => {
+      const beforeRead = settingsEventRevision;
+      const saved = await getSettings();
+      await refreshFixtureCapabilities();
+      // An event arriving during the snapshot read may describe a newer menu
+      // action. Do not discard it when acknowledging this Save.
+      return pendingSettings && settingsEventRevision > beforeRead
+        ? pendingSettings
+        : saved;
+    };
+    try {
+      // Validate the entire captured draft before IPC. The hidden legacy URL must
+      // never be copied onto a different active service after an external switch.
+      snapshot.services = snapshot.services.map((service) => ({
+        ...service,
+        name: service.name.trim(),
+        url: normalizeServer(
+          service.url || providers[service.provider].defaultUrl,
+        ),
+        notifications: service.notifications && supportsNotifications(service),
+        notificationColor: normalizeNotificationColor(
+          service.notificationColor,
+        ),
+      }));
+      if (firstRun) {
+        snapshot.serverUrl = normalizeServer(snapshot.serverUrl);
+        const active = snapshot.services.find(
+          (service) => service.id === snapshot.activeService,
+        );
+        if (active) active.url = snapshot.serverUrl;
+      }
+      expectedSaved = structuredClone(snapshot);
+      if (firstRun && !expectedSaved.services.length) {
+        expectedSaved.services.push({
+          id: "chatplus",
+          provider: "synology-chatplus",
+          name: "ChatPlus",
+          url: snapshot.serverUrl,
+          enabled: true,
+          notifications: true,
+          notificationColor: "auto",
+        });
+      }
+      if (
+        !expectedSaved.services.some(
+          (service) =>
+            service.enabled && service.id === expectedSaved!.activeService,
+        )
+      )
+        expectedSaved.activeService =
+          expectedSaved.services.find((service) => service.enabled)?.id ?? null;
+      expectedSaved.serverUrl =
+        expectedSaved.services.find(
+          (service) => service.id === expectedSaved!.activeService,
+        )?.url ?? "";
+      expectedSaved.serviceSchema = 1;
+      // First-run profiles already use the current service schema. Persist the
+      // newly created service, rather than relying on legacy URL migration.
+      await saveSettings(firstRun ? expectedSaved : snapshot);
+      // Use the authoritative normalized configuration. A missing follow-up reply
+      // does not turn an acknowledged successful save into a persistence failure.
+      acceptSaved(
+        await readSaved().catch(() => pendingSettings ?? expectedSaved!),
+      );
       showSaveFeedback(
         firstRun ? t("settings.saved") : t("settings.savedContinue"),
       );
-      if (
-        theme &&
-        previousLanguage !==
-          (document.getElementById("language") as HTMLSelectElement).value &&
-        typeof location !== "undefined"
-      ) {
-        // Swiph3l: Reload translations only after the complete draft is persisted, so changing language cannot discard unsaved services or preferences.
-        const section =
-          document.querySelector<HTMLElement>(
-            '[data-tab][aria-selected="true"]',
-          )?.dataset.tab ?? "general";
-        window.history.replaceState(null, "", `?section=${section}`);
-        location.reload();
-      }
     } catch (error) {
-      status.textContent = localizeError(error);
+      // Native reconciliation can fail after the disk transaction succeeded.
+      // Report that explicitly; a failed transaction retains all unsaved edits.
+      const message =
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+            ? error
+            : "";
+      const saved = expectedSaved
+        ? await readSaved().catch(() => pendingSettings)
+        : undefined;
+      if (
+        expectedSaved &&
+        (message.startsWith("Settings saved") ||
+          (saved && settingsKey(saved) === settingsKey(expectedSaved)))
+      ) {
+        acceptSaved(saved ?? expectedSaved);
+        saveWarning = true;
+        status.textContent = t("settings.savedWarning", {
+          message: localizeError(error),
+        });
+      } else {
+        status.textContent = localizeError(error);
+      }
     } finally {
       setPersistencePending(false);
-      if (restoreSaveFocus) button.focus();
+      if (!committed && pendingSettings)
+        acceptExternalSettings(pendingSettings);
+      pendingSettings = undefined;
+      if (restoreSaveFocus)
+        (button.disabled
+          ? document.getElementById("close-settings")!
+          : button
+        ).focus();
+    }
+    if (
+      committed &&
+      !saveWarning &&
+      theme &&
+      previousLanguage !== original.language &&
+      typeof location !== "undefined"
+    ) {
+      const section =
+        document.querySelector<HTMLElement>('[data-tab][aria-selected="true"]')
+          ?.dataset.tab ?? "general";
+      window.history.replaceState(null, "", `?section=${section}`);
+      location.reload();
     }
   });
+  readyToSave = true;
+  updateDirty();
   if (firstRun) input("server").focus();
 }
