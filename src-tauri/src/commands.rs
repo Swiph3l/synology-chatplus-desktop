@@ -191,22 +191,37 @@ pub fn install_update(
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,
     confirmed: bool,
+    expected_version: String,
+    expected_include_beta_updates: bool,
 ) -> Result<(), String> {
     local(&window, &["update", "settings"])?;
-    updates::install(&app, confirmed)
+    updates::install_for(
+        &app,
+        confirmed,
+        &expected_version,
+        expected_include_beta_updates,
+    )
 }
 #[tauri::command]
 pub async fn download_and_install(
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,
     confirmed: bool,
+    expected_version: String,
+    expected_include_beta_updates: bool,
 ) -> Result<(), String> {
     local(&window, &["update", "settings"])?;
     if !confirmed {
         return Err("Confirm restart before installing.".into());
     }
+    let selected = updates::snapshot(&app);
+    if selected.latest_version.as_deref() != Some(expected_version.as_str())
+        || selected.include_beta_updates != expected_include_beta_updates
+    {
+        return Err("The update changed after confirmation. Review it and confirm again.".into());
+    }
     updates::download(&app).await?;
-    updates::install(&app, true)
+    updates::install_for(&app, true, &expected_version, expected_include_beta_updates)
 }
 #[tauri::command]
 pub fn dismiss_update(window: tauri::WebviewWindow) -> Result<(), String> {

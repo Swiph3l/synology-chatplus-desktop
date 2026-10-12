@@ -92,7 +92,7 @@ async function fixture(options = {}) {
     closeToTray: true,
     externalLinks: true,
     automaticUpdates: false,
-    updateChannel: "stable",
+    includeBetaUpdates: false,
     desktopNotifications: false,
     notificationPreview: "sender",
     notificationCooldown: 60,
@@ -132,7 +132,7 @@ async function fixture(options = {}) {
     listeners = new Map();
   let updateState = {
     configured: true,
-    channel: settings.updateChannel,
+    includeBetaUpdates: settings.includeBetaUpdates,
     phase: "idle",
     currentVersion: "0.5.0-beta.3",
     latestVersion: null,
@@ -197,7 +197,7 @@ async function fixture(options = {}) {
         Object.assign(settings, structuredClone(args.settings));
         updateState = {
           ...updateState,
-          channel: settings.updateChannel,
+          includeBetaUpdates: settings.includeBetaUpdates,
         };
         listeners.get("update-state")?.({
           payload: structuredClone(updateState),
@@ -281,7 +281,7 @@ test("first-run Connect persists a complete first service when the profile alrea
       services: [],
       activeService: null,
       serviceSchema: 1,
-      updateChannel: "pre-release",
+      includeBetaUpdates: true,
     },
   });
   const server = f.document.getElementById("server");
@@ -308,7 +308,7 @@ test("first-run Connect persists a complete first service when the profile alrea
   assert.equal(f.settings.services.length, 1);
   assert.equal(f.settings.activeService, "chatplus");
   assert.equal(server.value, saved.serverUrl);
-  assert.equal(saved.updateChannel, "pre-release");
+  assert.equal(saved.includeBetaUpdates, true);
   assert.equal(saved.autostart, false);
   assert.equal(saved.automaticUpdates, false);
   assert.equal(saved.desktopNotifications, false);
@@ -432,7 +432,7 @@ test("pending Updates focus yields to navigation, control interaction, and open 
     const f = await fixture({
       search: "?section=updates",
       beforeUpdateReady: ({ document, window }) => {
-        const preference = document.getElementById("update-channel");
+        const preference = document.getElementById("include-beta-updates");
         if (interaction === "navigate") {
           document.getElementById("tab-general").click();
           document.getElementById("server").focus();
@@ -610,7 +610,7 @@ test("Spanish localizes Settings sections and service confirmations and persists
 test("Save persists edited preferences, confirms inline, and Close is separate", async () => {
   const f = await fixture();
   f.document.getElementById("theme").value = "dark";
-  f.document.getElementById("update-channel").value = "pre-release";
+  f.document.getElementById("include-beta-updates").checked = true;
   f.document
     .querySelector("form")
     .dispatchEvent(new f.window.Event("submit", { cancelable: true }));
@@ -618,8 +618,8 @@ test("Save persists edited preferences, confirms inline, and Close is separate",
   const saved = f.calls.find((call) => call.command === "save_settings").args
     .settings;
   assert.equal(saved.theme, "dark");
-  assert.equal(saved.updateChannel, "pre-release");
-  assert.equal("includeBetaUpdates" in saved, false);
+  assert.equal(saved.includeBetaUpdates, true);
+  assert.equal("updateChannel" in saved, false);
   assert.equal(saved.services[0].id, "chatplus");
   assert.equal(saved.services[0].notificationColor, "auto");
   assert.match(
@@ -638,6 +638,52 @@ test("Save persists edited preferences, confirms inline, and Close is separate",
     .dispatchEvent(new f.window.Event("click"));
   await f.flush();
   assert.equal(f.calls.at(-1).command, "close_settings");
+});
+
+test("beta checkbox saves and reopens independently from its unsaved draft and installed release type", async () => {
+  const f = await fixture();
+  const preference = f.document.getElementById("include-beta-updates");
+  const helper = f.document.getElementById("update-preference-help");
+  const draft = f.document.getElementById("update-preference-draft");
+  assert.equal(preference.type, "checkbox");
+  assert.equal(preference.checked, false);
+  assert.match(preference.closest("label").textContent, /Include beta updates/);
+  assert.ok(
+    f.document.getElementById(preference.getAttribute("aria-describedby"))
+      .textContent,
+  );
+  assert.equal(f.document.getElementById("update-channel"), null);
+  assert.equal(f.document.getElementById("update-saved-channel"), null);
+  assert.equal(
+    f.document.getElementById("update-release-type").textContent,
+    "Beta / Pre-release",
+  );
+  assert.equal(helper.textContent, "Only stable releases will be checked.");
+  assert.equal(draft.hidden, true);
+  preference.checked = true;
+  dispatch(f.window, preference, "change");
+  assert.equal(draft.hidden, false);
+  assert.equal(helper.textContent, "Only stable releases will be checked.");
+  assert.equal(f.settings.includeBetaUpdates, false);
+  assert.equal(f.document.getElementById("save").disabled, false);
+  assert.equal(
+    f.calls.some((call) => call.command === "check_for_updates"),
+    false,
+  );
+  submitSettings(f);
+  await f.flush();
+  assert.equal(f.settings.includeBetaUpdates, true);
+  assert.equal(helper.textContent, "Stable and beta releases will be checked.");
+  assert.equal(draft.hidden, true);
+  const reopened = await fixture({ settings: structuredClone(f.settings) });
+  assert.equal(
+    reopened.document.getElementById("include-beta-updates").checked,
+    true,
+  );
+  assert.equal(
+    reopened.document.getElementById("update-preference-help").textContent,
+    "Stable and beta releases will be checked.",
+  );
 });
 
 test("failed Save keeps edits visible and does not announce success", async () => {

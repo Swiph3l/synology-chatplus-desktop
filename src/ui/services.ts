@@ -24,6 +24,7 @@ export async function renderServices() {
   setLanguage(settings.language ?? "en");
   const version = await invoke<string>("get_current_version").catch(() => "");
   const footer = createFooter(version ?? "");
+  footer.setIncludeBetaUpdates(settings.includeBetaUpdates);
   app.append(footer.element);
   let reorder: ReturnType<typeof bindRailReorder> | undefined;
   let reorderSaving = false;
@@ -40,6 +41,7 @@ export async function renderServices() {
       if (settingsRevision === revision) {
         settings = saved;
         settingsObserved = true;
+        footer.setIncludeBetaUpdates(settings.includeBetaUpdates);
       }
     } catch {
       footer.report(t("rail.reorderError"));
@@ -246,6 +248,7 @@ export async function renderServices() {
       reorder?.cancel();
     settings = payload;
     setLanguage(settings.language ?? "en");
+    footer.setIncludeBetaUpdates(settings.includeBetaUpdates);
     footer.refresh();
     render();
   });
@@ -290,6 +293,7 @@ export async function renderServices() {
   if (!settingsObserved && initialSettings.status === "fulfilled") {
     settings = initialSettings.value;
     setLanguage(settings.language ?? "en");
+    footer.setIncludeBetaUpdates(settings.includeBetaUpdates);
     footer.refresh();
     render();
   }

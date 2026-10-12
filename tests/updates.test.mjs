@@ -43,7 +43,7 @@ const bundle = await build({
 function snapshot(changes = {}) {
   return {
     configured: true,
-    channel: "stable",
+    includeBetaUpdates: false,
     phase: "idle",
     currentVersion: "0.5.0-beta.3",
     latestVersion: null,
@@ -63,6 +63,7 @@ function fixture(options = {}) {
   );
   let focused = null;
   Object.defineProperty(document, "activeElement", { get: () => focused });
+  document.hasFocus = () => true;
   window.HTMLElement.prototype.focus = function () {
     focused = this;
   };
@@ -115,8 +116,11 @@ function fixture(options = {}) {
     emit,
     flush,
     ui: context.updateUi,
-    mount: () =>
-      context.updateUi.mountUpdatePanel(document.getElementById("panel")),
+    mount: (options) =>
+      context.updateUi.mountUpdatePanel(
+        document.getElementById("panel"),
+        options,
+      ),
   };
 }
 
@@ -151,8 +155,121 @@ test("available updates never install until the restart confirmation is accepted
         f.calls.find(({ command }) => command === "install_update").args,
       ),
     ),
-    { confirmed: true },
+    {
+      confirmed: true,
+      expectedVersion: "0.5.0",
+      expectedIncludeBetaUpdates: false,
+    },
   );
+});
+
+test("saved beta preference is separate from draft edits and installed SemVer release type", async () => {
+  const f = fixture({
+    state: {
+      currentVersion: "0.5.0-beta.3+build.7",
+      includeBetaUpdates: false,
+    },
+  });
+  let draftIncludeBetaUpdates = false;
+  await f.mount({ getDraftIncludeBetaUpdates: () => draftIncludeBetaUpdates });
+  assert.equal(
+    f.document.getElementById("update-release-type").textContent,
+    "Beta / Pre-release",
+  );
+  const helper = f.document.getElementById("update-preference-help");
+  const draft = f.document.getElementById("update-preference-draft");
+  assert.equal(helper.textContent, "Only stable releases will be checked.");
+  assert.equal(draft.hidden, true);
+  draftIncludeBetaUpdates = true;
+  f.window.dispatchEvent(new f.window.Event("settings-draft-changed"));
+  assert.equal(helper.textContent, "Only stable releases will be checked.");
+  assert.equal(draft.hidden, false);
+  f.emit({
+    currentVersion: "0.5.0+build-beta.7",
+    includeBetaUpdates: true,
+    messageCode: "preference-changed",
+  });
+  assert.equal(
+    f.document.getElementById("update-release-type").textContent,
+    "Stable",
+  );
+  assert.equal(helper.textContent, "Stable and beta releases will be checked.");
+  assert.equal(draft.hidden, true);
+  assert.ok(f.document.getElementById("update-message").textContent.length > 0);
+});
+
+test("install consent is tied to the saved beta preference and rechecked after confirmation", async () => {
+  const f = fixture({
+    state: {
+      phase: "ready",
+      latestVersion: "0.6.0-beta.1",
+      includeBetaUpdates: true,
+    },
+  });
+  await f.mount();
+  f.document.getElementById("install-update").click();
+  await f.flush();
+  f.emit({
+    phase: "ready",
+    latestVersion: "0.6.0-beta.1",
+    includeBetaUpdates: false,
+  });
+  f.document.querySelector("dialog button:not(.secondary)").click();
+  await f.flush();
+  assert.equal(
+    f.calls.some(({ command }) => command === "install_update"),
+    false,
+  );
+  f.emit({
+    phase: "ready",
+    latestVersion: "0.6.0-beta.1",
+    includeBetaUpdates: true,
+  });
+  f.document.getElementById("install-update").click();
+  await f.flush();
+  f.document.querySelector("dialog button:not(.secondary)").click();
+  await f.flush();
+  const consent = f.calls.find(({ command }) => command === "install_update");
+  assert.equal(consent.args.confirmed, true);
+  assert.equal(consent.args.expectedVersion, "0.6.0-beta.1");
+  assert.equal(consent.args.expectedIncludeBetaUpdates, true);
+  assert.equal("expectedChannel" in consent.args, false);
+});
+
+test("unsaved or saving preferences block installation, including edits made during consent", async () => {
+  const f = fixture({
+    state: { phase: "ready", latestVersion: "0.5.0" },
+  });
+  let unsaved = true;
+  let saving = false;
+  await f.mount({
+    hasUnsavedChanges: () => unsaved,
+    isSettingsSaving: () => saving,
+  });
+  const install = f.document.getElementById("install-update");
+  assert.equal(install.disabled, true);
+  assert.equal(
+    f.document.getElementById("update-settings-warning").hidden,
+    false,
+  );
+  unsaved = false;
+  saving = true;
+  f.window.dispatchEvent(new f.window.Event("settings-draft-changed"));
+  assert.equal(install.disabled, true);
+  saving = false;
+  f.window.dispatchEvent(new f.window.Event("settings-draft-changed"));
+  assert.equal(install.disabled, false);
+  install.click();
+  await f.flush();
+  unsaved = true;
+  f.window.dispatchEvent(new f.window.Event("settings-draft-changed"));
+  f.document.querySelector("dialog button:not(.secondary)").click();
+  await f.flush();
+  assert.equal(
+    f.calls.some(({ command }) => command === "install_update"),
+    false,
+  );
+  assert.equal(install.disabled, true);
 });
 
 test("cancel download remains usable while the download promise is still pending", async () => {
@@ -219,10 +336,7 @@ test("live updater events cannot be overwritten by a slower initial snapshot", a
   finishSnapshot(snapshot());
   await mounting;
   assert.equal(f.document.getElementById("install-update").hidden, false);
-  assert.match(
-    f.document.getElementById("update-heading").textContent,
-    /ready/,
-  );
+  assert.match(f.document.getElementById("update-phase").textContent, /ready/i);
 });
 
 test("manual checks show progress and result inside the mounted panel", async () => {
@@ -260,8 +374,12 @@ test("manual checks show progress and result inside the mounted panel", async ()
     /up to date/,
   );
   assert.match(
-    f.document.getElementById("update-last-check").textContent,
+    f.document.getElementById("update-last-check-label").textContent,
     /Last successful check/,
+  );
+  assert.equal(
+    f.document.getElementById("update-last-check").textContent,
+    new Date(1791099000 * 1000).toLocaleString("en"),
   );
   assert.equal(f.document.getElementById("check-updates").disabled, false);
   assert.equal(

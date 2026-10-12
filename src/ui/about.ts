@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { hasSupport, type AboutInfo, type ProjectLink } from "../app/about";
-import { updates } from "../app/updates";
+import { isPrereleaseVersion } from "../app/updates";
 import { t, localizeError, type TranslationKey } from "../i18n";
 import { initializeLanguage } from "../i18n/runtime";
 import { bindShellTheme } from "../theme/theme";
@@ -48,7 +48,6 @@ export async function mountAboutPanel(container: HTMLElement) {
     const info = await invoke<AboutInfo>("get_about_info");
     const build = info.build;
     const runtime = info.runtime;
-    const update = await updates.getState();
     text("name", "ChatPlus");
     text("version", t("common.version", { version: build.display_version }));
     text("maintainer", info.project.maintainer);
@@ -56,9 +55,9 @@ export async function mountAboutPanel(container: HTMLElement) {
     rows("build", [
       [t("common.version", { version: "" }).trim(), build.display_version],
       [
-        t("about.updateChannel"),
+        t("updates.releaseType"),
         t(
-          update.channel === "pre-release"
+          isPrereleaseVersion(build.semantic_version)
             ? "updates.preRelease"
             : "updates.stable",
         ),
@@ -69,7 +68,7 @@ export async function mountAboutPanel(container: HTMLElement) {
         `${available(build.git_commit_short)} / ${available(build.git_branch)}`,
       ],
       [
-        t("about.channelDirty"),
+        t("about.buildTypeDirty"),
         `${build.build_channel} / ${yesNo(build.is_dirty)}`,
       ],
     ]);

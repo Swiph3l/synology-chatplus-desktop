@@ -1,5 +1,5 @@
 //! HTTPS fixtures use ephemeral keys in memory; never install fixture payloads.
-use super::{accepts, UpdateChannel};
+use super::accepts;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use semver::Version;
 use std::{
@@ -118,7 +118,7 @@ impl Fixture {
     fn updater(
         &self,
         app: &tauri::AppHandle<tauri::test::MockRuntime>,
-        channel: UpdateChannel,
+        include_beta_updates: bool,
     ) -> tauri_plugin_updater::Updater {
         let cert = reqwest::Certificate::from_der(&self.certificate).unwrap();
         app.updater_builder()
@@ -128,7 +128,9 @@ impl Fixture {
             .target("windows-x86_64")
             .timeout(Duration::from_secs(5))
             .no_proxy()
-            .version_comparator(move |current, remote| accepts(&current, &remote.version, &channel))
+            .version_comparator(move |current, remote| {
+                accepts(&current, &remote.version, include_beta_updates)
+            })
             .configure_client(move |client| {
                 client.https_only(true).add_root_certificate(cert.clone())
             })
@@ -164,7 +166,7 @@ fn production_public_key_parses_and_manual_updater_initializes() {
             .parse()
             .unwrap(),
         config.updater_public_key,
-        UpdateChannel::Stable,
+        false,
     )
     .expect("production public key must initialize the manual updater");
 }
@@ -196,17 +198,17 @@ fn app_version(version: &str) -> tauri::App<tauri::test::MockRuntime> {
         .unwrap()
 }
 #[tokio::test]
-async fn beta_one_downloads_and_verifies_beta_two_only_in_prerelease_channel() {
+async fn beta_one_downloads_and_verifies_beta_two_only_with_beta_opt_in() {
     let app = app_version("0.5.0-beta.1");
     let fixture = Fixture::new("0.5.0-beta.2", false, false, false);
     assert!(fixture
-        .updater(app.handle(), UpdateChannel::Stable)
+        .updater(app.handle(), false)
         .check()
         .await
         .unwrap()
         .is_none());
     let update = fixture
-        .updater(app.handle(), UpdateChannel::PreRelease)
+        .updater(app.handle(), true)
         .check()
         .await
         .unwrap()
@@ -220,7 +222,7 @@ async fn actual_updater_verifies_signed_https_download() {
     let app = app();
     let fixture = Fixture::new("0.2.0", false, false, false);
     let update = fixture
-        .updater(app.handle(), UpdateChannel::Stable)
+        .updater(app.handle(), false)
         .check()
         .await
         .unwrap()
@@ -239,38 +241,34 @@ async fn updater_rejects_bad_signature_and_invalid_metadata() {
     let app = app();
     let fixture = Fixture::new("0.2.0", false, true, false);
     let update = fixture
-        .updater(app.handle(), UpdateChannel::Stable)
+        .updater(app.handle(), false)
         .check()
         .await
         .unwrap()
         .unwrap();
     assert!(update.download(|_, _| {}, || {}).await.is_err());
     let invalid = Fixture::new("0.2.0", true, false, false);
-    assert!(invalid
-        .updater(app.handle(), UpdateChannel::Stable)
-        .check()
-        .await
-        .is_err());
+    assert!(invalid.updater(app.handle(), false).check().await.is_err());
 }
 #[tokio::test]
-async fn updater_channel_checks_and_no_update_use_real_metadata() {
+async fn updater_beta_preference_and_no_update_use_real_metadata() {
     let app = app();
     let same = Fixture::new("0.1.0", false, false, false);
     assert!(same
-        .updater(app.handle(), UpdateChannel::Stable)
+        .updater(app.handle(), false)
         .check()
         .await
         .unwrap()
         .is_none());
     let preview = Fixture::new("0.2.0-rc.1", false, false, false);
     assert!(preview
-        .updater(app.handle(), UpdateChannel::Stable)
+        .updater(app.handle(), false)
         .check()
         .await
         .unwrap()
         .is_none());
     assert!(preview
-        .updater(app.handle(), UpdateChannel::PreRelease)
+        .updater(app.handle(), true)
         .check()
         .await
         .unwrap()
@@ -280,7 +278,7 @@ async fn updater_channel_checks_and_no_update_use_real_metadata() {
 async fn updater_offline_and_cancelled_download_do_not_install() {
     let app = app();
     let fixture = Fixture::new("0.2.0", false, false, true);
-    let updater = fixture.updater(app.handle(), UpdateChannel::Stable);
+    let updater = fixture.updater(app.handle(), false);
     let update = updater.check().await.unwrap().unwrap();
     let mut count = 0;
     let cancelled = tokio::select! { _ = tokio::time::sleep(Duration::from_millis(100))=>true, _ = update.download(|size,_|count+=size,||{})=>false };
@@ -294,7 +292,7 @@ async fn updater_offline_and_cancelled_download_do_not_install() {
 async fn cached_update_remains_available_after_a_later_network_failure() {
     let app = app();
     let fixture = Fixture::new("0.2.0", false, false, false);
-    let updater = fixture.updater(app.handle(), UpdateChannel::Stable);
+    let updater = fixture.updater(app.handle(), false);
     let update = updater.check().await.unwrap().unwrap();
     let mut inner = super::Inner::default();
     inner.snapshot.phase = "available".into();
@@ -308,4 +306,29 @@ async fn cached_update_remains_available_after_a_later_network_failure() {
     assert_eq!(inner.snapshot.latest_version.as_deref(), Some("0.2.0"));
     assert!(inner.update.is_some());
     assert_eq!(inner.snapshot.message_code, "check-failed");
+}
+
+#[tokio::test]
+async fn disabling_beta_updates_discards_the_actual_cached_update_and_verified_download() {
+    let app = app_version("0.5.0-beta.5");
+    let fixture = Fixture::new("0.5.0-beta.6", false, false, false);
+    let update = fixture
+        .updater(app.handle(), true)
+        .check()
+        .await
+        .unwrap()
+        .unwrap();
+    let bytes = update.download(|_, _| {}, || {}).await.unwrap();
+    let mut inner = super::Inner::default();
+    inner.snapshot.include_beta_updates = true;
+    inner.snapshot.phase = "ready".into();
+    inner.snapshot.latest_version = Some(update.version.clone());
+    inner.update = Some(update);
+    inner.verified_bytes = Some(bytes);
+    inner.change_preference(false);
+    assert!(inner.update.is_none());
+    assert!(inner.verified_bytes.is_none());
+    assert!(inner.snapshot.latest_version.is_none());
+    assert_eq!(inner.snapshot.phase, "idle");
+    assert!(inner.begin_check().is_some());
 }

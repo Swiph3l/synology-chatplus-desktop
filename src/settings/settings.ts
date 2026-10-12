@@ -97,9 +97,8 @@ export async function renderSettings() {
       <div data-panel="updates" hidden>
         <fieldset><legend>${t("common.updates")}</legend>
           <label class="toggle"><input id="automatic-updates" type="checkbox">${t("updates.automatic")}</label>
-          <label for="update-channel">${t("updates.channel")}</label>
-          <select id="update-channel"><option value="stable">${t("updates.stable")}</option><option value="pre-release">${t("updates.preRelease")}</option></select>
-          <small id="channel-description"></small>
+          <label class="toggle"><input id="include-beta-updates" type="checkbox" aria-describedby="beta-updates-description">${t("updates.includeBeta")}</label>
+          <small id="beta-updates-description">${t("updates.betaHelp")}</small>
           <small>${t("updates.scheduleHelp")}</small>
         </fieldset>
         <div id="update-details"></div>
@@ -263,19 +262,7 @@ export async function renderSettings() {
     input("unread-title").checked = original.unreadTitle;
     input("unread-tray").checked = original.unreadTray;
     input("automatic-updates").checked = original.automaticUpdates;
-    (document.getElementById("update-channel") as HTMLSelectElement).value =
-      original.updateChannel;
-    const channel = document.getElementById(
-      "update-channel",
-    ) as HTMLSelectElement;
-    const describeChannel = () => {
-      document.getElementById("channel-description")!.textContent =
-        channel.value === "stable"
-          ? t("updates.stableHelp")
-          : t("updates.preReleaseHelp");
-    };
-    channel.addEventListener("change", describeChannel);
-    describeChannel();
+    input("include-beta-updates").checked = original.includeBetaUpdates;
     (
       document.getElementById("notification-preview") as HTMLSelectElement
     ).value = original.notificationPreview;
@@ -294,7 +281,7 @@ export async function renderSettings() {
     ["unread-title", "unreadTitle"],
     ["unread-tray", "unreadTray"],
     ["automatic-updates", "automaticUpdates"],
-    ["update-channel", "updateChannel"],
+    ["include-beta-updates", "includeBetaUpdates"],
   ] as const;
   const hydratePreferences = (settings: Settings) => {
     for (const [id, key] of preferenceControls) {
@@ -331,9 +318,7 @@ export async function renderSettings() {
           unreadTitle: input("unread-title").checked,
           unreadTray: input("unread-tray").checked,
           automaticUpdates: input("automatic-updates").checked,
-          updateChannel: (
-            document.getElementById("update-channel") as HTMLSelectElement
-          ).value as Settings["updateChannel"],
+          includeBetaUpdates: input("include-beta-updates").checked,
         }
       : {}),
   });
@@ -358,7 +343,7 @@ export async function renderSettings() {
       closeToTray: settings.closeToTray,
       externalLinks: settings.externalLinks,
       automaticUpdates: settings.automaticUpdates,
-      updateChannel: settings.updateChannel,
+      includeBetaUpdates: settings.includeBetaUpdates,
       desktopNotifications: settings.desktopNotifications,
       notificationPreview: settings.notificationPreview,
       notificationSound: settings.notificationSound,
@@ -619,7 +604,12 @@ export async function renderSettings() {
   if (!firstRun) {
     renderChangelog(document.getElementById("changelog-content")!);
     await mountAboutPanel(document.getElementById("about-content")!);
-    await mountUpdatePanel(document.getElementById("update-details")!);
+    await mountUpdatePanel(document.getElementById("update-details")!, {
+      hasUnsavedChanges: () =>
+        settingsKey(readDraft()) !== settingsKey(original),
+      isSettingsSaving: () => persistencePending,
+      getDraftIncludeBetaUpdates: () => input("include-beta-updates").checked,
+    });
     // #update-details uses display: contents, so focus its rendered summary.
     updateSummary = document.querySelector<HTMLElement>(
       "#update-details .update-summary",
