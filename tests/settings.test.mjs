@@ -13,7 +13,8 @@ import {
 
 const result = await build({
   stdin: {
-    contents: 'export { renderSettings } from "./src/settings/settings.ts";',
+    contents:
+      'export { renderSettings } from "./src/settings/settings.ts"; export { languageNames, resources } from "./src/i18n/index.ts";',
     resolveDir: process.cwd(),
   },
   bundle: true,
@@ -246,6 +247,8 @@ async function fixture(options = {}) {
     flush,
     settings,
     listeners,
+    languageNames: context.settingsUi.languageNames,
+    resources: context.settingsUi.resources,
     defer: (command) => {
       let resolve;
       const promise = new Promise((done) => {
@@ -564,6 +567,66 @@ test("fresh native fixture metadata updates an open editor without changing its 
   assert.equal(f.settings.services[0].notifications, true);
 });
 
+test("language selector exposes all seven supported native names without flags", async () => {
+  const f = await fixture();
+  const names = Object.entries(f.languageNames);
+  assert.deepEqual(names, [
+    ["en", "English"],
+    ["pl", "Polski"],
+    ["es", "Español"],
+    ["de", "Deutsch"],
+    ["fr", "Français"],
+    ["ja", "日本語"],
+    ["zh-TW", "繁體中文"],
+  ]);
+  assert.deepEqual(
+    [...f.document.querySelectorAll("#language option")].map((option) => [
+      option.value,
+      option.textContent,
+    ]),
+    names,
+  );
+  assert.equal(
+    f.document.getElementById("language").getAttribute("aria-describedby"),
+    "language-help",
+  );
+});
+
+test("each supported language saves, reopens localized Settings and preserves other preferences", async () => {
+  const supported = Object.keys((await fixture()).languageNames);
+  for (const language of supported) {
+    const f = await fixture({
+      settings: {
+        language: language === "en" ? "pl" : "en",
+        theme: "dark",
+        includeBetaUpdates: true,
+      },
+    });
+    assert.equal(f.document.getElementById("save").disabled, true);
+    const selector = f.document.getElementById("language");
+    selector.value = language;
+    dispatch(f.window, selector, "change");
+    assert.equal(f.document.getElementById("save").disabled, false);
+    submitSettings(f);
+    await f.flush();
+    assert.equal(f.settings.language, language);
+    assert.equal(f.document.getElementById("save").disabled, true);
+    const reopened = await fixture({ settings: structuredClone(f.settings) });
+    assert.equal(reopened.document.documentElement.lang, language);
+    assert.equal(reopened.document.getElementById("language").value, language);
+    assert.equal(
+      reopened.document.querySelector("h1").textContent,
+      reopened.resources[language]["common.settings"],
+    );
+    assert.equal(reopened.document.getElementById("theme").value, "dark");
+    assert.equal(
+      reopened.document.getElementById("include-beta-updates").checked,
+      true,
+    );
+    assert.equal(reopened.document.getElementById("save").disabled, true);
+  }
+});
+
 test("Spanish localizes Settings sections and service confirmations and persists language", async () => {
   const f = await fixture({ settings: { language: "es" } });
   assert.equal(f.document.querySelector("h1").textContent, "Configuración");
@@ -638,6 +701,29 @@ test("Save persists edited preferences, confirms inline, and Close is separate",
     .dispatchEvent(new f.window.Event("click"));
   await f.flush();
   assert.equal(f.calls.at(-1).command, "close_settings");
+});
+
+test("the footer announces saved feedback in one live status and returns to unsaved state on editing", async () => {
+  const f = await fixture();
+  const status = f.document.querySelector(".settings-save-state");
+  const draft = f.document.getElementById("draft-status");
+  const feedback = f.document.getElementById("save-feedback");
+  assert.equal(status.getAttribute("role"), "status");
+  assert.equal(status.getAttribute("aria-live"), "polite");
+  assert.equal(status.querySelectorAll("[aria-live]").length, 0);
+  f.document.getElementById("theme").value = "dark";
+  submitSettings(f);
+  await f.flush();
+  assert.equal(draft.hidden, true);
+  assert.equal(feedback.hidden, false);
+  assert.ok(feedback.textContent);
+  assert.ok(f.document.querySelector(".form-footer").contains(feedback));
+  const checkbox = f.document.getElementById("include-beta-updates");
+  checkbox.checked = true;
+  dispatch(f.window, checkbox, "change");
+  assert.equal(feedback.hidden, true);
+  assert.equal(draft.hidden, false);
+  assert.equal(draft.classList.contains("has-unsaved"), true);
 });
 
 test("beta checkbox saves and reopens independently from its unsaved draft and installed release type", async () => {

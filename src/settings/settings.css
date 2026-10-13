@@ -11,7 +11,7 @@
   min-height: 0;
 }
 .settings-page:not(.setup-page) .page-header {
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   flex-shrink: 0;
 }
 .settings-page:not(.setup-page) #settings {
@@ -25,14 +25,14 @@
   gap: 3px;
   flex-wrap: wrap;
   flex-shrink: 0;
-  margin: 0 0 12px;
-  padding-bottom: 8px;
+  margin: 0 0 10px;
+  padding-bottom: 6px;
   border-bottom: 1px solid var(--border);
 }
 .settings-page:not(.setup-page) .settings-tabs button {
   font-size: 12px;
-  padding: 4px 9px;
-  min-height: 30px;
+  padding: 3px 8px;
+  min-height: 28px;
 }
 .settings-page .settings-tabs button[aria-selected="true"] {
   background: color-mix(in srgb, var(--accent) 16%, var(--surface));
@@ -50,6 +50,129 @@
   padding: 12px 14px;
   margin: 0 0 12px;
 }
+.settings-page:not(.setup-page)
+  :is(
+    [data-panel="general"],
+    [data-panel="notifications"],
+    [data-panel="updates"]
+  )
+  > fieldset {
+  padding: 0;
+  margin: 0 0 20px;
+}
+.settings-page:not(.setup-page)
+  :is(
+    [data-panel="general"],
+    [data-panel="notifications"],
+    [data-panel="updates"]
+  )
+  > fieldset:last-child {
+  margin-bottom: 0;
+}
+.settings-page:not(.setup-page)
+  :is(
+    [data-panel="general"],
+    [data-panel="notifications"],
+    [data-panel="updates"]
+  )
+  > fieldset
+  > legend {
+  margin-bottom: 10px;
+}
+.settings-page:not(.setup-page)
+  :is(
+    [data-panel="general"],
+    [data-panel="notifications"],
+    [data-panel="updates"]
+  )
+  label {
+  margin-bottom: 5px;
+}
+.settings-page:not(.setup-page)
+  :is(
+    [data-panel="general"],
+    [data-panel="notifications"],
+    [data-panel="updates"]
+  )
+  .toggle {
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+.settings-page:not(.setup-page)
+  :is(
+    [data-panel="general"],
+    [data-panel="notifications"],
+    [data-panel="updates"]
+  )
+  .toggle:last-child {
+  margin-bottom: 0;
+}
+.settings-page:not(.setup-page)
+  :is(
+    [data-panel="general"],
+    [data-panel="notifications"],
+    [data-panel="updates"]
+  )
+  .toggle
+  input {
+  margin-top: 2px;
+}
+.settings-page:not(.setup-page)
+  :is(
+    [data-panel="general"],
+    [data-panel="notifications"],
+    [data-panel="updates"]
+  )
+  small {
+  margin-top: 5px;
+  line-height: 1.4;
+}
+.settings-appearance-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  max-width: 520px;
+}
+.settings-appearance-controls > div {
+  min-width: 0;
+}
+.settings-page:not(.setup-page) [data-panel="general"] select,
+.settings-page:not(.setup-page) [data-panel="notifications"] select,
+.settings-page:not(.setup-page) [data-panel="general"] input[type="url"] {
+  height: 32px;
+  min-height: 32px;
+}
+.settings-page:not(.setup-page) [data-panel="notifications"] select {
+  max-width: 320px;
+}
+.settings-page:not(.setup-page)
+  [data-panel="notifications"]
+  label[for="notification-preview"] {
+  margin-top: 10px;
+}
+.settings-page:not(.setup-page) #notification-permission {
+  margin-bottom: 8px;
+}
+.settings-page:not(.setup-page) [data-panel="notifications"] button,
+.settings-page:not(.setup-page) .update-actions button,
+.settings-page:not(.setup-page) .form-footer button {
+  min-height: 32px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.settings-page:not(.setup-page) .update-summary-heading {
+  margin-bottom: 8px;
+}
+.settings-page:not(.setup-page) .update-metadata > div {
+  margin-bottom: 5px;
+}
+.settings-page:not(.setup-page) #update-message {
+  margin: 8px 0;
+}
+.settings-page:not(.setup-page) .update-actions {
+  margin-top: 12px;
+  padding: 5px 0;
+}
 .settings-page #status {
   flex-shrink: 0;
   max-height: 54px;
@@ -57,14 +180,22 @@
   margin: 6px 0;
 }
 .settings-page #save-feedback {
-  margin: 4px 0 0;
-  flex-shrink: 0;
+  min-height: 0;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.settings-page .settings-save-state {
+  flex: 1;
+  min-width: 0;
+  align-self: center;
 }
 .settings-page .form-footer {
+  align-items: center;
   gap: 8px;
   flex-shrink: 0;
   padding-top: 10px;
-  margin-top: 8px;
+  margin-top: 10px;
 }
 .settings-page footer {
   margin-top: 6px;
@@ -665,9 +796,13 @@
   .settings-page .form-footer {
     flex-wrap: wrap;
   }
-  .settings-page #draft-status {
+  .settings-page .settings-save-state {
     flex-basis: 100%;
     margin-bottom: 2px;
+  }
+  .settings-appearance-controls {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
   }
   .service-provider-choices {
     grid-template-columns: minmax(0, 1fr);

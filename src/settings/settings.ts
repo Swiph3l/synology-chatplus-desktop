@@ -12,7 +12,13 @@ import { notifications } from "../app/notifications";
 import { mountUpdatePanel } from "../ui/update";
 import { mountAboutPanel } from "../ui/about";
 import { renderChangelog } from "./changelog";
-import { localizeError, setLanguage, t, type Language } from "../i18n";
+import {
+  languageNames,
+  localizeError,
+  setLanguage,
+  t,
+  type Language,
+} from "../i18n";
 import { serviceEditor } from "./services";
 import {
   providers,
@@ -61,11 +67,15 @@ export async function renderSettings() {
         firstRun
           ? ""
           : `
-      <fieldset><legend>${t("settings.appearance")}</legend><div class="preference-row"><label for="theme">${t("settings.theme")}</label><select id="theme"><option value="system">${t("settings.system")}</option><option value="light">${t("settings.light")}</option><option value="dark">${t("settings.dark")}</option></select></div></fieldset>
-      <fieldset><legend>${t("settings.language")}</legend><label for="language">${t("settings.language")}</label><select id="language"><option value="en">English</option><option value="pl">Polski</option><option value="es">Español</option></select><small>${t("settings.languageHelp")}</small></fieldset>
+      <fieldset><legend>${t("settings.appearance")}</legend><div class="settings-appearance-controls"><div><label for="theme">${t("settings.theme")}</label><select id="theme"><option value="system">${t("settings.system")}</option><option value="light">${t("settings.light")}</option><option value="dark">${t("settings.dark")}</option></select></div><div><label for="language">${t("settings.language")}</label><select id="language" aria-describedby="language-help">${Object.entries(
+        languageNames,
+      )
+        .map(([code, name]) => `<option value="${code}">${name}</option>`)
+        .join(
+          "",
+        )}</select></div></div><small id="language-help">${t("settings.languageHelp")}</small></fieldset>
       <fieldset><legend>${t("settings.startup")}</legend><label class="toggle"><input id="autostart" type="checkbox">${/Windows/i.test(navigator.userAgent) ? t("settings.startWindows") : t("settings.startLogin")}</label></fieldset>
-      <fieldset><legend>${t("settings.window")}</legend><label class="toggle"><input id="minimize" type="checkbox">${t("settings.minimizeTray")}</label><label class="toggle"><input id="close" type="checkbox">${t("settings.closeTray")}</label></fieldset>
-      <fieldset><legend>${t("settings.links")}</legend><label class="toggle"><input id="external" type="checkbox">${t("settings.externalLinks")}</label></fieldset>`
+      <fieldset><legend>${t("settings.window")}</legend><label class="toggle"><input id="minimize" type="checkbox">${t("settings.minimizeTray")}</label><label class="toggle"><input id="close" type="checkbox">${t("settings.closeTray")}</label><label class="toggle"><input id="external" type="checkbox">${t("settings.externalLinks")}</label></fieldset>`
       }
       </div>
       ${
@@ -81,8 +91,8 @@ export async function renderSettings() {
           <label for="notification-preview">${t("notifications.preview")}</label>
           <select id="notification-preview"><option value="full">${t("notifications.full")}</option><option value="sender">${t("notifications.sender")}</option><option value="generic">${t("notifications.generic")}</option></select>
           <small>${t("notifications.privacyHelp")}</small>
+          <small>${t("notifications.serviceMuteHelp")}</small>
         </fieldset>
-        <small>${t("notifications.serviceMuteHelp")}</small>
         <fieldset><legend>${t("notifications.unread")}</legend>
           <label class="toggle"><input id="unread-title" type="checkbox">${t("notifications.title")}</label>
           <label class="toggle"><input id="unread-tray" type="checkbox">${t("notifications.tray")}</label>
@@ -108,15 +118,15 @@ export async function renderSettings() {
       }
       </div>
       <p id="status" role="status" aria-live="polite"></p>
-      <div class="form-footer"><span id="draft-status" role="status" aria-live="polite"></span><button id="close-settings" type="button" class="secondary">${t("common.close")}</button><button id="save" type="submit">${firstRun ? t("settings.connect") : t("common.save")}</button></div>
-      <p id="save-feedback" aria-live="polite"></p>
+      <div class="form-footer"><div class="settings-save-state" role="status" aria-live="polite" aria-atomic="true"><span id="draft-status"></span><p id="save-feedback" hidden></p></div><button id="close-settings" type="button" class="secondary">${t("common.close")}</button><button id="save" type="submit">${firstRun ? t("settings.connect") : t("common.save")}</button></div>
     </form>
-    <footer><span>${t("settings.community")}</span></footer>`;
+    ${firstRun ? `<footer><span>${t("settings.community")}</span></footer>` : ""}`;
   const input = (id: string) => document.getElementById(id) as HTMLInputElement;
   const theme = document.querySelector<HTMLSelectElement>("#theme");
   const status = document.getElementById("status")!;
   const button = document.querySelector<HTMLButtonElement>("#save")!;
   const saveFeedback = document.getElementById("save-feedback")!;
+  const draftStatus = document.getElementById("draft-status")!;
   const settingsForm = document.querySelector<HTMLFormElement>("#settings")!;
   settingsForm.addEventListener("submit", (event) => event.preventDefault());
   button.disabled = true;
@@ -186,10 +196,14 @@ export async function renderSettings() {
     }
     saveFeedback.classList.remove("visible");
     saveFeedback.textContent = "";
+    saveFeedback.hidden = true;
+    draftStatus.hidden = false;
   };
   const showSaveFeedback = (text: string) => {
     clearSaveFeedback();
     saveFeedback.textContent = text;
+    saveFeedback.hidden = false;
+    draftStatus.hidden = true;
     saveFeedback.classList.add("visible");
     saveFeedbackTimer = setTimeout(() => {
       saveFeedback.classList.remove("visible");
@@ -197,6 +211,8 @@ export async function renderSettings() {
       setTimeout(() => {
         if (!saveFeedback.classList.contains("visible")) {
           saveFeedback.textContent = "";
+          saveFeedback.hidden = true;
+          draftStatus.hidden = false;
         }
       }, 150);
     }, 2400);

@@ -12,10 +12,21 @@ const result = await build({
 });
 const context = {};
 runInNewContext(result.outputFiles[0].text, context);
-const { resources, setLanguage, t, localizeError } = context.translations;
-test("English, Polish and Spanish have identical nonempty keys and interpolation placeholders", () => {
+const { resources, languageNames, setLanguage, t, localizeError } =
+  context.translations;
+test("all seven languages have identical nonempty keys and interpolation placeholders", () => {
   const keys = Object.keys(resources.en).sort();
-  for (const language of ["pl", "es"]) {
+  assert.deepEqual(Object.keys(resources), [
+    "en",
+    "pl",
+    "es",
+    "de",
+    "fr",
+    "ja",
+    "zh-TW",
+  ]);
+  assert.deepEqual(Object.keys(languageNames), Object.keys(resources));
+  for (const language of Object.keys(resources)) {
     assert.deepEqual(Object.keys(resources[language]).sort(), keys);
     for (const key of keys) {
       assert.ok(resources[language][key].trim(), `${language}: ${key}`);
@@ -35,6 +46,44 @@ test("English, Polish and Spanish have identical nonempty keys and interpolation
       );
     }
   }
+});
+
+test("new languages switch all main Settings areas and preserve interpolation and error ownership", () => {
+  for (const language of ["de", "fr", "ja", "zh-TW"]) {
+    setLanguage(language);
+    for (const key of [
+      "common.settings",
+      "common.general",
+      "common.notifications",
+      "common.updates",
+      "common.services",
+      "common.changelog",
+      "common.about",
+      "common.close",
+      "common.save",
+      "settings.unsavedChanges",
+      "settings.languageHelp",
+      "updates.includeBeta",
+      "notifications.desktop",
+    ]) {
+      assert.equal(t(key), resources[language][key]);
+      assert.notEqual(t(key), key, `${language}: ${key}`);
+    }
+    // Some labels are legitimate cognates (e.g. French "Notifications").
+    assert.notEqual(t("common.settings"), resources.en["common.settings"]);
+    assert.ok(
+      t("common.version", { version: "1.2.3-beta.4" }).includes("1.2.3-beta.4"),
+    );
+    assert.equal(
+      localizeError("Could not save settings."),
+      resources[language]["errors.save"],
+    );
+    assert.equal(
+      localizeError("Remote provider detail"),
+      "Remote provider detail",
+    );
+  }
+  setLanguage("en");
 });
 test("Spanish controls, interpolation, provider validation and error feedback never fall back to English", () => {
   setLanguage("es");

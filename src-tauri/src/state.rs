@@ -101,6 +101,11 @@ pub enum Language {
     En,
     Pl,
     Es,
+    De,
+    Fr,
+    Ja,
+    #[serde(rename = "zh-TW")]
+    ZhTw,
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
