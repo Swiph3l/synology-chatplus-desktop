@@ -35,18 +35,18 @@ the narrow Linux advisory review; do not ignore unrelated findings.
 
 ## Regression suites
 
-| Suite / source                                    | What it validates                                                                                                                |
-| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| tests/unread.test.mjs                             | Shared renderer lifecycle, foreground generations, trusted conversation evidence, pending arrivals and proof retirement          |
-| tests/synology-adapters.test.mjs                  | Separate ChatPlus and Synology Chat selectors, unread/zero scope, latest panes, composer mapping and visibility projection       |
-| tests/discord-unread.test.mjs                     | Guild/DM evidence, complete aggregate rules, route/message proofs and public focus projection                                    |
-| tests/minimized-notification.test.mjs             | Real adapter fixtures with native host projection for minimized/selected and inactive providers                                  |
-| tests/services.test.mjs and tests/footer.test.mjs | Rail identity, enabled filtering and stale initial/event ordering                                                                |
-| Native unread/notification modules                | Per-service state, aggregate invariants, native read validation, event identity/delivery and apartment-safe completion           |
-| Native downloads module                           | Filename/security rules, duplicate reservation, URL eligibility and download status policy                                       |
-| Settings/service/navigation/localization suites   | Saves/removal, mute drafts, origin validation and EN/PL/ES behavior                                                              |
-| Rust updater_tests.rs and updates.rs              | Ephemeral signed HTTPS downloads, signature rejection, cancellation, channels, startup/six-hour schedule and stale result guards |
-| Release/wrapper/metadata/checksum suites          | Signing isolation, tag/version identity, URL-safe names, actual installer targets and checksums                                  |
+| Suite / source                                    | What it validates                                                                                                                               |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| tests/unread.test.mjs                             | Shared renderer lifecycle, foreground generations, trusted conversation evidence, pending arrivals and proof retirement                         |
+| tests/synology-adapters.test.mjs                  | Separate ChatPlus and Synology Chat selectors, unread/zero scope, latest panes, composer mapping and visibility projection                      |
+| tests/discord-unread.test.mjs                     | Guild/DM evidence, complete aggregate rules, route/message proofs and public focus projection                                                   |
+| tests/minimized-notification.test.mjs             | Real adapter fixtures with native host projection for minimized/selected and inactive providers                                                 |
+| tests/services.test.mjs and tests/footer.test.mjs | Rail identity, enabled filtering and stale initial/event ordering                                                                               |
+| Native unread/notification modules                | Per-service state, aggregate invariants, native read validation, event identity/delivery and apartment-safe completion                          |
+| Native downloads module                           | Filename/security rules, duplicate reservation, URL eligibility and download status policy                                                      |
+| Settings/service/navigation/localization suites   | Saves/removal, mute drafts, origin validation and all seven supported locales                                                                   |
+| Rust updater_tests.rs and updates.rs              | Published-release/SemVer beta preference matrix, draft rejection, signed HTTPS, cancellation, startup/six-hour schedule and stale result guards |
+| Release/wrapper/metadata/checksum suites          | Signing isolation, tag/version identity, URL-safe names, actual installer targets and checksums                                                 |
 
 Download automation covers filename/trust boundaries, real existing-file preservation,
 parallel name reservation and lifecycle-status interpretation. It does not execute

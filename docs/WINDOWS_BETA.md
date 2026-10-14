@@ -1,12 +1,19 @@
 # Windows public beta preparation
 
+The current unpublished target is **v0.5.0-beta.6**, a Windows x64 prerelease.
+It is **NOT READY**: see [Development status](DEVELOPMENT_STATUS.md) for current
+validation, the remaining GLib dependency finding and signing/native acceptance
+boundaries. Do not reuse the historical tag/version examples below for beta.6.
+
+## Historical beta.4 preparation — 2026-10-04
+
 The 2026-10-04 reliability candidate targets **0.5.0-beta.4**. Preparation does not
 push, tag or publish a release. Complete the [three-provider Windows acceptance
 matrix](WINDOWS_ACCEPTANCE.md#20-2026-10-04-beta4-provider-reliability-acceptance),
 profile migration checks and actual-build screenshot capture before release.
 See [the candidate report and local build](BETA4_RELIABILITY.md).
-Pre-release accepts newer stable releases as well as beta/RC builds;
-the saved channel is never changed automatically.
+**Include beta updates** accepts newer stable releases as well as beta/RC builds;
+the saved preference is never changed automatically.
 
 Target: `v0.5.0-beta.4`, Windows x64 NSIS. Public Beta is the intended release
 status, not a claim that this working tree has been published. Linux and macOS are
@@ -47,8 +54,9 @@ key or missing private key. Never use fixture keys for production. Confirm that
 the public key matches the signing key by the signed download test below.
 
 Automatic checks remain opt-in: each launch checks asynchronously after ten seconds,
-then approximately every six hours while enabled. Select **Pre-release** in Settings; the default channel remains
-Stable. Manual checking is available in Settings/menu. No preference defaults or
+then approximately every six hours while enabled. Enable **Include beta updates**
+in Settings to receive beta releases; the default is off for stable releases only.
+Manual checking is available in Settings/menu. No preference defaults or
 branding are changed by this release preparation.
 
 ## Owner: review, push and tag later
@@ -130,15 +138,15 @@ Camera, microphone and Synology Meet remain unconfirmed until runtime validated.
 Repeat the signed upgrade sequence below from a production-key beta.3 installation
 to beta.4, using the same signing key and `0.5.0-beta.4` in the manifest and assets.
 Verify the installed version, settings migration, retained login and isolated
-service profiles. Stable must not discover beta.4; Pre-release must discover it
-when eligible and must also accept newer stable versions. Record actual results;
+service profiles. With **Include beta updates** off, beta.4 must not be offered;
+with it on, beta.4 must be offered when eligible, alongside newer stable versions. Record actual results;
 automated validation does not establish installed upgrade or native acceptance.
 
 ## Historical signed beta.1 to beta.2 test
 
 The beta.2 references in this earlier acceptance procedure are intentional.
 
-1. Install the final production-key beta.1 EXE. Select Pre-release and check manually.
+1. Install the final production-key beta.1 EXE. Enable **Include beta updates** (called Pre-release in that historical build) and check manually.
 2. Prepare beta.2 with the same public/private key, synchronized `0.5.0-beta.2`
    versions and passing checks. Build its draft through the reviewed tag workflow.
 3. Inspect beta.2 EXE/signature/checksums/SBOM/attestation. Its manifest must be
@@ -150,12 +158,13 @@ The beta.2 references in this earlier acceptance procedure are intentional.
 5. From beta.1, verify manual discovery, download and signature acceptance. Confirm
    installation/restart explicitly; verify version `0.5.0-beta.2`, settings and login.
 6. Independently test opt-in startup checking when its six-hour interval permits.
-   Stable must not discover beta.2. Rechecking beta.2 must not offer a downgrade.
+   With beta updates disabled, beta.2 must not be offered. Rechecking beta.2 must not offer a downgrade.
 7. Record results. Unit/HTTPS fixture tests verify signed bytes without installation;
    they do not prove production install/restart. Do not claim a production-working
    updater before this test passes.
 
 A future stable `0.5.0` tag writes only `latest.json`; prereleases write only
-`latest-prerelease.json`. Pre-release accepts beta/RC builds and newer stable releases, choosing the highest
-eligible SemVer. Stable accepts production releases only. The saved preference
+`latest-prerelease.json`. Enabling **Include beta updates** accepts beta/RC builds
+and newer stable releases, choosing the highest eligible SemVer. Disabling it
+accepts production releases only. The saved preference
 is never changed automatically.

@@ -76,7 +76,7 @@ Automatic checking runs asynchronously 10 seconds after startup and approximatel
 every six hours while enabled. Startup does not wait for the request, and a previous launch's
 successful timestamp does not suppress the new startup check. Disabled automatic
 checking performs no scheduled request. The scheduler and manual checks share
-one operation guard; channel changes invalidate old asynchronous results.
+one operation guard; beta-preference changes invalidate old asynchronous results.
 
 Automatic checks publish non-blocking status to the footer and Updates panel.
 No-update and network-error results do not open or focus a dialog. Manual checks
@@ -84,11 +84,12 @@ show progress/results in the Updates panel. Downloaded bytes must pass the
 official Tauri signature check; installation/restart still requires explicit user
 confirmation. HTTPS and repository asset restrictions remain in effect.
 
-Stable accepts stable releases only. Pre-release accepts beta/RC versions and
-newer stable releases. Eligibility and ordering use SemVer precedence, including
-beta.3 < beta.4 < 0.5.0 < 0.5.1; build metadata does not create an upgrade.
-Preferences and the last successful check remain persisted. The existing
-prerelease release-list bound remains 100 published releases.
+**Include beta updates** off accepts stable releases only; on accepts beta/RC
+versions and newer stable releases together. Eligibility and ordering use SemVer
+precedence, including beta.3 < beta.4 < 0.5.0 < 0.5.1 < 0.6.0-beta.1; build metadata
+does not create an upgrade. Drafts and unpublished releases are always excluded.
+Preferences and the last successful check remain persisted. The release-list
+bound is ten pages of 100 releases; incomplete history reports an error.
 
 ## Localization
 

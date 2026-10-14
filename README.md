@@ -18,7 +18,7 @@ Tauri application.
 - Keep Synology ChatPlus or Synology Chat close at hand with a convenient Windows app.
 - Switch between multiple communication services and separate account profiles.
 - See unread indicators and native notifications while working in other applications.
-- Keep the app in the system tray and choose your theme, language and update channel.
+- Keep the app in the system tray and choose your theme, language and update preferences.
 
 ## Supported services
 
@@ -42,13 +42,14 @@ explain the current boundaries; no Slack/Discord desktop-client parity is claime
 - Native Windows notifications with Full, Sender/chat or Generic previews and sound.
 - Per-service unread dots and shared tray, title and taskbar unread presentation.
 - Service-specific desktop notification mute and tray restore/hide controls.
-- Automatic update checks (optional), signed updates and Stable/Pre-release channels.
+- Automatic update checks (optional), signed updates and an **Include beta updates** preference.
 - PDF and ordinary attachment downloads through the provider's WebView2 session,
   with native save/download controls and safe duplicate filenames.
-- Light, Dark and System themes; English, Polish and Spanish interface.
+- Light, Dark and System themes; English, Polish, Spanish, German, French,
+  Japanese and Traditional Chinese interface.
 - Native menus, zoom/fullscreen, saved window geometry and optional start with Windows.
 
-Current development is `0.5.0-beta.4`, focused on reliability. Native notifications,
+Current development is `0.5.0-beta.6`, focused on reliability. Native notifications,
 authenticated attachments and installed updater behavior still need the
 [Windows acceptance checks](docs/WINDOWS_ACCEPTANCE.md#current-reliability-pass-2026-10-07)
 for this revision. Windows x64 is the supported target; Linux/macOS are experimental.
@@ -58,8 +59,9 @@ for this revision. Windows x64 is the supported target; Linux/macOS are experime
 **[Download Windows builds from GitHub Releases](https://github.com/Swiph3l/synology-chatplus-desktop/releases).**
 
 Choose a published Windows x64 setup installer. Stable releases are intended for
-regular use; Pre-release builds include beta/RC changes for testing. The saved update
-channel stays under your control, and installation/restart requires confirmation.
+regular use; beta and pre-release builds include changes for testing. Enable
+**Include beta updates** in Settings to consider both stable and beta releases;
+leave it off for stable releases only. Installation/restart requires confirmation.
 Development work described here may be newer than the latest published release.
 
 Updater signatures verify updates separately from Windows Authenticode. Unsigned

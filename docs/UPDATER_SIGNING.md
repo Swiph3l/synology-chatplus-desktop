@@ -41,20 +41,24 @@ CI secrets. Never put private keys in source, logs or artifacts. Follow the
 [official Tauri instructions](https://v2.tauri.app/plugin/updater/). Updater signatures
 do not provide Authenticode, Apple notarization or remove SmartScreen warnings.
 
-## Channels and delivery
+## Update preferences and delivery
 
-Stable uses https://github.com/{owner}/{repository}/releases/latest/download/latest.json.
-Pre-release lists up to 100 published releases through GitHub's public API, chooses
-the highest eligible SemVer, including stable releases. Beta/RC tags use
-latest-prerelease.json; stable tags use latest.json. The release version determines
-the manifest, while the saved channel determines eligibility.
-Drafts and missing manifests are skipped. Review this bounded policy if retaining
-more than 100 recent releases. No token or HTML scraping is used.
+All checks list published GitHub Releases through the public API, bounded to ten
+pages of 100 releases. **Include beta updates** is off by default: only stable
+releases are eligible. Enabling it includes stable and beta/pre-release versions,
+and the highest eligible SemVer wins. Drafts and unpublished releases are always
+excluded. A newer eligible release without a trusted manifest/package reports an
+error rather than silently falling back. An incomplete paginated query also reports
+an error. No token or HTML scraping is used.
+
+Beta/RC tags use `latest-prerelease.json`; stable tags use `latest.json`. The release
+version determines the manifest, while the saved beta preference determines
+eligibility. Artifact filenames remain distinct for stable and pre-release builds.
 
 Only strictly newer SemVer precedence is accepted; build metadata alone is not an
-upgrade. Stable excludes prereleases. Initial download URLs must belong to the
+upgrade. Disabling beta updates excludes prereleases. Initial download URLs must belong to the
 configured GitHub release path. Redirects remain HTTPS; signatures are mandatory.
-A channel change during checking discards the result. Download and installation
+A beta-preference change during checking discards the result. Download and installation
 recheck eligibility. Release notes are plain text.
 
 Automatic checks are opt-in, begin after ten seconds and occur at most once per six

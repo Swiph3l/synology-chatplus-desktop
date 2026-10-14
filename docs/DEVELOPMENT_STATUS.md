@@ -1,6 +1,53 @@
-# Development validation — 2026-10-04
+# Development validation — 2026-10-14
 
-The current **0.5.0-beta.4** candidate focuses on provider-specific notification
+The current development target is **0.5.0-beta.6**. All six application version
+values agree: `package.json`, both root package versions in `package-lock.json`,
+`src-tauri/Cargo.toml`, the application entry in `src-tauri/Cargo.lock`, and
+`src-tauri/tauri.conf.json`. Pre-tag identity validation accepts exactly
+`v0.5.0-beta.6` and classifies it as a prerelease; mismatched tags and versions
+are rejected.
+
+**NOT READY FOR v0.5.0-beta.6**. The full frontend suite now passes **253/253**,
+including **123/123** notification/unread tests and **16/16** Discord tests.
+The earlier 53 failures came from outdated test fixtures: diagnostic bridge
+messages were counted as unread state, and Discord hit testing returned an
+ancestor list instead of visible message content. The fixtures now separate
+telemetry and include explicit occlusion/overlay rejection coverage; runtime
+notification logic was not weakened.
+
+Fresh isolated Windows validation also found and fixed first-run Connect sending
+an empty service list despite preparing a complete first service. The canonical
+first-service payload is now persisted. Actual Services add/edit/remove, duplicate
+provider instances, independent colors, reordering, Save and quit/relaunch
+persistence pass with local synthetic providers.
+
+The sidebar reorder gesture now activates after two seconds and tolerates mouse
+drift during the hold. A bounded live preview follows vertical movement, while
+quick clicks, Escape and the native provider boundary keep their existing roles.
+Both upward/downward reorder and native persistence pass in the isolated Windows
+WebView2 application; a slight pre-hold mouse movement no longer cancels reordering.
+
+Rust check passes; native tests report **153 passed, 1 ignored**. The ignored
+production-artifact test requires an explicitly supplied signed installer.
+The optimized Windows NSIS
+build passes, and the configured public key verifies an existing public beta.5
+installer and signature. That check does not validate future beta.6 signing.
+All seven supported locales, Services/update tests and prerelease identity
+checks pass. Rust and frontend formatting checks pass after formatting only
+the three updater-related Rust files identified by the existing CI check.
+
+Dependency security remains **FAIL** against the requested no-GLib-below-0.20
+criterion: Linux still resolves `glib 0.18.5` through GTK/WebKitGTK/Tauri. It is
+absent from the Windows graph, and the existing Windows dependency policy passes;
+the Linux advisory wrapper still reports **REQUIRES REVIEW**. No advisory ignore
+or broad dependency upgrade was introduced. Local signing credentials are absent;
+a signed beta.6 build and installed update/restart require secure CI/owner
+validation. Authenticated provider and actual native acceptance remain separate
+from automated fixtures. No push, tag or release was created.
+
+## Historical validation — 2026-10-04
+
+The **0.5.0-beta.4** candidate focused on provider-specific notification
 and unread reliability for Synology ChatPlus, Synology Chat and Discord. See
 [BETA4_RELIABILITY.md](BETA4_RELIABILITY.md) for the implementation, source audit,
 automated validation, review and local development build. The explicit
