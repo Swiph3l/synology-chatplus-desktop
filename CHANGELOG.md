@@ -6,6 +6,9 @@ All notable changes will be documented here. Versions follow Semantic Versioning
 
 ### Added
 
+- Provider-neutral first-run setup using the shared Services editor, with an
+  explicit provider choice, multiple-service setup and Skip for now. Existing
+  profiles keep their workspace, and skipped setup opens an empty workspace.
 - Compact Services Manager cards and separate add, edit and confirmed removal
   dialogs, with independent drafts for duplicate provider instances.
 - Service ordering with drag handles, move controls and keyboard navigation;
@@ -29,11 +32,15 @@ All notable changes will be documented here. Versions follow Semantic Versioning
   feedback and keyboard focus.
 - Compact the Settings tabs, controls and fixed footer, align Theme and Language,
   and group startup and window preferences with less vertical space.
+- Update the native Windows notification backend to
+  `tauri-winrt-notification 0.8.1` and the Settings store to
+  `tauri-plugin-store 2.4.5`, retaining the existing direct Windows and WebView2
+  bindings. Native acceptance remains pending.
 
 ### Fixed
 
-- Keep the first service created by Connect on a fresh profile, including profiles
-  already using the current service schema.
+- Keep services saved during first-run setup and reconcile a successful native
+  save even when a later window operation reports an error.
 - Preserve applied Settings drafts until Save, including removal, ordering, colors
   and explicit per-service notification edits during external settings changes.
 - Persist settings through atomic replacement and retain the original profile if
@@ -49,14 +56,17 @@ All notable changes will be documented here. Versions follow Semantic Versioning
 
 ### Security
 
+- Update `rustls` to `0.23.46` for `RUSTSEC-2026-0346`, `RUSTSEC-2026-0347`,
+  `RUSTSEC-2026-0348` and `RUSTSEC-2026-0349`, without advisory suppression.
 - Update the pinned CodeQL action to v4.38.3.
 - Pin release jobs to the triggering commit, validate tag/source identity and
   artifact provenance, and require collected updater signatures to verify against
   the configured public key before upload.
 
-This is an unpublished prerelease candidate, **not release-ready**. GLib 0.18.5
-remains in the Linux dependency graph, and a signed beta.6 installation/restart
-has not been validated. Beta.6 must be published as a
+This is an unpublished prerelease candidate, **not release-ready**. Windows
+notification acceptance and the final production-build smoke test are incomplete.
+GLib 0.18.5 remains under the reviewed Linux-only audit classification, and a signed
+beta.6 installation/restart has not been validated. Beta.6 must be published as a
 prerelease with valid signed assets before eligible users can receive it. The final
 readiness decision and remaining native acceptance gates are recorded in
 [Development status](docs/DEVELOPMENT_STATUS.md).

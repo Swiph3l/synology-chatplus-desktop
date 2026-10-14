@@ -7,43 +7,51 @@ values agree: `package.json`, both root package versions in `package-lock.json`,
 `v0.5.0-beta.6` and classifies it as a prerelease; mismatched tags and versions
 are rejected.
 
-**NOT READY FOR v0.5.0-beta.6**. The full frontend suite now passes **253/253**,
-including **123/123** notification/unread tests and **16/16** Discord tests.
-The earlier 53 failures came from outdated test fixtures: diagnostic bridge
-messages were counted as unread state, and Discord hit testing returned an
-ancestor list instead of visible message content. The fixtures now separate
-telemetry and include explicit occlusion/overlay rejection coverage; runtime
-notification logic was not weakened.
+**NOT READY FOR TAG OR PUBLICATION**. The final Windows notification acceptance
+matrix and production-build smoke test remain incomplete. The native UI session
+was interrupted with Escape; automated tests do not replace that acceptance.
 
-Fresh isolated Windows validation also found and fixed first-run Connect sending
-an empty service list despite preparing a complete first service. The canonical
-first-service payload is now persisted. Actual Services add/edit/remove, duplicate
-provider instances, independent colors, reordering, Save and quit/relaunch
-persistence pass with local synthetic providers.
+Provider-neutral onboarding now uses the actual provider registry and the shared
+Services editor, validation and native save transaction. It does not preselect
+Synology ChatPlus. Users can add several services before Continue or Skip into
+an empty workspace. Skip/Continue completion survives restart, while existing
+and legacy profiles bypass onboarding without resetting their services. A native
+save followed by a window-operation error is reconciled against persisted data;
+genuine unsaved drafts remain available for retry.
 
-The sidebar reorder gesture now activates after two seconds and tolerates mouse
-drift during the hold. A bounded live preview follows vertical movement, while
-quick clicks, Escape and the native provider boundary keep their existing roles.
-Both upward/downward reorder and native persistence pass in the isolated Windows
-WebView2 application; a slight pre-hold mouse movement no longer cancels reordering.
+The full frontend suite passes **264/264**, including onboarding, Services,
+notification/unread, Discord, updater and localization coverage. Typecheck and
+the production frontend build pass. Browser acceptance covers **56 layouts**
+across all seven locales, both themes and multiple display scales, plus keyboard
+provider selection, cancellation, validation, multiple-service setup and Skip.
+These browser results do not establish native Windows acceptance.
 
-Rust check passes; native tests report **153 passed, 1 ignored**. The ignored
-production-artifact test requires an explicitly supplied signed installer.
-The optimized Windows NSIS
-build passes, and the configured public key verifies an existing public beta.5
-installer and signature. That check does not validate future beta.6 signing.
-All seven supported locales, Services/update tests and prerelease identity
-checks pass. Rust and frontend formatting checks pass after formatting only
-the three updater-related Rust files identified by the existing CI check.
+Rust check and formatting pass; native tests report **158 passed, 1 ignored**.
+The ignored production-artifact signature test requires an explicitly supplied
+signed installer and its signature. Existing signed HTTPS updater fixtures pass;
+they do not prove an installed beta.5-to-beta.6 update and restart.
 
-Dependency security remains **FAIL** against the requested no-GLib-below-0.20
-criterion: Linux still resolves `glib 0.18.5` through GTK/WebKitGTK/Tauri. It is
-absent from the Windows graph, and the existing Windows dependency policy passes;
-the Linux advisory wrapper still reports **REQUIRES REVIEW**. No advisory ignore
-or broad dependency upgrade was introduced. Local signing credentials are absent;
-a signed beta.6 build and installed update/restart require secure CI/owner
-validation. Authenticated provider and actual native acceptance remain separate
-from automated fixtures. No push, tag or release was created.
+The selected dependency changes are `rustls 0.23.45` to `0.23.46`,
+`tauri-winrt-notification 0.7.3` to `0.8.1`, and `tauri-plugin-store 2.4.4` to
+`2.4.5`. Tauri remains `2.11.6`, with the app's direct Windows `0.61.3` and
+WebView2 COM `0.38.2` bindings unchanged. Toast's internal Windows `0.62`
+dependency does not change those direct interfaces. The JavaScript API remains
+`2.11.1` and CLI `2.11.5`; their planned updates have not been applied.
+
+`cargo audit` and the Windows `cargo deny` gate pass. All Windows TLS paths use
+`rustls 0.23.46`; `RUSTSEC-2026-0346` through `RUSTSEC-2026-0349` are resolved
+without advisory suppression. Linux still resolves `glib 0.18.5` through
+GTK/WebKitGTK/Tauri. It is absent from the Windows normal/build/dev graph, and
+the unchanged narrow Linux classifier exits successfully with **REQUIRES REVIEW**.
+This classification does not authorize a Linux release.
+
+The earlier optimized unsigned NSIS build and public beta.5 signature check
+predate the current onboarding changes. A final production binary/installer,
+native onboarding and Settings smoke tests, the full toast/click/dismissal/sound/
+privacy/unread matrix, and single-instance acceptance still require completion.
+Then the exact final main commit must pass required CI before any release tag.
+Signing remains in release CI, followed by signed installed-update acceptance.
+No beta.6 release readiness is claimed by the metadata or local commits.
 
 ## Historical validation — 2026-10-04
 
