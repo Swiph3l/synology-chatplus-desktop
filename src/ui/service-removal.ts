@@ -1,6 +1,10 @@
 import { t } from "../i18n";
 // Swiph3l: Form and native-menu removals share one confirmation, so only an explicitly accepted dialog removes a profile entry.
-export function confirmServiceRemoval(name: string): Promise<boolean> {
+export function confirmServiceRemoval(
+  name: string,
+  options: { help?: string; signal?: AbortSignal } = {},
+): Promise<boolean> {
+  if (options.signal?.aborted) return Promise.resolve(false);
   if (document.querySelector("dialog[open]")) return Promise.resolve(false);
   const previous = document.activeElement as HTMLElement | null;
   const dialog = document.createElement("dialog");
@@ -26,24 +30,42 @@ export function confirmServiceRemoval(name: string): Promise<boolean> {
   remove.className = "secondary danger";
   remove.textContent = t("services.remove");
   actions.append(cancel, remove);
-  dialog.append(title, description, actions);
+  const content = document.createElement("div");
+  content.className = "confirmation-dialog-content";
+  content.append(title, description);
+  if (options.help) {
+    const help = document.createElement("p");
+    help.className = "confirmation-dialog-help";
+    help.id = "remove-service-help";
+    help.textContent = options.help;
+    content.append(help);
+    dialog.setAttribute(
+      "aria-describedby",
+      "remove-service-description remove-service-help",
+    );
+  }
+  dialog.append(content, actions);
   document.body.append(dialog);
   return new Promise((resolve, reject) => {
     let finished = false;
     const finish = (accepted: boolean) => {
       if (finished) return;
       finished = true;
-      dialog.close();
+      options.signal?.removeEventListener("abort", abort);
+      if (dialog.open) dialog.close();
       dialog.remove();
       if (previous?.isConnected) previous.focus({ preventScroll: true });
       resolve(accepted);
     };
+    const abort = () => finish(false);
+    options.signal?.addEventListener("abort", abort, { once: true });
     cancel.addEventListener("click", () => finish(false));
     remove.addEventListener("click", () => finish(true));
     dialog.addEventListener("cancel", (event) => {
       event.preventDefault();
       finish(false);
     });
+    dialog.addEventListener("close", () => finish(false));
     dialog.addEventListener("click", (event) => {
       if (event.target !== dialog) return;
       const rect = dialog.getBoundingClientRect();
@@ -59,6 +81,7 @@ export function confirmServiceRemoval(name: string): Promise<boolean> {
       dialog.showModal();
       cancel.focus();
     } catch (error) {
+      options.signal?.removeEventListener("abort", abort);
       dialog.remove();
       reject(error);
     }

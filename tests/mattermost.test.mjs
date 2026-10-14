@@ -4,6 +4,12 @@ import { build } from "esbuild";
 import { parseHTML } from "linkedom";
 import { runInNewContext } from "node:vm";
 import { readFile } from "node:fs/promises";
+import {
+  servicesDom,
+  setServiceField,
+  applyServiceDialog,
+  chooseProvider,
+} from "./helpers/services-dom.mjs";
 
 const formBuild = await build({
   entryPoints: ["src/settings/services.ts"],
@@ -64,40 +70,26 @@ function formFixture() {
   const { window, document } = parseHTML(
     '<html><body><div id="editor"></div><button id="add-service">Add service</button></body></html>',
   );
-  Object.defineProperty(window.HTMLSelectElement.prototype, "value", {
-    configurable: true,
-    get() {
-      return (
-        this.querySelector("option[selected]")?.getAttribute("value") ?? ""
-      );
-    },
-    set(value) {
-      for (const option of this.querySelectorAll("option"))
-        option.toggleAttribute(
-          "selected",
-          option.getAttribute("value") === value,
-        );
-    },
-  });
-  window.HTMLElement.prototype.focus = () => {};
-  const services = accounts();
-  const removed = [];
   const context = {
     window,
     document,
-    crypto: { randomUUID: () => "new-account" },
+    structuredClone,
+    URL,
+    AbortController,
+    ...servicesDom(window, document),
+    crypto: {
+      randomUUID: () => "new-account",
+      getRandomValues: (values) => values.fill(127),
+    },
   };
+  const services = accounts();
   runInNewContext(formBuild.outputFiles[0].text, context);
-  const add = context.servicesUi.serviceEditor(
+  const manager = context.servicesUi.serviceEditor(
     document.getElementById("editor"),
     services,
     () => {},
-    async (service) => {
-      removed.push(service.id);
-      return true;
-    },
   );
-  return { window, document, services, removed, add };
+  return { window, document, services, manager };
 }
 
 test("Mattermost registers as Experimental with a required custom server URL", () => {
@@ -111,62 +103,53 @@ test("Mattermost registers as Experimental with a required custom server URL", (
   const f = formFixture();
   for (const service of f.services) {
     const row = f.document.getElementById(`service-${service.id}-settings`);
-    assert.equal(row.querySelector("select").value, "mattermost");
     assert.equal(
-      row.querySelector("option[value=mattermost]").textContent,
+      row.querySelector(".service-provider-name").textContent,
       "Mattermost",
     );
     assert.equal(
       row.querySelector(".experimental-badge").textContent,
       "Experimental",
     );
-    assert.match(
-      row.querySelector(".service-provider-info").textContent,
-      /Desktop unread and notifications are not yet supported/,
+    f.manager.edit(service.id);
+    assert.equal(
+      f.document.getElementById("service-dialog-provider-mattermost").checked,
+      true,
     );
-    const url = row.querySelector("input[type=url]");
+    const url = f.document.getElementById("service-dialog-url");
     assert.equal(url.required, true);
     assert.equal(url.value, service.url);
+    assert.equal(url.closest(".service-field").hidden, false);
     assert.equal(
-      row.querySelector(`label[for="${url.id}"]`).textContent,
-      "Server URL",
+      f.document.getElementById("service-dialog-notifications").disabled,
+      true,
     );
-    assert.equal(row.querySelectorAll(".service-control").length, 3);
-    assert.equal(row.querySelectorAll("input[type=checkbox]").length, 1);
-    assert.equal(row.querySelector("input[type=checkbox]").checked, true);
+    f.document.querySelector(".service-dialog-footer .secondary").click();
   }
 });
 
-test("Mattermost shared form adds, edits and removes the correct independent instance", async () => {
+test("Mattermost manager adds, edits and removes the correct independent instance", async () => {
   const f = formFixture();
-  const name = f.document.getElementById("service-mattermost-private-name");
-  name.value = "Mattermost — Client A";
-  name.dispatchEvent(new f.window.Event("input"));
-  const url = f.document.getElementById("service-mattermost-private-url");
-  url.value = "https://mattermost.example.com/";
-  url.dispatchEvent(new f.window.Event("input"));
-  f.add();
-  const provider = f.document.getElementById(
-    "service-service-new-account-provider",
-  );
-  provider.value = "mattermost";
-  provider.dispatchEvent(new f.window.Event("change"));
+  f.manager.edit("mattermost-private");
+  setServiceField(f, "name", "Mattermost Client A");
+  setServiceField(f, "url", "https://mattermost.example.com/");
+  applyServiceDialog(f);
+  f.manager.add();
+  chooseProvider(f, "mattermost");
+  setServiceField(f, "name", "New Mattermost");
+  setServiceField(f, "url", "https://new.example.com/");
+  applyServiceDialog(f);
+  assert.equal(f.services[2].id, "service-new-account");
   assert.equal(f.services[2].provider, "mattermost");
-  assert.ok(f.document.getElementById("service-service-new-account-url"));
-  assert.equal(f.services[1].id, "mattermost-private");
-  f.document.getElementById("service-mattermost-company-remove").click();
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(f.removed, ["mattermost-company"]);
+  assert.equal(f.services[2].notifications, false);
+  const removal = f.manager.remove("mattermost-company");
+  assert.match(f.document.querySelector("dialog").textContent, /company/);
+  f.document.querySelector("dialog .danger").click();
+  assert.equal(await removal, true);
   assert.equal(f.services.length, 2);
   assert.equal(f.services[0].id, "mattermost-private");
-  assert.equal(
-    f.document.getElementById("service-mattermost-private-name").value,
-    "Mattermost — Client A",
-  );
-  assert.equal(
-    f.document.getElementById("service-mattermost-private-url").value,
-    "https://mattermost.example.com/",
-  );
+  assert.equal(f.services[0].name, "Mattermost Client A");
+  assert.equal(f.services[0].url, "https://mattermost.example.com/");
 });
 
 test("Mattermost rail switches and opens context menus by instance ID, preserving selected state", async () => {
