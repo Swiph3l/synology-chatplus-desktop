@@ -12,6 +12,7 @@ pub enum Source {
     ChatPlusDom,
     SynologyChatDom,
     DiscordDom,
+    WhatsappDom,
 }
 impl Source {
     fn label(self) -> &'static str {
@@ -19,6 +20,7 @@ impl Source {
             Self::ChatPlusDom => "chatplus-dom",
             Self::SynologyChatDom => "synology-chat-dom",
             Self::DiscordDom => "discord-dom",
+            Self::WhatsappDom => "whatsapp-dom",
         }
     }
     pub fn accepts(self, provider: crate::providers::ProviderId) -> bool {
@@ -31,6 +33,7 @@ impl Source {
                 Self::SynologyChatDom,
                 crate::providers::ProviderId::SynologyChat
             ) | (Self::DiscordDom, crate::providers::ProviderId::Discord)
+                | (Self::WhatsappDom, crate::providers::ProviderId::Whatsapp)
         )
     }
 }

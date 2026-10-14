@@ -424,5 +424,10 @@
   "updates.status.checkTimeout": "更新の確認がタイムアウトしました。接続を確認して、もう一度お試しください。",
   "updates.status.manifestMissing": "選択されたリリースに更新マニフェストがありません。ダウンロードもインストールも行われていません。",
   "updates.status.releaseIncomplete": "選択されたリリースに有効な Windows x64 インストーラーまたは署名がありません。何もインストールされていません。",
-  "updates.status.versionMismatch": "リリースタグ、マニフェストのバージョン、またはパッケージの識別情報が一致しません。何もインストールされていません。"
+  "updates.status.versionMismatch": "リリースタグ、マニフェストのバージョン、またはパッケージの識別情報が一致しません。何もインストールされていません。",
+  "services.whatsappExperimental": "WhatsApp Web との連携は試験的な機能です。",
+  "services.whatsappReadUnsupported": "WhatsApp の既読操作は、安全な Web 画面操作が確認されるまで利用できません。",
+  "services.whatsappMarkCurrentUnsupported": "この連携では、現在のチャットを既読にする操作にまだ対応していません。",
+  "services.whatsappMarkAllUnsupported": "WhatsApp ですべてを既読にする操作には対応していません。",
+  "errors.whatsappUrl": "WhatsApp の Web セッションには https://web.whatsapp.com/ が必要です。"
 }

@@ -1,6 +1,12 @@
 export interface ProviderUnreadSnapshot {
   hasUnread: boolean | null;
   count: number | null;
+  conversations?: Array<{
+    id: string;
+    hasUnread: boolean;
+    count?: number | null;
+  }>;
+  currentConversation?: string | null;
 }
 
 export interface ProviderNotification {
@@ -10,7 +16,7 @@ export interface ProviderNotification {
 }
 
 export interface ProviderUnreadAdapter {
-  source: "chatplus-dom" | "synology-chat-dom" | "discord-dom";
+  source: "chatplus-dom" | "synology-chat-dom" | "discord-dom" | "whatsapp-dom";
   snapshot(): ProviderUnreadSnapshot;
   observe(changed: () => void): () => void;
   readContext(): string | null;

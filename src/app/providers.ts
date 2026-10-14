@@ -1,5 +1,10 @@
 export type ProviderId =
-  "synology-chatplus" | "synology-chat" | "slack" | "discord" | "mattermost";
+  | "synology-chatplus"
+  | "synology-chat"
+  | "slack"
+  | "discord"
+  | "whatsapp"
+  | "mattermost";
 export type NamedNotificationColor =
   | "auto"
   | "blue"
@@ -67,6 +72,15 @@ export const providers = {
     urlMode: "fixed",
     urlLabel: "",
     defaultUrl: "https://discord.com/app/",
+  },
+  whatsapp: {
+    name: "WhatsApp",
+    icon: "WA",
+    experimental: true,
+    notifications: true,
+    urlMode: "fixed",
+    urlLabel: "",
+    defaultUrl: "https://web.whatsapp.com/",
   },
   mattermost: {
     name: "Mattermost",

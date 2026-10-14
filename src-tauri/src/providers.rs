@@ -9,6 +9,7 @@ pub enum ProviderId {
     SynologyChat,
     Slack,
     Discord,
+    Whatsapp,
     Mattermost,
 }
 
@@ -57,6 +58,14 @@ impl ProviderId {
                 notifications: true,
                 theme: false,
             },
+            Self::Whatsapp => ProviderDefinition {
+                display_name: "WhatsApp",
+                icon: "WA",
+                experimental: true,
+                unread: true,
+                notifications: true,
+                theme: false,
+            },
             Self::Mattermost => ProviderDefinition {
                 display_name: "Mattermost",
                 icon: "M",
@@ -71,6 +80,9 @@ impl ProviderId {
         if self == Self::Discord && value.trim().is_empty() {
             return Ok("https://discord.com/app/".into());
         }
+        if self == Self::Whatsapp && value.trim().is_empty() {
+            return Ok("https://web.whatsapp.com/".into());
+        }
         let normalized = crate::state::normalize_server(value)?;
         let url = Url::parse(&normalized).map_err(|_| "Invalid service URL.")?;
         if self == Self::Slack && !slack_origin(&url) {
@@ -78,6 +90,9 @@ impl ProviderId {
         }
         if self == Self::Discord && !discord_origin(&url) {
             return Err("Discord web sessions require https://discord.com/.".into());
+        }
+        if self == Self::Whatsapp && !whatsapp_origin(&url) {
+            return Err("WhatsApp web sessions require https://web.whatsapp.com/.".into());
         }
         Ok(normalized)
     }
@@ -88,9 +103,19 @@ impl ProviderId {
         if self == Self::Discord {
             return discord_origin(target);
         }
+        if self == Self::Whatsapp {
+            return whatsapp_origin(target);
+        }
         Url::parse(configured)
             .is_ok_and(|url| crate::navigation::same_server(target, &url.origin()))
     }
+}
+fn whatsapp_origin(url: &Url) -> bool {
+    url.scheme() == "https"
+        && url.port_or_known_default() == Some(443)
+        && url.host_str() == Some("web.whatsapp.com")
+        && url.username().is_empty()
+        && url.password().is_none()
 }
 fn discord_origin(url: &Url) -> bool {
     url.scheme() == "https"
@@ -627,6 +652,70 @@ mod tests {
         legacy.id = "chatplus".into();
         legacy.provider = ProviderId::SynologyChatplus;
         assert_eq!(legacy.profile_directory(root), None);
+    }
+    #[test]
+    fn whatsapp_uses_official_https_origin_and_conservative_capabilities() {
+        let provider = ProviderId::Whatsapp;
+        assert_eq!(
+            provider.validate_url("").unwrap(),
+            "https://web.whatsapp.com/"
+        );
+        assert_eq!(
+            serde_json::from_str::<ProviderId>("\"whatsapp\"").unwrap(),
+            provider
+        );
+        assert_eq!(provider.definition().display_name, "WhatsApp");
+        assert!(provider.definition().experimental);
+        assert!(provider.definition().unread);
+        assert!(provider.definition().notifications);
+        assert!(!provider.definition().theme);
+        for value in ["https://web.whatsapp.com/", "https://web.whatsapp.com:443/"] {
+            assert!(provider.validate_url(value).is_ok());
+            assert!(provider.allows("https://web.whatsapp.com/", &Url::parse(value).unwrap()));
+        }
+        for value in [
+            "http://web.whatsapp.com/",
+            "https://web.whatsapp.com:8443/",
+            "https://web.whatsapp.com.evil.example/",
+            "https://whatsapp.com/",
+            "https://api.whatsapp.com/",
+            "https://user:password@web.whatsapp.com/",
+            "https://web.whatsapp.com@evil.example/",
+        ] {
+            assert!(provider.validate_url(value).is_err(), "{value}");
+            assert!(
+                !provider.allows("https://web.whatsapp.com/", &Url::parse(value).unwrap()),
+                "{value}"
+            );
+        }
+        assert!(provider
+            .validate_url("https://web.whatsapp.com/?session=secret")
+            .is_err());
+    }
+    #[test]
+    fn whatsapp_instances_preserve_stable_isolated_profiles_after_restart_and_reorder() {
+        let mut first = profile_service("whatsapp-personal");
+        first.provider = ProviderId::Whatsapp;
+        first.notifications = true;
+        let mut second = first.clone();
+        second.id = "whatsapp-work".into();
+        second.notifications = false;
+        let mut services = vec![first, second];
+        normalize_services(&mut services).unwrap();
+        let root = std::path::Path::new("profiles");
+        let personal = services[0].profile_directory(root);
+        let work = services[1].profile_directory(root);
+        assert_ne!(personal, work);
+        services.swap(0, 1);
+        services[0].name = "Renamed".into();
+        let mut restored: Vec<ServiceConfig> =
+            serde_json::from_slice(&serde_json::to_vec(&services).unwrap()).unwrap();
+        normalize_services(&mut restored).unwrap();
+        assert_eq!(restored[0].profile_directory(root), work);
+        assert_eq!(restored[1].profile_directory(root), personal);
+        assert!(!restored[0].notifications);
+        assert!(restored[1].notifications);
+        assert_eq!(restored[0].url, "https://web.whatsapp.com/");
     }
     #[test]
     fn slack_requires_exact_https_domain_boundary() {

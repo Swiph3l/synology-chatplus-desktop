@@ -424,5 +424,10 @@
   "updates.status.checkTimeout": "Zeitüberschreitung bei der Aktualisierungsprüfung. Verbindung prüfen und erneut versuchen.",
   "updates.status.manifestMissing": "Die gewählte Version enthält kein Aktualisierungsmanifest. Es wurde nichts heruntergeladen oder installiert.",
   "updates.status.releaseIncomplete": "Der gewählten Version fehlt ein gültiges Windows-x64-Installationsprogramm oder dessen Signatur. Es wurde nichts installiert.",
-  "updates.status.versionMismatch": "Versions-Tag, Manifestversion oder Paketidentität stimmen nicht überein. Es wurde nichts installiert."
+  "updates.status.versionMismatch": "Versions-Tag, Manifestversion oder Paketidentität stimmen nicht überein. Es wurde nichts installiert.",
+  "services.whatsappExperimental": "Die WhatsApp-Web-Integration ist experimentell.",
+  "services.whatsappReadUnsupported": "WhatsApp-Leseaktionen sind erst nach Prüfung einer sicheren Interaktion mit der Weboberfläche verfügbar.",
+  "services.whatsappMarkCurrentUnsupported": "Diese Integration unterstützt das Markieren des aktuellen Chats als gelesen noch nicht.",
+  "services.whatsappMarkAllUnsupported": "Alles als gelesen markieren wird für WhatsApp nicht unterstützt.",
+  "errors.whatsappUrl": "WhatsApp-Websitzungen benötigen https://web.whatsapp.com/."
 }

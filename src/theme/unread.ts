@@ -5,6 +5,7 @@ import {
 import { createChatplusAdapter } from "./providers/chatplus";
 import { createSynologyChatAdapter } from "./providers/synology-chat";
 import { createDiscordAdapter } from "./providers/discord";
+import { createWhatsAppAdapter } from "./providers/whatsapp";
 import type { ProviderId } from "../app/providers";
 
 (() => {
@@ -17,6 +18,7 @@ import type { ProviderId } from "../app/providers";
     "synology-chatplus": createChatplusAdapter,
     "synology-chat": createSynologyChatAdapter,
     discord: createDiscordAdapter,
+    whatsapp: createWhatsAppAdapter,
   };
   const provider = host.__chatplusProvider ?? "synology-chatplus";
   const adapter = Object.hasOwn(adapters, provider)

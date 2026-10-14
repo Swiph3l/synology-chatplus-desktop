@@ -26,3 +26,12 @@ not affiliated with or endorsed by Mattermost. public/providers/mattermost.svg
 uses the official Mattermost logomark to identify the provider. It remains subject
 to Mattermost's brand guidelines and is not licensed as project code:
 https://handbook.mattermost.com/operations/operations/company-processes/publishing/publishing-guidelines/brand-and-visual-design-guidelines
+
+WhatsApp and related marks belong to WhatsApp LLC and Meta. This application is
+not affiliated with, endorsed by, or sponsored by WhatsApp or Meta. The bundled
+public/providers/whatsapp.svg and src-tauri/icons/providers/whatsapp.png are the
+unmodified Digital_Glyph_Green_RGB_2026 SVG/PNG assets from the official WhatsApp
+Brand Resource Center logo pack, downloaded 2026-10-22, used only to identify
+the provider. These marks are not licensed as project code and remain subject
+to the official brand guidelines:
+https://www.meta.com/brand/resources/whatsapp/whatsapp-brand/

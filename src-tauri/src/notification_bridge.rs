@@ -824,6 +824,7 @@ fn parse_diagnostic(json: &str) -> Option<RendererDiagnostic> {
         "chatplus-dom" => crate::unread::Source::ChatPlusDom,
         "synology-chat-dom" => crate::unread::Source::SynologyChatDom,
         "discord-dom" => crate::unread::Source::DiscordDom,
+        "whatsapp-dom" => crate::unread::Source::WhatsappDom,
         _ => return None,
     };
     use crate::diagnostics::{NotificationEvent as Event, NotificationReason as Reason};
@@ -1079,6 +1080,7 @@ mod tests {
             ("chatplus-dom", crate::unread::Source::ChatPlusDom),
             ("synology-chat-dom", crate::unread::Source::SynologyChatDom),
             ("discord-dom", crate::unread::Source::DiscordDom),
+            ("whatsapp-dom", crate::unread::Source::WhatsappDom),
         ] {
             let json = serde_json::json!({"chatplusUnread":1,"hasUnread":false,"source":source})
                 .to_string();

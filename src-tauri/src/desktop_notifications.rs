@@ -551,12 +551,13 @@ mod tests {
         ));
     }
     #[test]
-    fn selected_user_a_or_other_service_minimized_native_event_is_toast_eligible_for_all_three_providers(
+    fn selected_user_a_or_other_service_minimized_native_event_is_toast_eligible_for_all_notification_providers(
     ) {
         for provider in [
             crate::providers::ProviderId::SynologyChatplus,
             crate::providers::ProviderId::SynologyChat,
             crate::providers::ProviderId::Discord,
+            crate::providers::ProviderId::Whatsapp,
         ] {
             for selected in ["origin", "other"] {
                 let focused =
@@ -580,11 +581,11 @@ mod tests {
         }
     }
     #[test]
-    fn exact_event_reservations_are_scoped_to_service() {
+    fn whatsapp_notification_deduplication_keeps_same_provider_instances_isolated() {
         let mut tracking = Tracking::default();
         let at = Instant::now();
-        let alpha = event_key("service-a:room:message");
-        let beta = event_key("service-b:room:message");
+        let alpha = event_key("whatsapp-personal:browser-event:1");
+        let beta = event_key("whatsapp-work:browser-event:1");
         assert!(reserve_delivery(&mut tracking, alpha, at, true));
         assert!(!reserve_delivery(
             &mut tracking,

@@ -349,5 +349,10 @@
   "settings.unsavedChanges": "Cambios sin guardar",
   "settings.noChanges": "Todos los cambios guardados",
   "settings.externalConflict": "La configuración guardada cambió en otra ventana. Se conserva tu borrador. Cierra y vuelve a abrir Configuración antes de guardar para evitar sobrescribir esos cambios.",
-  "settings.savedWarning": "Los cambios se guardaron, pero la aplicación no pudo aplicarlos por completo. {message}"
+  "settings.savedWarning": "Los cambios se guardaron, pero la aplicación no pudo aplicarlos por completo. {message}",
+  "services.whatsappExperimental": "La integración con WhatsApp Web es experimental.",
+  "services.whatsappReadUnsupported": "Las acciones de lectura de WhatsApp no están disponibles hasta verificar una interacción segura con su interfaz web.",
+  "services.whatsappMarkCurrentUnsupported": "Esta integración aún no permite marcar el chat actual como leído.",
+  "services.whatsappMarkAllUnsupported": "Marcar todo como leído no está disponible para WhatsApp.",
+  "errors.whatsappUrl": "Las sesiones web de WhatsApp requieren https://web.whatsapp.com/."
 }

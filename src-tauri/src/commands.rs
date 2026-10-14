@@ -383,6 +383,7 @@ pub fn get_providers(
         ProviderId::Slack,
         ProviderId::Discord,
         ProviderId::Mattermost,
+        ProviderId::Whatsapp,
     ]
     .into_iter()
     .map(|id| id.definition())

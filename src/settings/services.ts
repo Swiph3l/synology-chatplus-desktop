@@ -70,6 +70,17 @@ function normalizedServiceUrl(service: ServiceConfig): string {
     )
       throw new Error(t("services.urlInvalid"));
   }
+  if (service.provider === "whatsapp") {
+    const url = new URL(value);
+    if (
+      url.protocol !== "https:" ||
+      url.hostname !== "web.whatsapp.com" ||
+      (url.port && url.port !== "443") ||
+      url.username ||
+      url.password
+    )
+      throw new Error(t("errors.whatsappUrl"));
+  }
   return value;
 }
 
@@ -864,6 +875,11 @@ export function serviceEditor(
       url.setCustomValidity("");
       updateNotifications();
       experimentalHelp.hidden = !definition.experimental;
+      experimentalHelp.textContent = t(
+        draft.provider === "whatsapp"
+          ? "services.whatsappExperimental"
+          : "services.ssoHelp",
+      );
       updateColors();
     }
     function updateNotifications() {

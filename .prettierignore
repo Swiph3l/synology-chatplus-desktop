@@ -6,3 +6,5 @@ src-tauri/theme-bootstrap.js
 Cargo.lock
 *.rs
 src-tauri/theme-bootstrap.css
+# Preserve official provider brand resources byte-for-byte.
+public/providers/whatsapp.svg

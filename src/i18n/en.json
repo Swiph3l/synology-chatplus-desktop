@@ -349,5 +349,10 @@
   "settings.unsavedChanges": "Unsaved changes",
   "settings.noChanges": "All changes saved",
   "settings.externalConflict": "Saved settings changed in another window. Your draft is retained. Close and reopen Settings before saving to avoid overwriting those changes.",
-  "settings.savedWarning": "Your changes were saved, but the app could not apply them completely. {message}"
+  "settings.savedWarning": "Your changes were saved, but the app could not apply them completely. {message}",
+  "services.whatsappExperimental": "WhatsApp Web integration is experimental.",
+  "services.whatsappReadUnsupported": "WhatsApp read actions are not available until a safe native Web interaction has been verified.",
+  "services.whatsappMarkCurrentUnsupported": "Mark current chat as read is not supported by this integration yet.",
+  "services.whatsappMarkAllUnsupported": "Mark all as read is not supported for WhatsApp.",
+  "errors.whatsappUrl": "WhatsApp web sessions require https://web.whatsapp.com/."
 }

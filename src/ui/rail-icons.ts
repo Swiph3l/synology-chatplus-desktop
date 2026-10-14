@@ -5,6 +5,7 @@ const assets: Record<ProviderId, string> = {
   "synology-chat": "/providers/synology-chat.png",
   slack: "/providers/slack.svg",
   discord: "/providers/discord.svg",
+  whatsapp: "/providers/whatsapp.svg",
   mattermost: "/providers/mattermost.svg",
 };
 

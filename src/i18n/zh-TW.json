@@ -424,5 +424,10 @@
   "updates.status.checkTimeout": "更新檢查逾時。請確認連線後再試一次。",
   "updates.status.manifestMissing": "所選版本缺少更新資訊清單。未下載或安裝任何內容。",
   "updates.status.releaseIncomplete": "所選版本缺少有效的 Windows x64 安裝程式或簽章。未安裝任何內容。",
-  "updates.status.versionMismatch": "版本標籤、資訊清單版本或套件識別資訊不符。未安裝任何內容。"
+  "updates.status.versionMismatch": "版本標籤、資訊清單版本或套件識別資訊不符。未安裝任何內容。",
+  "services.whatsappExperimental": "WhatsApp Web 整合為實驗性功能。",
+  "services.whatsappReadUnsupported": "WhatsApp 的已讀操作須待安全的網頁介面互動經過驗證後才能使用。",
+  "services.whatsappMarkCurrentUnsupported": "此整合尚不支援將目前的聊天標示為已讀。",
+  "services.whatsappMarkAllUnsupported": "WhatsApp 不支援全部標示為已讀。",
+  "errors.whatsappUrl": "WhatsApp 網頁工作階段必須使用 https://web.whatsapp.com/。"
 }

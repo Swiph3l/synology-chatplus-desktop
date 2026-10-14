@@ -189,6 +189,7 @@ mod tests {
             crate::providers::ProviderId::SynologyChatplus,
             crate::providers::ProviderId::SynologyChat,
             crate::providers::ProviderId::Discord,
+            crate::providers::ProviderId::Whatsapp,
         ] {
             let mut settings = state::Settings::default();
             settings.services = ["selected", "origin"]

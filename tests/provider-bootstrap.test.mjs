@@ -17,6 +17,7 @@ function fixture(provider, frame = false) {
     <div><div id="sidebar-tab-item-messages"><span data-testid="tab-item-indicator"></span></div></div>
     <div class="syno-chat"><div class="channel-list-main"><div class="channel-list-view"><div class="channel-list-item highlight"></div></div></div></div>
     <div data-list-id="private-channels-example"><span class="unreadPill_current"></span></div>
+    <div id="pane-side"><div role="grid"><div role="row"><span data-testid="unread-count">2</span></div></div></div>
   </body></html>`);
   const bridge = bridgeMessages();
   const { messages, diagnostics } = bridge;
@@ -24,8 +25,13 @@ function fixture(provider, frame = false) {
   const listeners = new Map();
   const host = {
     __chatplusProvider: provider,
-    location: { href: "https://example.com/", pathname: "/", hash: "" },
+    location: {
+      href: "https://example.com/",
+      pathname: "/",
+      hash: "",
+    },
     MutationObserver: dom.MutationObserver,
+    getComputedStyle: () => ({ display: "block", visibility: "visible" }),
     chrome: {
       webview: { postMessage: bridge.postMessage },
     },
@@ -37,6 +43,10 @@ function fixture(provider, frame = false) {
   };
   host.top = frame ? {} : host;
   document.hasFocus = () => true;
+  dom.HTMLElement.prototype.getBoundingClientRect = () => ({
+    width: 300,
+    height: 100,
+  });
   Object.defineProperty(document, "visibilityState", { value: "visible" });
   Object.defineProperty(document, "defaultView", { value: host });
   runInNewContext(built.outputFiles[0].text, {
@@ -54,6 +64,7 @@ for (const [provider, source] of [
   ["synology-chatplus", "chatplus-dom"],
   ["synology-chat", "synology-chat-dom"],
   ["discord", "discord-dom"],
+  ["whatsapp", "whatsapp-dom"],
 ]) {
   test(`${provider}: complete native bootstrap chooses its own adapter without injecting ChatPlus CSS`, () => {
     const f = fixture(provider);
