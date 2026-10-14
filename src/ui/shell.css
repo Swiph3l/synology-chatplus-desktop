@@ -255,6 +255,12 @@ body.services-page {
   color: var(--muted);
   font-size: 11px;
 }
+.footer-identity {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
 .footer-version {
   flex-shrink: 0;
   white-space: nowrap;
@@ -290,6 +296,15 @@ body.services-page {
 }
 .app-footer button:focus-visible {
   outline-offset: -1px;
+}
+.app-footer .footer-update {
+  display: block;
+  min-width: 0;
+  max-width: 220px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  border-color: var(--border);
 }
 .footer-status-region {
   flex: 1;
@@ -857,6 +872,61 @@ dd {
 .update-summary p {
   margin: 8px 0;
 }
+.update-summary-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-bottom: 10px;
+}
+.update-summary-heading h2 {
+  margin: 0;
+}
+.update-phase {
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.update-phase[data-phase="error"] {
+  color: var(--danger);
+}
+.update-metadata {
+  /* Each metadata wrapper owns its label/value grid; the outer dl must not
+     place those rows into the generic definition-list columns. */
+  display: block;
+  margin: 0;
+  font-size: 12px;
+}
+.update-metadata > div {
+  display: grid;
+  grid-template-columns: minmax(100px, 150px) minmax(0, 1fr);
+  gap: 6px 14px;
+  margin-bottom: 6px;
+}
+.update-metadata dt {
+  color: var(--muted);
+}
+.update-metadata dt,
+.update-metadata dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.update-metadata dd {
+  margin: 0;
+}
+#update-message,
+.update-phase {
+  overflow-wrap: anywhere;
+}
+#update-preference-draft,
+#update-settings-warning {
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+
 .update-page #update-details {
   display: flex;
   flex-direction: column;

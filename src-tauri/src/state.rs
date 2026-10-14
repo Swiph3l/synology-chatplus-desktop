@@ -127,13 +127,6 @@ impl Theme {
         }
     }
 }
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "kebab-case")]
-pub enum UpdateChannel {
-    #[default]
-    Stable,
-    PreRelease,
-}
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum NotificationPreview {
@@ -155,7 +148,9 @@ pub fn normalize_notification_cooldown_seconds(value: u16) -> u16 {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
+// Derive against this same field definition so legacy input can be normalized
+// before decoding, without maintaining a second copy of the settings schema.
+#[serde(remote = "Self", rename_all = "camelCase", default)]
 pub struct Settings {
     pub server_url: String,
     pub services: Vec<crate::providers::ServiceConfig>,
@@ -168,7 +163,7 @@ pub struct Settings {
     pub close_to_tray: bool,
     pub external_links: bool,
     pub automatic_updates: bool,
-    pub update_channel: UpdateChannel,
+    pub include_beta_updates: bool,
     pub desktop_notifications: bool,
     pub notification_preview: NotificationPreview,
     #[serde(default = "default_notification_cooldown_seconds")]
@@ -193,7 +188,7 @@ impl Default for Settings {
             close_to_tray: true,
             external_links: true,
             automatic_updates: false,
-            update_channel: UpdateChannel::Stable,
+            include_beta_updates: false,
             desktop_notifications: false,
             notification_preview: NotificationPreview::Sender,
             notification_cooldown: default_notification_cooldown_seconds(),
@@ -203,6 +198,61 @@ impl Default for Settings {
         }
     }
 }
+
+impl Serialize for Settings {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        Self::serialize(self, serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Settings {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let mut value = serde_json::Value::deserialize(deserializer)?;
+        migrate_update_preference(&mut value);
+        Self::deserialize(value).map_err(serde::de::Error::custom)
+    }
+}
+
+fn migrate_update_preference(value: &mut serde_json::Value) -> bool {
+    let Some(settings) = value.as_object_mut() else {
+        return false;
+    };
+    let old_update_channel = settings.remove("updateChannel");
+    let old_channel = settings.remove("channel");
+    let mut migrated = old_update_channel.is_some() || old_channel.is_some();
+    if !settings.contains_key("includeBetaUpdates") {
+        let legacy = old_update_channel.or(old_channel);
+        let include_beta_updates = legacy
+            .as_ref()
+            .and_then(serde_json::Value::as_str)
+            .map(|channel| {
+                matches!(
+                    channel.trim().to_ascii_lowercase().as_str(),
+                    "beta" | "pre-release" | "prerelease" | "pre_release" | "preview"
+                )
+            })
+            .unwrap_or(false);
+        settings.insert("includeBetaUpdates".into(), include_beta_updates.into());
+        migrated = true;
+    }
+    migrated
+}
+
+fn migrated_settings_value(
+    settings: &Settings,
+    previous: Option<serde_json::Value>,
+) -> Result<serde_json::Value, serde_json::Error> {
+    let serialized = serde_json::to_value(settings)?;
+    if let Some(serde_json::Value::Object(mut previous)) = previous {
+        // Keep unknown settings fields as well as the store's unrelated keys.
+        // This lets a newer profile survive being read by an older executable.
+        previous.extend(serialized.as_object().unwrap().clone());
+        Ok(serde_json::Value::Object(previous))
+    } else {
+        Ok(serialized)
+    }
+}
+
 pub struct AppState(pub Mutex<Settings>);
 impl Settings {
     pub fn migrate_services(&mut self) -> Result<bool, String> {
@@ -271,7 +321,13 @@ pub fn normalize_server(value: &str) -> Result<String, String> {
     Ok(url.into())
 }
 pub fn load(app: &AppHandle) -> Result<Settings, Box<dyn std::error::Error>> {
-    let mut settings: Settings = stored_value(app, "settings")?
+    let mut stored = stored_value(app, "settings")?;
+    let update_preference_migrated = stored
+        .as_mut()
+        .map(migrate_update_preference)
+        .unwrap_or(false);
+    let mut settings: Settings = stored
+        .clone()
         .map(serde_json::from_value)
         .transpose()?
         .unwrap_or_default();
@@ -281,11 +337,11 @@ pub fn load(app: &AppHandle) -> Result<Settings, Box<dyn std::error::Error>> {
     settings.notification_cooldown =
         normalize_notification_cooldown_seconds(settings.notification_cooldown);
     match settings.migrate_services() {
-        Ok(true) => {
+        Ok(service_migrated) if service_migrated || update_preference_migrated => {
             // Swiph3l: A failed migration write must retain the original profile for the next launch.
-            let _ = persist_value(app, "settings", serde_json::to_value(&settings)?);
+            let _ = persist_value(app, "settings", migrated_settings_value(&settings, stored)?);
         }
-        Ok(false) => {}
+        Ok(_) => {}
         Err(_) => {
             // Swiph3l: Invalid provider configuration must not overwrite existing account/profile data.
             settings.services.clear();
@@ -342,8 +398,8 @@ pub fn persist(app: &AppHandle, mut settings: Settings) -> Result<(), String> {
     crate::menu::refresh(app);
     crate::shell::broadcast_settings(app);
     crate::unread::refresh(app);
-    if old.update_channel != current(app).update_channel {
-        crate::updates::channel_changed(app);
+    if old.include_beta_updates != current(app).include_beta_updates {
+        crate::updates::preference_changed(app);
     }
     Ok(())
 }
@@ -436,7 +492,7 @@ mod tests {
         assert!(settings.desktop_notifications && settings.automatic_updates && settings.autostart);
         assert!(!settings.notification_sound && !settings.close_to_tray);
         assert!(matches!(settings.theme, Theme::Dark));
-        assert!(matches!(settings.update_channel, UpdateChannel::PreRelease));
+        assert!(settings.include_beta_updates);
     }
     #[test]
     fn migration_and_disabled_active_selection_never_duplicate_legacy_service() {
@@ -459,10 +515,93 @@ mod tests {
         let settings: Settings =
             serde_json::from_value(serde_json::json!({"theme":"dark"})).unwrap();
         assert!(!settings.automatic_updates);
-        assert!(matches!(settings.update_channel, UpdateChannel::Stable));
+        assert!(!settings.include_beta_updates);
         assert!(settings.server_url.is_empty());
         assert_eq!(settings.notification_cooldown, 60);
         assert_eq!(settings.language, Language::En);
+    }
+
+    #[test]
+    fn legacy_update_preferences_migrate_without_resetting_other_settings() {
+        for (field, legacy, expected) in [
+            ("updateChannel", "stable", false),
+            ("updateChannel", "beta", true),
+            ("updateChannel", "pre-release", true),
+            ("channel", "Stable", false),
+            ("channel", "Beta", true),
+            ("channel", "Prerelease", true),
+            ("channel", "pre_release", true),
+        ] {
+            let mut value = serde_json::json!({
+                "theme": "dark", "language": "pl", "automaticUpdates": true,
+                "notificationSound": false, "notificationCooldown": 90
+            });
+            value[field] = legacy.into();
+            let settings: Settings = serde_json::from_value(value).unwrap();
+            assert_eq!(settings.include_beta_updates, expected, "{field}: {legacy}");
+            assert!(settings.automatic_updates);
+            assert!(!settings.notification_sound);
+            assert_eq!(settings.notification_cooldown, 90);
+            assert!(matches!(settings.theme, Theme::Dark));
+            assert_eq!(settings.language, Language::Pl);
+        }
+    }
+
+    #[test]
+    fn explicit_beta_preference_takes_priority_over_legacy_channels() {
+        for (preference, legacy) in [(false, "pre-release"), (true, "stable")] {
+            let settings: Settings = serde_json::from_value(serde_json::json!({
+                "includeBetaUpdates": preference,
+                "updateChannel": legacy,
+                "channel": "beta"
+            }))
+            .unwrap();
+            assert_eq!(settings.include_beta_updates, preference);
+        }
+    }
+
+    #[test]
+    fn settings_serialize_only_the_beta_preference_and_round_trip() {
+        for include_beta_updates in [false, true] {
+            let settings = Settings {
+                include_beta_updates,
+                language: Language::Es,
+                ..Settings::default()
+            };
+            let serialized = serde_json::to_value(&settings).unwrap();
+            assert_eq!(serialized["includeBetaUpdates"], include_beta_updates);
+            assert!(serialized.get("updateChannel").is_none());
+            assert!(serialized.get("channel").is_none());
+            let restored: Settings = serde_json::from_value(serialized).unwrap();
+            assert_eq!(restored.include_beta_updates, include_beta_updates);
+            assert_eq!(restored.language, Language::Es);
+        }
+    }
+
+    #[test]
+    fn update_preference_migration_is_idempotent_and_preserves_unknown_fields() {
+        let mut original = serde_json::json!({
+            "updateChannel": "pre-release", "channel": "stable",
+            "serviceSchema": 1, "automaticUpdates": true,
+            "futurePreference": {"keep": true}
+        });
+        assert!(migrate_update_preference(&mut original));
+        assert!(!migrate_update_preference(&mut original));
+        let settings: Settings = serde_json::from_value(original.clone()).unwrap();
+        let migrated = migrated_settings_value(&settings, Some(original)).unwrap();
+        assert_eq!(migrated["includeBetaUpdates"], true);
+        assert_eq!(migrated["automaticUpdates"], true);
+        assert_eq!(
+            migrated["futurePreference"],
+            serde_json::json!({"keep": true})
+        );
+        assert!(migrated.get("updateChannel").is_none());
+        assert!(migrated.get("channel").is_none());
+
+        let mut missing = serde_json::json!({"serviceSchema": 1});
+        assert!(migrate_update_preference(&mut missing));
+        assert_eq!(missing["includeBetaUpdates"], false);
+        assert!(!migrate_update_preference(&mut missing));
     }
 
     #[test]
@@ -482,7 +621,7 @@ mod tests {
             crate::providers::ProviderId::SynologyChatplus
         );
         assert!(restored.automatic_updates);
-        assert!(matches!(restored.update_channel, UpdateChannel::PreRelease));
+        assert!(restored.include_beta_updates);
         assert!(matches!(restored.theme, Theme::Dark));
     }
 

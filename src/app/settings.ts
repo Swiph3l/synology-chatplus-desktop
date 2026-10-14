@@ -14,7 +14,7 @@ export interface Settings {
   closeToTray: boolean;
   externalLinks: boolean;
   automaticUpdates: boolean;
-  updateChannel: "stable" | "pre-release";
+  includeBetaUpdates: boolean;
   desktopNotifications: boolean;
   notificationPreview: "full" | "sender" | "generic";
   notificationCooldown: 0 | 30 | 60 | 90;

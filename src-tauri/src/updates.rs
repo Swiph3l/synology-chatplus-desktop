@@ -1,4 +1,4 @@
-use crate::state::{self, UpdateChannel};
+use crate::state;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -52,7 +52,7 @@ impl Configuration {
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
     pub configured: bool,
-    pub channel: UpdateChannel,
+    pub include_beta_updates: bool,
     pub phase: String,
     pub current_version: String,
     pub latest_version: Option<String>,
@@ -66,7 +66,7 @@ pub struct Snapshot {
 impl Default for Snapshot {
     fn default() -> Self {
         Self {
-            channel: UpdateChannel::Stable,
+            include_beta_updates: false,
             configured: configuration().ready(),
             phase: "idle".into(),
             current_version: env!("CARGO_PKG_VERSION").into(),
@@ -84,6 +84,28 @@ impl Snapshot {
     fn message(&mut self, code: &str, text: impl Into<String>) {
         self.message_code = code.into();
         self.message = text.into();
+    }
+    fn for_preference(mut self, include_beta_updates: bool) -> Self {
+        // Persistence can become visible before preference_changed acquires the
+        // updater lock. Never expose a candidate selected by the old preference.
+        if self.include_beta_updates != include_beta_updates {
+            self.latest_version = None;
+            self.notes.clear();
+            self.downloaded = 0;
+            self.total = None;
+            if !matches!(
+                self.phase.as_str(),
+                "checking" | "downloading" | "installing"
+            ) {
+                self.phase = "idle".into();
+            }
+            self.message(
+                "preference-changed",
+                "Update preference changed. Check again.",
+            );
+        }
+        self.include_beta_updates = include_beta_updates;
+        self
     }
 }
 
@@ -117,8 +139,10 @@ pub struct Service(pub Mutex<Inner>);
 pub struct Inner {
     snapshot: Snapshot,
     update: Option<Update>,
+    release_tag: Option<String>,
     verified_bytes: Option<Vec<u8>>,
     cancel: Option<Arc<Notify>>,
+    cancel_requested: bool,
     request_generation: u64,
 }
 impl Inner {
@@ -132,37 +156,46 @@ impl Inner {
         self.snapshot.message("checking", "Checking for updates...");
         Some(self.request_generation)
     }
-    fn reset_channel(&mut self) {
+    fn reset_preference(&mut self, include_beta_updates: bool) {
         self.verified_bytes = None;
         self.update = None;
+        self.release_tag = None;
         self.snapshot.latest_version = None;
         self.snapshot.notes.clear();
         self.snapshot.downloaded = 0;
         self.snapshot.total = None;
+        self.snapshot.include_beta_updates = include_beta_updates;
         self.snapshot.phase = "idle".into();
-        self.snapshot
-            .message("channel-changed", "Update channel changed. Check again.");
+        self.snapshot.message(
+            "preference-changed",
+            "Update preference changed. Check again.",
+        );
     }
-    fn change_channel(&mut self) {
+    fn change_preference(&mut self, include_beta_updates: bool) {
         self.request_generation = self.request_generation.wrapping_add(1);
-        if self.snapshot.phase == "downloading" {
+        let phase = self.snapshot.phase.clone();
+        if phase == "downloading" {
             if let Some(cancel) = &self.cancel {
                 cancel.notify_one();
             }
-        } else if !matches!(self.snapshot.phase.as_str(), "checking" | "installing") {
-            self.reset_channel();
+        }
+        // Invalidate immediately, including during HTTP/verification. Keep the
+        // operation gate closed until its stale completion has released the lock.
+        self.reset_preference(include_beta_updates);
+        if matches!(phase.as_str(), "checking" | "downloading" | "installing") {
+            self.snapshot.phase = phase;
         }
     }
     fn discard_stale(
         &mut self,
         generation: u64,
-        channel: &UpdateChannel,
-        current: &UpdateChannel,
+        include_beta_updates: bool,
+        current: bool,
     ) -> bool {
-        if self.request_generation == generation && current == channel {
+        if self.request_generation == generation && current == include_beta_updates {
             return false;
         }
-        self.reset_channel();
+        self.reset_preference(current);
         true
     }
     fn check_failed(&mut self, error: String) {
@@ -178,15 +211,14 @@ impl Inner {
     }
 }
 pub fn snapshot(app: &AppHandle) -> Snapshot {
-    let mut value = app
+    let value = app
         .state::<Service>()
         .0
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .snapshot
         .clone();
-    value.channel = state::current(app).update_channel;
-    value
+    value.for_preference(state::current(app).include_beta_updates)
 }
 fn emit(app: &AppHandle) {
     let value = snapshot(app);
@@ -200,9 +232,8 @@ fn now() -> u64 {
         .unwrap_or_default()
         .as_secs()
 }
-pub fn accepts(current: &Version, candidate: &Version, channel: &UpdateChannel) -> bool {
-    candidate.cmp_precedence(current).is_gt()
-        && (matches!(channel, UpdateChannel::PreRelease) || candidate.pre.is_empty())
+pub fn accepts(current: &Version, candidate: &Version, include_beta_updates: bool) -> bool {
+    candidate.cmp_precedence(current).is_gt() && (include_beta_updates || candidate.pre.is_empty())
 }
 fn https_asset(url: &url::Url, config: &Configuration) -> bool {
     url.scheme() == "https"
@@ -210,6 +241,8 @@ fn https_asset(url: &url::Url, config: &Configuration) -> bool {
         && url.username().is_empty()
         && url.password().is_none()
         && url.port_or_known_default() == Some(443)
+        && url.query().is_none()
+        && url.fragment().is_none()
         && url.path().starts_with(&format!(
             "/{}/{}/releases/download/",
             config.owner, config.repository
@@ -219,14 +252,27 @@ pub fn builder<R: Runtime>(
     app: &AppHandle<R>,
     endpoint: url::Url,
     key: String,
-    channel: UpdateChannel,
+    include_beta_updates: bool,
+) -> Result<Updater, String> {
+    build_updater(app, endpoint, key, include_beta_updates, false)
+}
+fn build_updater<R: Runtime>(
+    app: &AppHandle<R>,
+    endpoint: url::Url,
+    key: String,
+    include_beta_updates: bool,
+    inspect_selected_manifest: bool,
 ) -> Result<Updater, String> {
     app.updater_builder()
         .endpoints(vec![endpoint])
         .map_err(|_| "Invalid HTTPS update endpoint.")?
         .pubkey(key)
         .timeout(Duration::from_secs(120))
-        .version_comparator(move |current, remote| accepts(&current, &remote.version, &channel))
+        .version_comparator(move |current, remote| {
+            // A selected release must expose its manifest even when that manifest
+            // announces an old/wrong version. Validate identity before accepting it.
+            inspect_selected_manifest || accepts(&current, &remote.version, include_beta_updates)
+        })
         .configure_client(|client| {
             client
                 .https_only(true)
@@ -235,68 +281,208 @@ pub fn builder<R: Runtime>(
         .build()
         .map_err(|_| "Could not configure signed updates.".into())
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 struct Release {
     tag_name: String,
     draft: bool,
     assets: Vec<Asset>,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 struct Asset {
     name: String,
     browser_download_url: url::Url,
 }
 
-enum EndpointSelection {
-    Found(url::Url),
-    MissingManifest,
+#[derive(Deserialize)]
+struct PublishedRelease {
+    #[serde(flatten)]
+    release: Release,
+    prerelease: bool,
+    published_at: Option<String>,
 }
-
-fn manifest_name(channel: &UpdateChannel) -> &'static str {
-    match channel {
-        UpdateChannel::Stable => "latest.json",
-        UpdateChannel::PreRelease => "latest-prerelease.json",
+struct SelectedRelease {
+    manifest: url::Url,
+    release: Release,
+    version: Version,
+}
+enum EndpointSelection {
+    Found(SelectedRelease),
+    NoEligibleRelease,
+}
+struct CheckFailure {
+    code: &'static str,
+    message: String,
+}
+impl CheckFailure {
+    fn new(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
     }
 }
-
-fn select_release_manifest(
-    release: Release,
-    config: &Configuration,
-    channel: &UpdateChannel,
-) -> Option<url::Url> {
-    // Swiph3l: Pre-release users also receive newer stable releases; those releases
-    // publish latest.json, while beta/RC releases must use their own manifest.
-    let version = Version::parse(release.tag_name.trim_start_matches('v')).ok()?;
-    if matches!(channel, UpdateChannel::Stable) && !version.pre.is_empty() {
+impl From<String> for CheckFailure {
+    fn from(message: String) -> Self {
+        Self::new("check-failed", message)
+    }
+}
+fn network_failure(error: reqwest::Error) -> CheckFailure {
+    if error.is_timeout() {
+        CheckFailure::new("check-timeout", "The update request timed out. Try again.")
+    } else {
+        CheckFailure::new("check-failed", "Unable to reach GitHub. Try again later.")
+    }
+}
+fn response_failure(
+    response: &reqwest::Response,
+    missing_code: &'static str,
+) -> Option<CheckFailure> {
+    let status = response.status();
+    if status.is_success() {
         return None;
     }
-    let release_channel = if version.pre.is_empty() {
-        UpdateChannel::Stable
+    let limited = status.as_u16() == 429
+        || (status.as_u16() == 403
+            && (response
+                .headers()
+                .get("x-ratelimit-remaining")
+                .is_some_and(|value| value == "0")
+                || response.headers().contains_key("retry-after")));
+    Some(if limited {
+        CheckFailure::new(
+            "rate-limited",
+            "GitHub rate-limited the update request. Try again later.",
+        )
+    } else if status.as_u16() == 404 {
+        CheckFailure::new(
+            missing_code,
+            "The selected update resource is unavailable on GitHub.",
+        )
     } else {
-        UpdateChannel::PreRelease
-    };
+        CheckFailure::new("check-failed", "GitHub update metadata is unavailable.")
+    })
+}
+fn release_asset_matches(asset: &Asset, config: &Configuration, tag: &str) -> bool {
+    if !https_asset(&asset.browser_download_url, config)
+        || !asset
+            .name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-_.+".contains(&b))
+    {
+        return false;
+    }
+    let expected = format!(
+        "/{}/{}/releases/download/{}/{}",
+        config.owner, config.repository, tag, asset.name
+    );
+    // SemVer build metadata may be URL-encoded by either GitHub or the manifest.
+    asset
+        .browser_download_url
+        .path()
+        .replace("%2B", "+")
+        .replace("%2b", "+")
+        == expected
+}
+fn published_asset<'a>(
+    release: &'a Release,
+    config: &Configuration,
+    url: &url::Url,
+) -> Option<&'a Asset> {
+    release.assets.iter().find(|asset| {
+        release_asset_matches(asset, config, &release.tag_name)
+            && asset
+                .browser_download_url
+                .as_str()
+                .replace("%2B", "+")
+                .replace("%2b", "+")
+                == url.as_str().replace("%2B", "+").replace("%2b", "+")
+    })
+}
+
+fn manifest_name(prerelease: bool) -> &'static str {
+    match prerelease {
+        false => "latest.json",
+        true => "latest-prerelease.json",
+    }
+}
+
+fn select_release_manifest(release: Release, config: &Configuration) -> Option<url::Url> {
+    // Manifest naming belongs to the selected release, never to the preference:
+    // beta opt-in also accepts stable releases with their ordinary latest.json.
+    if release.draft {
+        return None;
+    }
+    let version = Version::parse(
+        release
+            .tag_name
+            .strip_prefix('v')
+            .unwrap_or(&release.tag_name),
+    )
+    .ok()?;
+    let manifest = manifest_name(!version.pre.is_empty());
     release
         .assets
         .into_iter()
-        .find(|a| {
-            a.name == manifest_name(&release_channel)
-                && https_asset(&a.browser_download_url, config)
-        })
+        .find(|a| a.name == manifest && release_asset_matches(a, config, &release.tag_name))
         .map(|a| a.browser_download_url)
+}
+
+fn select_release(
+    published: Vec<PublishedRelease>,
+    current: &Version,
+    include_beta_updates: bool,
+    config: &Configuration,
+) -> Result<EndpointSelection, CheckFailure> {
+    // One selection rule serves manual, startup, and scheduled checks. Normal
+    // SemVer precedence wins, so 0.6.0-beta.1 outranks 0.5.1 when betas are enabled.
+    let selected = published
+        .into_iter()
+        .filter(|r| !r.release.draft)
+        .filter(|r| {
+            r.published_at
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty())
+        })
+        .filter(|r| include_beta_updates || !r.prerelease)
+        .filter_map(|r| {
+            Version::parse(
+                r.release
+                    .tag_name
+                    .strip_prefix('v')
+                    .unwrap_or(&r.release.tag_name),
+            )
+            .ok()
+            .map(|v| (v, r))
+        })
+        .filter(|(v, _)| accepts(current, v, include_beta_updates))
+        .max_by(|a, b| {
+            a.0.cmp_precedence(&b.0)
+                .then_with(|| b.1.prerelease.cmp(&a.1.prerelease))
+        });
+    let Some((version, published)) = selected else {
+        return Ok(EndpointSelection::NoEligibleRelease);
+    };
+    let release = published.release;
+    // Fail closed for the newest eligible release. Do not silently downgrade the
+    // selected target when its manifest or signed installer is incomplete.
+    let manifest = select_release_manifest(release.clone(), config).ok_or_else(|| {
+        CheckFailure::new(
+            "manifest-missing",
+            "The newest eligible release has no trusted update manifest.",
+        )
+    })?;
+    Ok(EndpointSelection::Found(SelectedRelease {
+        manifest,
+        release,
+        version,
+    }))
 }
 
 async fn endpoint(
     config: &Configuration,
-    channel: &UpdateChannel,
-) -> Result<EndpointSelection, String> {
-    let repository = config.repository_url()?;
-    if matches!(channel, UpdateChannel::Stable) {
-        return Ok(EndpointSelection::Found(
-            format!("{repository}/releases/latest/download/latest.json")
-                .parse()
-                .unwrap(),
-        ));
-    }
+    include_beta_updates: bool,
+) -> Result<EndpointSelection, CheckFailure> {
+    config.repository_url()?;
     // Swiph3l: Release selection uses semver precedence rather than GitHub order,
     // so a later-published beta cannot displace a newer eligible stable version.
     let client = reqwest::Client::builder()
@@ -304,49 +490,157 @@ async fn endpoint(
         .timeout(Duration::from_secs(20))
         .user_agent("ChatPlus-Desktop-Updater")
         .build()
-        .map_err(|_| "Could not create update connection.")?;
-    let response = client
-        .get(format!(
-            "https://api.github.com/repos/{}/{}/releases?per_page=100",
-            config.owner, config.repository
-        ))
-        .header("Accept", "application/vnd.github+json")
-        .send()
-        .await
-        .map_err(|_| "Unable to reach GitHub. Try again later.")?
-        .error_for_status()
-        .map_err(|_| "GitHub update metadata is unavailable.")?;
-    let releases: Vec<Release> = response
-        .json()
-        .await
-        .map_err(|_| "Invalid GitHub release metadata.")?;
-    let current = Version::parse(env!("CARGO_PKG_VERSION")).unwrap();
-    let mut releases: Vec<_> = releases
-        .into_iter()
-        .filter(|r| !r.draft)
-        .filter_map(|r| {
-            Version::parse(r.tag_name.trim_start_matches('v'))
-                .ok()
-                .map(|v| (v, r))
-        })
-        .filter(|(v, _)| accepts(&current, v, channel))
-        .collect();
-    releases.sort_by(|a, b| b.0.cmp_precedence(&a.0));
-    for (_, release) in releases {
-        if let Some(url) = select_release_manifest(release, config, channel) {
-            return Ok(EndpointSelection::Found(url));
+        .map_err(|_| CheckFailure::new("check-failed", "Could not create update connection."))?;
+    let mut published = Vec::new();
+    for page in 1..=10 {
+        let response = client
+            .get(format!(
+                "https://api.github.com/repos/{}/{}/releases?per_page=100&page={page}",
+                config.owner, config.repository
+            ))
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .send()
+            .await
+            .map_err(network_failure)?;
+        if let Some(error) = response_failure(&response, "release-unavailable") {
+            return Err(error);
+        }
+        let more = response
+            .headers()
+            .get("link")
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.contains("rel=\"next\""));
+        let batch: Vec<PublishedRelease> = response.json().await.map_err(|error| {
+            if error.is_timeout() {
+                network_failure(error)
+            } else {
+                CheckFailure::new("metadata-invalid", "Invalid GitHub release metadata.")
+            }
+        })?;
+        published.extend(batch);
+        if !more {
+            break;
+        }
+        if page == 10 {
+            return Err(CheckFailure::new(
+                "check-failed",
+                "GitHub release history exceeds the safe update query limit.",
+            ));
         }
     }
-    Ok(EndpointSelection::MissingManifest)
+    let current = Version::parse(env!("CARGO_PKG_VERSION")).unwrap();
+    select_release(published, &current, include_beta_updates, config)
+}
+fn validate_selected_update(
+    update: &Update,
+    selected: &SelectedRelease,
+    config: &Configuration,
+) -> Result<(), CheckFailure> {
+    let raw_version = update
+        .raw_json
+        .get("version")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| {
+            CheckFailure::new("metadata-invalid", "Update metadata failed validation.")
+        })?;
+    let version = Version::parse(raw_version.strip_prefix('v').unwrap_or(raw_version))
+        .map_err(|_| CheckFailure::new("metadata-invalid", "Update metadata failed validation."))?;
+    if version != selected.version || update.version != selected.version.to_string() {
+        return Err(CheckFailure::new(
+            "version-mismatch",
+            "The update manifest version does not match the selected release tag.",
+        ));
+    }
+    let platforms = update.raw_json.get("platforms").ok_or_else(|| {
+        CheckFailure::new(
+            "release-incomplete",
+            "The selected release has no Windows x64 update package.",
+        )
+    })?;
+    let windows = platforms
+        .get("windows-x86_64-nsis")
+        .or_else(|| platforms.get("windows-x86_64"))
+        .ok_or_else(|| {
+            CheckFailure::new(
+                "release-incomplete",
+                "The selected release has no Windows x64 update package.",
+            )
+        })?;
+    let windows_url: url::Url = windows
+        .get("url")
+        .and_then(|value| value.as_str())
+        .and_then(|value| value.parse().ok())
+        .ok_or_else(|| {
+            CheckFailure::new("metadata-invalid", "Update metadata failed validation.")
+        })?;
+    let expected_file = format!(
+        "windows-x86_64--ChatPlus-Desktop_{}_x64-setup.exe",
+        selected.version
+    );
+    let windows_asset = published_asset(&selected.release, config, &windows_url)
+        .filter(|asset| asset.name == expected_file)
+        .ok_or_else(|| {
+            CheckFailure::new(
+                "release-incomplete",
+                "The selected release has no trusted Windows x64 installer.",
+            )
+        })?;
+    let signature = windows
+        .get("signature")
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            CheckFailure::new(
+                "release-incomplete",
+                "The selected update package has no signature.",
+            )
+        })?;
+    if !selected.release.assets.iter().any(|asset| {
+        asset.name == format!("{}.sig", windows_asset.name)
+            && release_asset_matches(asset, config, &selected.release.tag_name)
+    }) {
+        return Err(CheckFailure::new(
+            "release-incomplete",
+            "The selected update package has no published signature asset.",
+        ));
+    }
+    let artifact =
+        published_asset(&selected.release, config, &update.download_url).ok_or_else(|| {
+            CheckFailure::new("metadata-invalid", "Update metadata failed validation.")
+        })?;
+    if update.signature.trim().is_empty()
+        || !selected.release.assets.iter().any(|asset| {
+            asset.name == format!("{}.sig", artifact.name)
+                && release_asset_matches(asset, config, &selected.release.tag_name)
+        })
+    {
+        return Err(CheckFailure::new(
+            "release-incomplete",
+            "The selected update package has no published signature asset.",
+        ));
+    }
+    if cfg!(all(windows, target_arch = "x86_64"))
+        && (artifact.name != expected_file || update.signature != signature)
+    {
+        return Err(CheckFailure::new(
+            "metadata-invalid",
+            "Update metadata failed validation.",
+        ));
+    }
+    Ok(())
 }
 pub async fn check(app: &AppHandle, _manual: bool) -> Result<Snapshot, String> {
     let config = configuration();
-    let channel = state::current(app).update_channel;
+    let include_beta_updates = state::current(app).include_beta_updates;
     let generation = {
         let state = app.state::<Service>();
         let mut inner = state.0.lock().unwrap_or_else(|e| e.into_inner());
         if operation_busy(&inner.snapshot.phase) {
-            return Ok(inner.snapshot.clone());
+            return Ok(inner.snapshot.clone().for_preference(include_beta_updates));
+        }
+        if inner.snapshot.include_beta_updates != include_beta_updates {
+            inner.reset_preference(include_beta_updates);
         }
         if !config.ready() {
             inner.snapshot.message(
@@ -358,66 +652,86 @@ pub async fn check(app: &AppHandle, _manual: bool) -> Result<Snapshot, String> {
             emit(app);
             return Ok(snapshot(app));
         }
-        inner.snapshot.channel = channel.clone();
+        inner.snapshot.include_beta_updates = include_beta_updates;
         inner
             .begin_check()
             .expect("operation checked while holding its lock")
     };
     emit(app);
-    let result = async {
-        let endpoint = match endpoint(&config, &channel).await? {
-            EndpointSelection::Found(endpoint) => endpoint,
-            EndpointSelection::MissingManifest => {
-                return Ok((
-                    None,
-                    Some("No eligible update was found for the selected channel.".to_string()),
-                ));
-            }
+    let result: Result<Option<(Update, String)>, CheckFailure> = async {
+        let selected = match endpoint(&config, include_beta_updates).await? {
+            EndpointSelection::Found(selected) => selected,
+            EndpointSelection::NoEligibleRelease => return Ok(None),
         };
-        let update = builder(
+        let update = build_updater(
             app,
-            endpoint,
+            selected.manifest.clone(),
             config.updater_public_key.clone(),
-            channel.clone(),
+            include_beta_updates,
+            true,
         )?
         .check()
         .await
-        .map_err(|_| {
-            "Unable to check for updates. Check your connection and try again.".to_string()
+        .map_err(|error| match error {
+            tauri_plugin_updater::Error::Reqwest(error) => network_failure(error),
+            tauri_plugin_updater::Error::ReleaseNotFound => CheckFailure::new(
+                "manifest-missing",
+                "The selected update manifest is unavailable.",
+            ),
+            tauri_plugin_updater::Error::TargetNotFound(_)
+            | tauri_plugin_updater::Error::TargetsNotFound(_) => CheckFailure::new(
+                "release-incomplete",
+                "The selected release has no update package for this platform.",
+            ),
+            tauri_plugin_updater::Error::Serialization(_)
+            | tauri_plugin_updater::Error::Semver(_) => {
+                CheckFailure::new("metadata-invalid", "Update metadata failed validation.")
+            }
+            _ => CheckFailure::new(
+                "check-failed",
+                "Unable to check for updates. Check your connection and try again.",
+            ),
+        })?
+        .ok_or_else(|| {
+            CheckFailure::new(
+                "manifest-missing",
+                "The selected release returned no update manifest.",
+            )
         })?;
-        Ok((update, None))
+        validate_selected_update(&update, &selected, &config)?;
+        if !accepts(
+            &Version::parse(env!("CARGO_PKG_VERSION")).unwrap(),
+            &selected.version,
+            include_beta_updates,
+        ) {
+            return Err(CheckFailure::new(
+                "version-mismatch",
+                "The selected update version is not eligible for this update preference.",
+            ));
+        }
+        Ok(Some((update, selected.release.tag_name)))
     }
     .await;
     {
         let service = app.state::<Service>();
         let mut inner = service.0.lock().unwrap_or_else(|e| e.into_inner());
-        if inner.discard_stale(generation, &channel, &state::current(app).update_channel) {
-            // Swiph3l: A channel can change away and back while HTTP is pending;
+        if inner.discard_stale(
+            generation,
+            include_beta_updates,
+            state::current(app).include_beta_updates,
+        ) {
+            // Swiph3l: The preference can change away and back while HTTP is pending;
             // generation checks reject both cases instead of resurrecting stale results.
             drop(inner);
             emit(app);
             return Ok(snapshot(app));
         }
         match result {
-            Ok((update, message_override)) => {
+            Ok(update) => {
+                let (update, release_tag) = update
+                    .map(|(update, tag)| (Some(update), Some(tag)))
+                    .unwrap_or((None, None));
                 if let Some(ref update) = update {
-                    if !https_asset(&update.download_url, &config)
-                        || Version::parse(&update.version).ok().is_none_or(|v| {
-                            !accepts(
-                                &Version::parse(env!("CARGO_PKG_VERSION")).unwrap(),
-                                &v,
-                                &channel,
-                            )
-                        })
-                    {
-                        inner.snapshot.phase = "error".into();
-                        inner
-                            .snapshot
-                            .message("metadata-invalid", "Update metadata failed validation.");
-                        drop(inner);
-                        emit(app);
-                        return Err("Update metadata failed validation.".into());
-                    }
                     inner.snapshot.latest_version = Some(update.version.clone());
                     inner.snapshot.notes = update
                         .body
@@ -435,17 +749,32 @@ pub async fn check(app: &AppHandle, _manual: bool) -> Result<Snapshot, String> {
                     inner.snapshot.notes.clear();
                     inner.snapshot.phase = "current".into();
                     inner.snapshot.message(
-                        "current",
-                        message_override.unwrap_or_else(|| "You're up to date.".to_string()),
+                        "no-eligible-release",
+                        "No newer published release is available for the saved update preference.",
                     );
                 }
                 inner.update = update;
+                inner.release_tag = release_tag;
                 let checked_at = now();
                 inner.snapshot.last_successful_check = Some(checked_at);
                 let _ = state::persist_value(app, "lastUpdateCheck", checked_at.into());
             }
             Err(error) => {
-                inner.check_failed(error);
+                if matches!(
+                    error.code,
+                    "metadata-invalid"
+                        | "version-mismatch"
+                        | "manifest-missing"
+                        | "release-incomplete"
+                ) {
+                    inner.update = None;
+                    inner.release_tag = None;
+                    inner.verified_bytes = None;
+                    inner.snapshot.latest_version = None;
+                    inner.snapshot.notes.clear();
+                }
+                inner.check_failed(error.message.clone());
+                inner.snapshot.message(error.code, error.message);
             }
         }
     }
@@ -455,23 +784,32 @@ pub async fn check(app: &AppHandle, _manual: bool) -> Result<Snapshot, String> {
     Ok(snapshot(app))
 }
 pub async fn download(app: &AppHandle) -> Result<(), String> {
-    let (update, cancel, generation, channel) = {
+    let (update, cancel, generation, include_beta_updates) = {
         let service = app.state::<Service>();
         let mut inner = service.0.lock().unwrap_or_else(|e| e.into_inner());
         if inner.snapshot.phase != "available" {
             return Err("Check for an update before downloading.".into());
         }
-        let update = inner.update.clone().ok_or("No update available.")?;
-        let channel = state::current(app).update_channel;
+        let mut update = inner.update.clone().ok_or("No update available.")?;
+        // Pinned updater 2.11 does not copy the builder timeout into Update.
+        // Bound the actual installer transfer as well as the manifest request.
+        update.timeout = Some(Duration::from_secs(120));
+        let include_beta_updates = state::current(app).include_beta_updates;
+        // Persisted settings change before preference_changed reaches this lock.
+        // Keep a cached candidate bound to the preference that selected it.
+        if inner.snapshot.include_beta_updates != include_beta_updates {
+            return Err("Check again for the saved update preference.".into());
+        }
         if !accepts(
             &Version::parse(env!("CARGO_PKG_VERSION")).unwrap(),
             &Version::parse(&update.version).map_err(|_| "Invalid version.")?,
-            &channel,
+            include_beta_updates,
         ) {
-            return Err("Check again for the selected channel.".into());
+            return Err("Check again for the saved update preference.".into());
         }
         let cancel = Arc::new(Notify::new());
         inner.cancel = Some(cancel.clone());
+        inner.cancel_requested = false;
         inner.verified_bytes = None;
         inner.snapshot.phase = "downloading".into();
         inner.snapshot.downloaded = 0;
@@ -479,7 +817,12 @@ pub async fn download(app: &AppHandle) -> Result<(), String> {
         inner
             .snapshot
             .message("downloading", "Downloading update...");
-        (update, cancel, inner.request_generation, channel)
+        (
+            update,
+            cancel,
+            inner.request_generation,
+            include_beta_updates,
+        )
     };
     emit(app);
     let mut last_event = std::time::Instant::now();
@@ -488,6 +831,11 @@ pub async fn download(app: &AppHandle) -> Result<(), String> {
         |chunk, total| {
             let service = app.state::<Service>();
             let mut inner = service.0.lock().unwrap_or_else(|e| e.into_inner());
+            if inner.request_generation != generation
+                || inner.snapshot.include_beta_updates != include_beta_updates
+            {
+                return;
+            }
             inner.snapshot.downloaded = inner.snapshot.downloaded.saturating_add(chunk as u64);
             inner.snapshot.total = total;
             if inner.snapshot.downloaded > MAX_DOWNLOAD || total.is_some_and(|n| n > MAX_DOWNLOAD) {
@@ -502,20 +850,33 @@ pub async fn download(app: &AppHandle) -> Result<(), String> {
         },
         || {},
     );
-    let result =
+    let mut result =
         tokio::select! { biased; _ = cancel.notified() => None, result = future => Some(result) };
     let service = app.state::<Service>();
     let mut inner = service.0.lock().unwrap_or_else(|e| e.into_inner());
     inner.cancel = None;
-    if inner.discard_stale(generation, &channel, &state::current(app).update_channel) {
+    // A cancel request can arrive while signature verification is finishing.
+    // It still wins before the locked transition makes those bytes installable.
+    if inner.cancel_requested {
+        result = None;
+    }
+    inner.cancel_requested = false;
+    if inner.discard_stale(
+        generation,
+        include_beta_updates,
+        state::current(app).include_beta_updates,
+    ) {
         // Swiph3l: Cancellation can race with signature verification finishing;
-        // stale bytes must never become installable after a channel change.
+        // stale bytes must never become installable after a preference change.
         drop(inner);
         emit(app);
         return Ok(());
     }
+    let mut failure = None;
     match result {
-        Some(Ok(bytes)) if !too_large => {
+        Some(Ok(bytes))
+            if !too_large && !bytes.is_empty() && bytes.len() as u64 <= MAX_DOWNLOAD =>
+        {
             // Swiph3l: The updater download future verifies the existing public-key
             // signature before returning bytes; raw HTTP bytes must never enter ready.
             inner.verified_bytes = Some(bytes);
@@ -535,68 +896,111 @@ pub async fn download(app: &AppHandle) -> Result<(), String> {
                 "download-failed",
                 "Download or signature verification failed. Nothing was installed.",
             );
+            failure = Some(
+                "Download or signature verification failed. Nothing was installed.".to_string(),
+            );
         }
     }
     drop(inner);
     emit(app);
-    Ok(())
+    failure.map_or(Ok(()), Err)
 }
 pub fn cancel(app: &AppHandle) {
-    if let Some(cancel) = &app
-        .state::<Service>()
-        .0
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .cancel
-    {
+    let service = app.state::<Service>();
+    let mut inner = service.0.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(cancel) = inner.cancel.clone() {
+        inner.cancel_requested = true;
         cancel.notify_one();
     }
 }
-pub fn channel_changed(app: &AppHandle) {
+pub fn preference_changed(app: &AppHandle) {
+    let include_beta_updates = state::current(app).include_beta_updates;
     let service = app.state::<Service>();
     let mut inner = service.0.lock().unwrap_or_else(|e| e.into_inner());
-    inner.change_channel();
+    inner.change_preference(include_beta_updates);
     drop(inner);
     emit(app);
 }
 pub fn install(app: &AppHandle, confirmed: bool) -> Result<(), String> {
+    install_checked(app, confirmed, None)
+}
+pub fn install_for(
+    app: &AppHandle,
+    confirmed: bool,
+    expected_version: &str,
+    expected_include_beta_updates: bool,
+) -> Result<(), String> {
+    install_checked(
+        app,
+        confirmed,
+        Some((expected_version, expected_include_beta_updates)),
+    )
+}
+fn install_checked(
+    app: &AppHandle,
+    confirmed: bool,
+    expected: Option<(&str, bool)>,
+) -> Result<(), String> {
     // Swiph3l: Download verification is independent from consent. Every install
     // entry point must supply explicit confirmation before consuming verified bytes.
     if !confirmed {
         return Err("Confirm restart before installing.".into());
     }
-    let (update, bytes) = {
+    let (update, bytes, generation, include_beta_updates) = {
         let service = app.state::<Service>();
         let mut inner = service.0.lock().unwrap_or_else(|e| e.into_inner());
         if inner.snapshot.phase != "ready" {
             return Err("A verified download is required.".into());
         }
         let update = inner.update.clone().ok_or("No verified update.")?;
-        let channel = state::current(app).update_channel;
+        let include_beta_updates = state::current(app).include_beta_updates;
+        if inner.snapshot.include_beta_updates != include_beta_updates {
+            return Err(
+                "The update changed after confirmation. Review it and confirm again.".into(),
+            );
+        }
+        if expected.is_some_and(|(version, expected_include_beta_updates)| {
+            update.version != version || include_beta_updates != expected_include_beta_updates
+        }) {
+            return Err(
+                "The update changed after confirmation. Review it and confirm again.".into(),
+            );
+        }
         if !accepts(
             &Version::parse(env!("CARGO_PKG_VERSION")).unwrap(),
             &Version::parse(&update.version).map_err(|_| "Invalid version.")?,
-            &channel,
+            include_beta_updates,
         ) {
-            return Err("This version is not eligible for the selected channel.".into());
+            return Err("This version is not eligible for the saved update preference.".into());
         }
         let bytes = inner.verified_bytes.take().ok_or("No verified download.")?;
         inner.snapshot.phase = "installing".into();
         inner
             .snapshot
             .message("installing", "Starting update installer...");
-        (update, bytes)
+        (
+            update,
+            bytes,
+            inner.request_generation,
+            include_beta_updates,
+        )
     };
     emit(app);
     if update.install(&bytes).is_err() {
         let service = app.state::<Service>();
         let mut inner = service.0.lock().unwrap_or_else(|e| e.into_inner());
-        inner.verified_bytes = Some(bytes);
-        inner.snapshot.phase = "ready".into();
-        inner.snapshot.message(
-            "install-failed",
-            "Installation failed. Close other instances and try again.",
-        );
+        if !inner.discard_stale(
+            generation,
+            include_beta_updates,
+            state::current(app).include_beta_updates,
+        ) {
+            inner.verified_bytes = Some(bytes);
+            inner.snapshot.phase = "ready".into();
+            inner.snapshot.message(
+                "install-failed",
+                "Installation failed. Close other instances and try again.",
+            );
+        }
         drop(inner);
         emit(app);
         return Err("Could not start the update installer.".into());
@@ -608,9 +1012,13 @@ pub fn install(app: &AppHandle, confirmed: bool) -> Result<(), String> {
 pub fn open_release_page(app: &AppHandle) -> Result<(), String> {
     let config = configuration();
     let base = config.repository_url()?;
-    let value = snapshot(app)
-        .latest_version
-        .map(|v| format!("{base}/releases/tag/v{v}"))
+    let tag = {
+        let service = app.state::<Service>();
+        let inner = service.0.lock().unwrap_or_else(|e| e.into_inner());
+        inner.release_tag.clone()
+    };
+    let value = tag
+        .map(|tag| format!("{base}/releases/tag/{tag}"))
         .unwrap_or(format!("{base}/releases"));
     app.opener()
         .open_url(value, None::<&str>)
@@ -672,112 +1080,268 @@ mod tests {
         }
     }
 
-    #[test]
-    fn beta_upgrade_and_manifest_channels() {
-        assert_eq!(manifest_name(&UpdateChannel::Stable), "latest.json");
-        assert_eq!(
-            manifest_name(&UpdateChannel::PreRelease),
-            "latest-prerelease.json"
-        );
-        let current = Version::parse("0.5.0-beta.1").unwrap();
-        let next = Version::parse("0.5.0-beta.2").unwrap();
-        assert!(accepts(&current, &next, &UpdateChannel::PreRelease));
-        assert!(!accepts(&current, &next, &UpdateChannel::Stable));
-        assert!(!accepts(&next, &current, &UpdateChannel::PreRelease));
-        assert!(accepts(
-            &current,
-            &Version::parse("0.5.0").unwrap(),
-            &UpdateChannel::Stable
-        ));
-        assert!(accepts(
-            &Version::parse("0.5.0-beta.2").unwrap(),
-            &Version::parse("0.5.0-rc.1").unwrap(),
-            &UpdateChannel::PreRelease
-        ));
-        assert!(accepts(
-            &Version::parse("0.5.0-rc.1").unwrap(),
-            &Version::parse("0.5.0").unwrap(),
-            &UpdateChannel::PreRelease
-        ));
+    fn github_release(tag: &str, draft: bool, prerelease: bool) -> PublishedRelease {
+        let version = Version::parse(tag.strip_prefix('v').unwrap_or(tag)).ok();
+        let manifest = manifest_name(version.is_some_and(|version| !version.pre.is_empty()));
+        // Deserialize the same GitHub API shape used by the HTTP check instead
+        // of reproducing a version-only approximation of the selector in tests.
+        serde_json::from_value(serde_json::json!({
+            "tag_name": tag,
+            "draft": draft,
+            "prerelease": prerelease,
+            "published_at": if draft { serde_json::Value::Null } else { serde_json::json!("2026-10-14T08:00:00Z") },
+            "assets": [{
+                "name": manifest,
+                "browser_download_url": format!("https://github.com/Swiph3l/synology-chatplus-desktop/releases/download/{tag}/{manifest}")
+            }]
+        })).unwrap()
     }
+
     #[test]
-    fn requested_channel_upgrade_matrix() {
-        for (current, candidates, channel, expected) in [
+    fn published_release_selection_covers_stable_and_beta_upgrade_matrix() {
+        for (case, current, include_beta_updates, releases, expected) in [
             (
-                "0.5.0-beta.2",
-                vec!["0.5.0-beta.3", "0.5.0"],
-                UpdateChannel::PreRelease,
-                Some("0.5.0"),
-            ),
-            (
-                "0.5.0-beta.2",
-                vec!["0.5.0"],
-                UpdateChannel::Stable,
-                Some("0.5.0"),
-            ),
-            ("0.5.0", vec!["0.5.1-beta.1"], UpdateChannel::Stable, None),
-            (
+                "A stable upgrade",
                 "0.5.0",
-                vec!["0.5.1-beta.1"],
-                UpdateChannel::PreRelease,
-                Some("0.5.1-beta.1"),
+                false,
+                vec![("v0.5.1", false, false)],
+                Some("0.5.1"),
             ),
             (
-                "0.5.1-rc.1",
-                vec!["0.5.1"],
-                UpdateChannel::PreRelease,
+                "B beta excluded",
+                "0.5.0",
+                false,
+                vec![("v0.6.0-beta.1", false, true)],
+                None,
+            ),
+            (
+                "C SemVer wins with beta opt-in",
+                "0.5.0",
+                true,
+                vec![("v0.5.1", false, false), ("v0.6.0-beta.1", false, true)],
+                Some("0.6.0-beta.1"),
+            ),
+            (
+                "D beta installation never downgrades",
+                "0.5.0-beta.5",
+                false,
+                vec![("v0.4.9", false, false), ("v0.5.0-beta.6", false, true)],
+                None,
+            ),
+            (
+                "E beta upgrades to its final stable",
+                "0.5.0-beta.5",
+                false,
+                vec![("v0.5.0", false, false)],
+                Some("0.5.0"),
+            ),
+            (
+                "F numeric beta precedence",
+                "0.5.0-beta.5",
+                true,
+                vec![
+                    ("v0.5.0-beta.10", false, true),
+                    ("v0.5.0-beta.6", false, true),
+                ],
+                Some("0.5.0-beta.10"),
+            ),
+            (
+                "G drafts excluded with beta off",
+                "0.5.0",
+                false,
+                vec![("v1.0.0", true, false), ("v2.0.0-beta.1", true, true)],
+                None,
+            ),
+            (
+                "G drafts excluded with beta on",
+                "0.5.0",
+                true,
+                vec![("v1.0.0", true, false), ("v2.0.0-beta.1", true, true)],
+                None,
+            ),
+            (
+                "stable wins over older prerelease",
+                "0.5.0",
+                true,
+                vec![("v0.6.0", false, false), ("v0.6.0-beta.10", false, true)],
+                Some("0.6.0"),
+            ),
+            (
+                "beta opt-in still accepts stable",
+                "0.5.0",
+                true,
+                vec![("v0.5.1", false, false)],
+                Some("0.5.1"),
+            ),
+            (
+                "GitHub prerelease flag excludes final-looking tag",
+                "0.5.0",
+                false,
+                vec![("v0.6.0", false, true)],
+                None,
+            ),
+            (
+                "GitHub prerelease flag accepts final-looking tag with opt-in",
+                "0.5.0",
+                true,
+                vec![("v0.6.0", false, true)],
+                Some("0.6.0"),
+            ),
+            (
+                "SemVer prerelease excludes incorrect stable flag",
+                "0.5.0",
+                false,
+                vec![("v0.6.0-beta.1", false, false)],
+                None,
+            ),
+            (
+                "SemVer prerelease accepts incorrect stable flag with opt-in",
+                "0.5.0",
+                true,
+                vec![("v0.6.0-beta.1", false, false)],
+                Some("0.6.0-beta.1"),
+            ),
+            (
+                "equal precedence and build metadata are not upgrades",
+                "0.5.0",
+                true,
+                vec![("v0.5.0", false, false), ("v0.5.0+build.2", false, false)],
+                None,
+            ),
+            (
+                "invalid tags ignored",
+                "0.5.0",
+                true,
+                vec![("not-a-version", false, false), ("v0.5.1", false, false)],
                 Some("0.5.1"),
             ),
         ] {
-            let current = Version::parse(current).unwrap();
-            let selected = candidates
+            let releases = releases
                 .into_iter()
-                .map(|v| Version::parse(v).unwrap())
-                .filter(|v| accepts(&current, v, &channel))
-                .max_by(|a, b| a.cmp_precedence(b))
-                .map(|v| v.to_string());
-            assert_eq!(selected.as_deref(), expected);
+                .map(|(tag, draft, prerelease)| github_release(tag, draft, prerelease))
+                .collect();
+            let selected = select_release(
+                releases,
+                &Version::parse(current).unwrap(),
+                include_beta_updates,
+                &configuration(),
+            )
+            .unwrap_or_else(|error| panic!("{case}: {}", error.message));
+            let version = match selected {
+                EndpointSelection::Found(selected) => {
+                    assert!(
+                        selected
+                            .manifest
+                            .path()
+                            .ends_with(manifest_name(!selected.version.pre.is_empty())),
+                        "{case}"
+                    );
+                    Some(selected.version.to_string())
+                }
+                EndpointSelection::NoEligibleRelease => None,
+            };
+            assert_eq!(version.as_deref(), expected, "{case}");
         }
     }
 
     #[test]
-    fn prerelease_users_read_stable_release_manifest() {
-        let config = configuration();
-        let release = release("v0.5.0", vec![asset("latest.json",
-            "https://github.com/Swiph3l/synology-chatplus-desktop/releases/download/v0.5.0/latest.json")]);
-        assert!(
-            select_release_manifest(release, &config, &UpdateChannel::PreRelease)
-                .unwrap()
-                .path()
-                .ends_with("latest.json")
-        );
+    fn unpublished_release_metadata_is_never_a_candidate() {
+        for published_at in [None, Some(""), Some("   ")] {
+            let mut unpublished = github_release("v9.0.0", false, false);
+            unpublished.published_at = published_at.map(str::to_owned);
+            let selected = select_release(
+                vec![unpublished],
+                &Version::parse("0.5.0").unwrap(),
+                true,
+                &configuration(),
+            );
+            assert!(matches!(selected, Ok(EndpointSelection::NoEligibleRelease)));
+        }
     }
 
     #[test]
-    fn channel_policy_never_downgrades() {
+    fn incomplete_newest_release_fails_closed_instead_of_falling_back() {
+        let older = github_release("v0.5.1", false, false);
+        let mut newest = github_release("v0.6.0-beta.1", false, true);
+        newest.release.assets.clear();
+        match select_release(
+            vec![newest, older],
+            &Version::parse("0.5.0").unwrap(),
+            true,
+            &configuration(),
+        ) {
+            Err(error) => assert_eq!(error.code, "manifest-missing"),
+            Ok(_) => panic!("An incomplete newest release must not select an older target"),
+        }
+    }
+
+    #[test]
+    fn published_release_manifest_assets_remain_confined_to_the_selected_project_tag() {
+        let mut newest = github_release("v0.6.0", false, false);
+        newest.release.assets[0].browser_download_url =
+            "https://github.com/another/project/releases/download/v0.6.0/latest.json"
+                .parse()
+                .unwrap();
+        match select_release(
+            vec![newest],
+            &Version::parse("0.5.0").unwrap(),
+            false,
+            &configuration(),
+        ) {
+            Err(error) => assert_eq!(error.code, "manifest-missing"),
+            Ok(_) => panic!("A foreign manifest asset must not become a target"),
+        }
+    }
+
+    #[test]
+    fn beta_opt_in_and_release_manifest_types() {
+        assert_eq!(manifest_name(false), "latest.json");
+        assert_eq!(manifest_name(true), "latest-prerelease.json");
+        let current = Version::parse("0.5.0-beta.1").unwrap();
+        let next = Version::parse("0.5.0-beta.2").unwrap();
+        assert!(accepts(&current, &next, true));
+        assert!(!accepts(&current, &next, false));
+        assert!(!accepts(&next, &current, true));
+        assert!(accepts(&current, &Version::parse("0.5.0").unwrap(), false));
+        assert!(accepts(
+            &Version::parse("0.5.0-beta.2").unwrap(),
+            &Version::parse("0.5.0-rc.1").unwrap(),
+            true
+        ));
+        assert!(accepts(
+            &Version::parse("0.5.0-rc.1").unwrap(),
+            &Version::parse("0.5.0").unwrap(),
+            true
+        ));
+    }
+    #[test]
+    fn stable_release_uses_its_stable_manifest() {
+        let config = configuration();
+        let release = release("v0.5.0", vec![asset("latest.json",
+            "https://github.com/Swiph3l/synology-chatplus-desktop/releases/download/v0.5.0/latest.json")]);
+        assert!(select_release_manifest(release, &config)
+            .unwrap()
+            .path()
+            .ends_with("latest.json"));
+    }
+
+    #[test]
+    fn beta_preference_never_downgrades() {
         let current = Version::parse("0.1.0").unwrap();
         for version in ["0.0.9", "0.1.0", "0.1.0+build"] {
-            assert!(!accepts(
-                &current,
-                &Version::parse(version).unwrap(),
-                &UpdateChannel::PreRelease
-            ));
+            assert!(!accepts(&current, &Version::parse(version).unwrap(), true));
         }
         assert!(!accepts(
             &current,
             &Version::parse("0.2.0-rc.1").unwrap(),
-            &UpdateChannel::Stable
+            false
         ));
         assert!(accepts(
             &current,
             &Version::parse("0.2.0-rc.1").unwrap(),
-            &UpdateChannel::PreRelease
+            true
         ));
-        assert!(accepts(
-            &current,
-            &Version::parse("0.1.1").unwrap(),
-            &UpdateChannel::Stable
-        ));
+        assert!(accepts(&current, &Version::parse("0.1.1").unwrap(), false));
     }
     #[test]
     fn startup_and_six_hour_schedule_use_a_fake_clock() {
@@ -856,27 +1420,91 @@ mod tests {
         }
     }
     #[test]
-    fn channel_changes_invalidate_in_flight_checks_even_after_switching_back() {
+    fn preference_changes_invalidate_in_flight_checks_even_after_switching_back() {
         let mut inner = Inner::default();
         let generation = inner.begin_check().unwrap();
-        inner.change_channel();
-        inner.change_channel();
+        inner.change_preference(true);
+        inner.change_preference(false);
         assert!(inner.begin_check().is_none());
-        assert!(inner.discard_stale(generation, &UpdateChannel::Stable, &UpdateChannel::Stable));
+        assert!(inner.discard_stale(generation, false, false));
         assert_eq!(inner.snapshot.phase, "idle");
         assert!(inner.begin_check().is_some());
     }
     #[test]
-    fn channel_change_cannot_publish_a_stale_verified_download() {
+    fn preference_change_cannot_publish_a_stale_verified_download() {
         let mut inner = Inner::default();
         inner.snapshot.phase = "downloading".into();
         inner.cancel = Some(Arc::new(Notify::new()));
         let generation = inner.request_generation;
-        inner.change_channel();
+        inner.change_preference(true);
         inner.verified_bytes = Some(vec![1, 2, 3]);
-        assert!(inner.discard_stale(generation, &UpdateChannel::Stable, &UpdateChannel::Stable));
+        assert!(inner.discard_stale(generation, false, false));
         assert!(inner.verified_bytes.is_none());
         assert_eq!(inner.snapshot.phase, "idle");
+    }
+
+    #[test]
+    fn preference_changes_immediately_clear_candidates_and_ready_bytes_in_every_phase() {
+        for phase in [
+            "available",
+            "checking",
+            "downloading",
+            "ready",
+            "installing",
+        ] {
+            let mut inner = Inner::default();
+            inner.snapshot.include_beta_updates = true;
+            inner.snapshot.phase = phase.into();
+            inner.snapshot.latest_version = Some("0.6.0-beta.1".into());
+            inner.snapshot.notes = "Cached beta notes".into();
+            inner.snapshot.downloaded = 123;
+            inner.snapshot.total = Some(456);
+            inner.release_tag = Some("v0.6.0-beta.1".into());
+            inner.verified_bytes = Some(vec![1, 2, 3]);
+            let generation = inner.request_generation;
+            inner.change_preference(false);
+            assert!(!inner.snapshot.include_beta_updates, "{phase}");
+            assert!(inner.snapshot.latest_version.is_none(), "{phase}");
+            assert!(inner.snapshot.notes.is_empty(), "{phase}");
+            assert_eq!(inner.snapshot.downloaded, 0, "{phase}");
+            assert!(inner.snapshot.total.is_none(), "{phase}");
+            assert!(inner.release_tag.is_none(), "{phase}");
+            assert!(inner.verified_bytes.is_none(), "{phase}");
+            assert_ne!(generation, inner.request_generation, "{phase}");
+            if matches!(phase, "checking" | "downloading" | "installing") {
+                assert_eq!(inner.snapshot.phase, phase);
+                assert!(inner.begin_check().is_none(), "{phase}");
+            } else {
+                // Ready has no future to unwind after its bytes are discarded.
+                assert_eq!(inner.snapshot.phase, "idle", "{phase}");
+                assert!(inner.begin_check().is_some(), "{phase}");
+            }
+        }
+    }
+
+    #[test]
+    fn snapshots_hide_old_candidates_before_preference_notification_acquires_the_lock() {
+        for phase in ["available", "checking", "downloading", "ready"] {
+            let mut snapshot = Snapshot::default();
+            snapshot.include_beta_updates = true;
+            snapshot.phase = phase.into();
+            snapshot.latest_version = Some("0.6.0-beta.1".into());
+            snapshot.notes = "Old beta notes".into();
+            let updated = snapshot.for_preference(false);
+            assert!(!updated.include_beta_updates);
+            assert!(updated.latest_version.is_none(), "{phase}");
+            assert!(updated.notes.is_empty(), "{phase}");
+            assert_eq!(updated.message_code, "preference-changed", "{phase}");
+            if phase == "ready" {
+                assert_eq!(updated.phase, "idle");
+            }
+        }
+        let payload = serde_json::to_value(Snapshot::default()).unwrap();
+        assert_eq!(
+            payload.get("includeBetaUpdates"),
+            Some(&serde_json::json!(false))
+        );
+        assert!(payload.get("channel").is_none());
     }
 
     #[test]
@@ -885,22 +1513,18 @@ mod tests {
         let beta2 = Version::parse("0.5.0-beta.2").unwrap();
         let rc1 = Version::parse("0.5.0-rc.1").unwrap();
         let stable = Version::parse("0.5.0").unwrap();
-        assert!(accepts(&beta1, &beta2, &UpdateChannel::PreRelease));
-        assert!(!accepts(&beta2, &beta1, &UpdateChannel::PreRelease));
-        assert!(accepts(&beta2, &rc1, &UpdateChannel::PreRelease));
-        assert!(accepts(&beta2, &stable, &UpdateChannel::PreRelease));
-        assert!(accepts(&rc1, &stable, &UpdateChannel::PreRelease));
+        assert!(accepts(&beta1, &beta2, true));
+        assert!(!accepts(&beta2, &beta1, true));
+        assert!(accepts(&beta2, &rc1, true));
+        assert!(accepts(&beta2, &stable, true));
+        assert!(accepts(&rc1, &stable, true));
         let beta3 = Version::parse("0.5.0-beta.3").unwrap();
         let beta4 = Version::parse("0.5.0-beta.4").unwrap();
         let beta10 = Version::parse("0.5.0-beta.10").unwrap();
-        assert!(accepts(&beta3, &beta4, &UpdateChannel::PreRelease));
-        assert!(accepts(&beta4, &beta10, &UpdateChannel::PreRelease));
-        assert!(!accepts(&beta10, &beta4, &UpdateChannel::PreRelease));
-        assert!(accepts(
-            &beta10,
-            &Version::parse("0.5.1").unwrap(),
-            &UpdateChannel::PreRelease
-        ));
+        assert!(accepts(&beta3, &beta4, true));
+        assert!(accepts(&beta4, &beta10, true));
+        assert!(!accepts(&beta10, &beta4, true));
+        assert!(accepts(&beta10, &Version::parse("0.5.1").unwrap(), true));
     }
 
     #[test]
@@ -919,7 +1543,7 @@ mod tests {
                 ),
             ],
         );
-        let selected = select_release_manifest(release, &config, &UpdateChannel::PreRelease)
+        let selected = select_release_manifest(release, &config)
             .unwrap()
             .to_string();
         assert!(selected.ends_with("latest-prerelease.json"));
@@ -935,17 +1559,18 @@ mod tests {
                 "https://github.com/Swiph3l/synology-chatplus-desktop/releases/download/v0.5.0-beta.2/latest.json",
             )],
         );
-        assert!(select_release_manifest(release, &config, &UpdateChannel::PreRelease).is_none());
+        assert!(select_release_manifest(release, &config).is_none());
     }
 
     #[test]
-    fn manifest_selection_is_shared_for_manual_and_automatic_checks() {
-        // Keep the channel decision in one place so manual and automatic checks cannot diverge.
-        let automatic_manifest = manifest_name(&UpdateChannel::PreRelease);
-        let manual_manifest = manifest_name(&UpdateChannel::PreRelease);
-        assert_eq!(automatic_manifest, manual_manifest);
-        assert_eq!(automatic_manifest, "latest-prerelease.json");
-        assert_eq!(manifest_name(&UpdateChannel::Stable), "latest.json");
+    fn prerelease_semver_uses_its_manifest_even_without_a_matching_github_flag() {
+        let config = configuration();
+        let release = release("v0.5.0-beta.6", vec![asset("latest-prerelease.json",
+            "https://github.com/Swiph3l/synology-chatplus-desktop/releases/download/v0.5.0-beta.6/latest-prerelease.json")]);
+        assert!(select_release_manifest(release, &config)
+            .unwrap()
+            .path()
+            .ends_with("latest-prerelease.json"));
     }
     #[test]
     fn updater_assets_are_confined_to_project_https() {

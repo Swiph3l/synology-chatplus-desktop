@@ -1,6 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { t } from "../i18n";
-import { updateStatusText, type UpdateSnapshot } from "../app/updates";
+import {
+  updateHasError,
+  isPrereleaseVersion,
+  updateStatusText,
+  type UpdateSnapshot,
+} from "../app/updates";
 
 function icon(path: string) {
   const span = document.createElement("span");
@@ -16,6 +21,14 @@ export function createFooter(version: string) {
   const identity = document.createElement("span");
   identity.className = "footer-version";
   identity.textContent = `ChatPlus ${version}`.trim();
+  const versionGroup = document.createElement("div");
+  versionGroup.className = "footer-identity";
+  const updateButton = document.createElement("button");
+  updateButton.type = "button";
+  updateButton.className = "footer-update";
+  updateButton.dataset.railKey = "footer:update";
+  updateButton.hidden = true;
+  versionGroup.append(identity, updateButton);
   const status = document.createElement("button");
   status.type = "button";
   status.className = "footer-status";
@@ -31,20 +44,61 @@ export function createFooter(version: string) {
   const actions = document.createElement("nav");
   actions.className = "footer-actions";
   let update: UpdateSnapshot | undefined;
+  let includeBetaUpdates: boolean | undefined;
   let connection: string | undefined;
   let issue = "";
 
   const refreshStatus = () => {
+    // Availability comes from the updater's resolved target, including one
+    // retained after a temporary recheck/download failure. History alone is
+    // insufficient: startup and preference changes have no resolved target.
+    const matchesPreference =
+      includeBetaUpdates !== undefined &&
+      update?.includeBetaUpdates === includeBetaUpdates;
+    const allowedTarget =
+      !!update?.latestVersion &&
+      matchesPreference &&
+      (update.includeBetaUpdates || !isPrereleaseVersion(update.latestVersion));
+    const targetVersion =
+      update?.configured &&
+      allowedTarget &&
+      update.lastSuccessfulCheck != null &&
+      ["available", "checking", "downloading", "ready", "installing"].includes(
+        update.phase,
+      )
+        ? update.latestVersion
+        : null;
+    updateButton.hidden = !targetVersion;
+    updateButton.textContent = targetVersion
+      ? t("updates.footer.updateTo", { version: targetVersion })
+      : "";
+    updateButton.title = targetVersion
+      ? t("updates.footer.availableTooltip", {
+          version: targetVersion,
+        })
+      : "";
     const text =
       issue ||
       (connection === "offline" ? t("footer.status.offline") : "") ||
-      (update && update.phase !== "idle" && update.phase !== "unconfigured"
+      (update &&
+      matchesPreference &&
+      update.phase !== "idle" &&
+      update.phase !== "unconfigured" &&
+      !(update.phase === "available" && !allowedTarget) &&
+      !(
+        targetVersion &&
+        update.phase === "available" &&
+        !updateHasError(update)
+      )
         ? updateStatusText(update)
         : "");
     status.textContent = text;
     status.title = text;
     status.disabled =
-      Boolean(issue) || connection === "offline" || !update?.latestVersion;
+      !text ||
+      Boolean(issue) ||
+      connection === "offline" ||
+      !update?.latestVersion;
     status.classList.toggle("actionable", !status.disabled);
   };
   const openSection = (section: string) => {
@@ -53,6 +107,7 @@ export function createFooter(version: string) {
       refreshStatus();
     });
   };
+  updateButton.addEventListener("click", () => openSection("updates"));
   status.addEventListener("click", () => openSection("updates"));
   const entries = [
     {
@@ -98,7 +153,7 @@ export function createFooter(version: string) {
     wrapper.append(button);
     actions.append(wrapper);
   }
-  element.append(identity, statusRegion, actions);
+  element.append(versionGroup, statusRegion, actions);
   const refresh = () => {
     actions.setAttribute("aria-label", t("footer.actions"));
     for (const entry of entries) {
@@ -127,6 +182,12 @@ export function createFooter(version: string) {
     setUpdate(snapshot: UpdateSnapshot) {
       update = snapshot;
       issue = "";
+      refreshStatus();
+    },
+    setIncludeBetaUpdates(value: boolean) {
+      // A late update event can describe the preference from before Save.
+      // Only saved settings can authorize its resolved target for this footer.
+      includeBetaUpdates = value;
       refreshStatus();
     },
     setConnection(value: string) {
