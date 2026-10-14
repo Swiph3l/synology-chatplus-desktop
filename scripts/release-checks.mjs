@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { pathToFileURL } from "node:url";
+import { validateSourceCommit } from "./release-identity.mjs";
 
 export function requireWindowsJob(jobs) {
   const windows = jobs.filter((job) =>
@@ -15,10 +16,12 @@ export async function verifyChecks() {
     GH_TOKEN: token,
   } = process.env;
   assert.ok(repo && sha && token, "Missing GitHub release gate context");
+  const source = validateSourceCommit(process.env.GITHUB_REF_NAME, sha);
   async function api(path) {
     const response = await fetch(
       `https://api.github.com/repos/${repo}${path}`,
       {
+        signal: AbortSignal.timeout(20000),
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: "application/vnd.github+json",
@@ -33,10 +36,10 @@ export async function verifyChecks() {
   }
   for (const workflow of ["ci.yml", "codeql.yml", "security.yml"]) {
     const data = await api(
-      `/actions/workflows/${workflow}/runs?head_sha=${sha}&event=push&branch=main&per_page=100`,
+      `/actions/workflows/${workflow}/runs?head_sha=${source.commit}&event=push&branch=main&per_page=100`,
     );
     const run = data.workflow_runs
-      .filter((r) => r.head_sha === sha && r.head_branch === "main")
+      .filter((r) => r.head_sha === source.commit && r.head_branch === "main")
       .sort((a, b) => b.run_number - a.run_number)[0];
     assert.ok(run, `Missing ${workflow} run on main for the tagged commit`);
     if (workflow === "ci.yml") {

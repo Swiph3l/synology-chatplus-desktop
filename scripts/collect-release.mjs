@@ -6,6 +6,10 @@ import {
   readFile,
 } from "node:fs/promises";
 import path from "node:path";
+import {
+  repositoryIdentity,
+  validateSourceCommit,
+} from "./release-identity.mjs";
 const target = process.argv[2];
 const extensions = {
   "windows-x86_64": ".exe",
@@ -28,6 +32,17 @@ if (candidates.length !== 1)
   );
 await mkdir("release-artifacts", { recursive: true });
 const { version } = JSON.parse(await readFile("package.json", "utf8"));
+let sourceCommit;
+if (process.env.GITHUB_REF_TYPE === "tag") {
+  const source = validateSourceCommit(
+    process.env.GITHUB_REF_NAME,
+    process.env.GITHUB_SHA,
+  );
+  const identity = repositoryIdentity(source.tag);
+  if (identity.version !== version)
+    throw new Error("Collected artifact version disagrees with release source");
+  sourceCommit = source.commit;
+}
 const file =
   target === "windows-x86_64"
     ? `${target}--ChatPlus-Desktop_${version}_x64-setup.exe`
@@ -56,5 +71,5 @@ await copyFile(
 );
 await writeFile(
   path.join("release-artifacts", `${target}--target.json`),
-  JSON.stringify({ target, file }) + "\n",
+  JSON.stringify({ target, file, version, sourceCommit }) + "\n",
 );
