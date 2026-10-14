@@ -435,7 +435,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         &[
             &themes(app)?,
             &PredefinedMenuItem::separator(app)?,
-            &item(app, Action::ZoomIn, "Zoom In", Some("CmdOrCtrl+Plus"))?,
+            &item(app, Action::ZoomIn, "Zoom In", Some("CmdOrCtrl+="))?,
             &item(app, Action::ZoomOut, "Zoom Out", Some("CmdOrCtrl+-"))?,
             &item(app, Action::ZoomReset, "Reset Zoom", Some("CmdOrCtrl+0"))?,
             &item(app, Action::Fullscreen, "Fullscreen", Some("F11"))?,

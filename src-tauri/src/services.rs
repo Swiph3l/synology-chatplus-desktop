@@ -507,6 +507,8 @@ fn create(app: &AppHandle, service: &ServiceConfig) -> Result<(), String> {
             service_size(size.width as f64 / scale, size.height as f64 / scale),
         )
         .map_err(|_| "Could not create service WebView. Check WebView2 installation.")?;
+    crate::native_shortcuts::attach(app, &view)
+        .map_err(|_| "Could not register service shortcuts.")?;
     crate::platform::observe_connection(app, &view, &service.id)
         .map_err(|_| "Could not observe service connection.")?;
     crate::downloads::attach(app, &view, &service.id)

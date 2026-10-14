@@ -7,6 +7,7 @@ mod diagnostics;
 mod downloads;
 mod i18n;
 mod menu;
+mod native_shortcuts;
 mod navigation;
 mod notification_bridge;
 mod platform;
@@ -14,6 +15,9 @@ mod project;
 mod providers;
 mod services;
 mod shell;
+mod single_instance;
+#[cfg(windows)]
+mod startup_guard;
 mod state;
 mod tray;
 mod unread;
@@ -24,21 +28,26 @@ mod version_format;
 mod window;
 use tauri::Manager;
 fn main() {
+    let context = tauri::generate_context!();
+    #[cfg(windows)]
+    let startup_guard = match startup_guard::acquire(&context.config().identifier) {
+        Ok(guard) => guard,
+        Err(message) => {
+            eprintln!("[single-instance] {message}");
+            std::process::exit(1);
+        }
+    };
     // Swiph3l: Reqwest with rustls-no-provider needs one global crypto backend before any client is built.
     let _ = rustls::crypto::ring::default_provider().install_default();
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
+        .manage(single_instance::Activation::default())
         // Swiph3l: ChatPlus Desktop must run as a single instance.
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
-            // Swiph3l: A second launch should restore the existing window, not start another client.
-            if crate::window::restore_existing(app).ok() == Some(true) {
-                return;
-            }
-            if app.try_state::<state::AppState>().is_some() {
-                let _ = crate::window::open(app);
-            }
+            single_instance::activate(app);
         }))
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_notification::init());
+    let app = builder
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -109,26 +118,35 @@ fn main() {
             desktop_notifications::icons(app.handle());
             menu::create(app.handle())?;
             tray::create(app.handle())?;
-            if std::env::args().any(|arg| arg == "--settings") {
-                shell::settings(app.handle())?;
-            } else {
+            // Configured Windows startup always owns Main, even when Settings is requested.
+            // A later EXE launch restores that existing Main without creating views.
+            let settings_requested = std::env::args().any(|arg| arg == "--settings");
+            if cfg!(windows) || !settings_requested {
                 window::open(app.handle()).map_err(std::io::Error::other)?;
             }
+            if settings_requested {
+                shell::settings(app.handle())?;
+            }
             updates::start(app.handle());
+            single_instance::ready(app.handle());
             Ok(())
         })
-        .build(tauri::generate_context!())
-        .expect("Could not start ChatPlus Desktop")
-        .run(|app, event| {
-            if let tauri::RunEvent::ExitRequested {
-                code: None, api, ..
-            } = event
-            {
-                // Swiph3l: ChatPlus Desktop must run as a single instance.
-                // Allow secondary single-instance launches to exit when no window exists.
-                if !app.windows().is_empty() {
-                    api.prevent_exit();
-                }
+        .build(context)
+        .expect("Could not start ChatPlus Desktop");
+    // The plugin IPC window is now registered; later processes can enter the
+    // official forwarding/exit path without racing its mutex/window creation.
+    #[cfg(windows)]
+    drop(startup_guard);
+    app.run(|app, event| {
+        if let tauri::RunEvent::ExitRequested {
+            code: None, api, ..
+        } = event
+        {
+            // Swiph3l: ChatPlus Desktop must run as a single instance.
+            // Allow secondary single-instance launches to exit when no window exists.
+            if !app.windows().is_empty() {
+                api.prevent_exit();
             }
-        });
+        }
+    });
 }
