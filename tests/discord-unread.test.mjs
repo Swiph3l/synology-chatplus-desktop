@@ -205,8 +205,8 @@ test("hover/selection cannot manufacture Discord unread or erase an ambiguous ag
     });
     assert.equal(
       clear.adapter.snapshot().hasUnread,
-      false,
-      "exact provider name proves clear independently of the UI locale",
+      null,
+      "selected/hovered name equality cannot prove hidden channels or threads read in any locale",
     );
     const unread = fixture({
       rows: guildRow({ pill, label: "Guild, localized unread status" }),
@@ -369,7 +369,18 @@ test("collapsed and expanded Discord folders preserve their provider aggregate m
     "#folder-items-42 [data-list-item-id]",
   );
   link.setAttribute("aria-label", "Guild");
-  assert.equal(expanded.adapter.snapshot().hasUnread, false);
+  assert.equal(
+    expanded.adapter.snapshot().hasUnread,
+    null,
+    "a selected child guild cannot prove the folder globally read",
+  );
+  expanded.document.querySelector("#folder-items-42 span").className =
+    "item__new";
+  assert.equal(
+    expanded.adapter.snapshot().hasUnread,
+    false,
+    "complete unselected child evidence can still prove read",
+  );
   link.setAttribute("aria-setsize", "2");
   assert.equal(
     expanded.adapter.snapshot().hasUnread,

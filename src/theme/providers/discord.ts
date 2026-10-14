@@ -177,7 +177,9 @@ function guildState(item: Element, document: Document): boolean | null {
     const name = item.closest("[data-dnd-name]")?.getAttribute("data-dnd-name");
     const label = item.getAttribute("aria-label");
     if (!name || !label) return null;
-    if (label === name) return false;
+    // Swiph3l: Selecting a guild can hide its pill/label suffix while other
+    // channels or threads remain unread. Name equality is not a global read proof.
+    if (label === name) return null;
     // Swiph3l: A guild label changes for unread/mentions or media. Without the public media badge the different label is unread; media suffixes remain unknown instead of parsing translated text.
     return semanticDescendant(wrapper, "iconBadge") ||
       semanticDescendant(wrapper, "unavailableBadge")
@@ -188,6 +190,8 @@ function guildState(item: Element, document: Document): boolean | null {
 }
 
 function conversationChannel(document: Document): string | null {
+  // Swiph3l: A thread has its own identity; its viewport cannot acknowledge the
+  // parent channel or unrelated threads merely because they share a route prefix.
   const path = document.defaultView?.location.pathname ?? "";
   const route = new RegExp(
     `^/channels/(?:@me|${snowflake})/(${snowflake})(?:/(?:threads/(${snowflake})|${snowflake}))?/?$`,
