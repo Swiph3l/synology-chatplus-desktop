@@ -41,6 +41,7 @@ fn provider_name(provider: ProviderId) -> &'static str {
         ProviderId::SynologyChat => "Synology Chat",
         ProviderId::Discord => "Discord",
         ProviderId::Whatsapp => "WhatsApp",
+        ProviderId::Messenger => "Messenger",
         ProviderId::Slack => "Slack",
         ProviderId::Mattermost => "Mattermost",
     }
@@ -122,6 +123,7 @@ fn provider_art(provider: ProviderId) -> tauri::Result<tauri::image::Image<'stat
         ProviderId::SynologyChat => include_bytes!("../../public/providers/synology-chat.png"),
         ProviderId::Discord => include_bytes!("../icons/providers/discord.png"),
         ProviderId::Whatsapp => include_bytes!("../icons/providers/whatsapp.png"),
+        ProviderId::Messenger => include_bytes!("../icons/providers/messenger.png"),
         _ => include_bytes!("../icons/128x128.png"),
     })
 }
@@ -372,6 +374,7 @@ mod tests {
             ProviderId::SynologyChat,
             ProviderId::Discord,
             ProviderId::Whatsapp,
+            ProviderId::Messenger,
         ] {
             let source = provider_art(provider).unwrap();
             let rgba = icon_rgba(&source, [18, 171, 239]);

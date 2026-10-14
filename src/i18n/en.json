@@ -354,5 +354,8 @@
   "services.whatsappReadUnsupported": "WhatsApp read actions are not available until a safe native Web interaction has been verified.",
   "services.whatsappMarkCurrentUnsupported": "Mark current chat as read is not supported by this integration yet.",
   "services.whatsappMarkAllUnsupported": "Mark all as read is not supported for WhatsApp.",
-  "errors.whatsappUrl": "WhatsApp web sessions require https://web.whatsapp.com/."
+  "errors.whatsappUrl": "WhatsApp web sessions require https://web.whatsapp.com/.",
+  "services.messengerExperimental": "Messenger Web integration is experimental. Facebook login is required.",
+  "services.messengerReadUnsupported": "Messenger read actions are not supported until a safe Web interaction is verified.",
+  "errors.messengerUrl": "Messenger web sessions require https://www.facebook.com/messages/."
 }

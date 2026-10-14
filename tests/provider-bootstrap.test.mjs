@@ -18,6 +18,7 @@ function fixture(provider, frame = false) {
     <div class="syno-chat"><div class="channel-list-main"><div class="channel-list-view"><div class="channel-list-item highlight"></div></div></div></div>
     <div data-list-id="private-channels-example"><span class="unreadPill_current"></span></div>
     <div id="pane-side"><div role="grid"><div role="row"><span data-testid="unread-count">2</span></div></div></div>
+    <div role="navigation"><div role="grid"><div role="row"><span aria-label="Unread"></span></div></div></div>
   </body></html>`);
   const bridge = bridgeMessages();
   const { messages, diagnostics } = bridge;
@@ -27,7 +28,7 @@ function fixture(provider, frame = false) {
     __chatplusProvider: provider,
     location: {
       href: "https://example.com/",
-      pathname: "/",
+      pathname: provider === "messenger" ? "/messages/" : "/",
       hash: "",
     },
     MutationObserver: dom.MutationObserver,
@@ -65,13 +66,22 @@ for (const [provider, source] of [
   ["synology-chat", "synology-chat-dom"],
   ["discord", "discord-dom"],
   ["whatsapp", "whatsapp-dom"],
+  ["messenger", "messenger-dom"],
 ]) {
   test(`${provider}: complete native bootstrap chooses its own adapter without injecting ChatPlus CSS`, () => {
     const f = fixture(provider);
-    assert.equal(f.messages.length, 1);
-    assert.equal(f.messages[0].source, source);
-    assert.equal(f.messages[0].hasUnread, true);
-    assert.equal(f.messages[0].acknowledgement, null);
+    if (provider === "messenger") {
+      assert.deepEqual(
+        f.messages,
+        [],
+        "unknown DOM does not manufacture a read state",
+      );
+    } else {
+      assert.equal(f.messages.length, 1);
+      assert.equal(f.messages[0].source, source);
+      assert.equal(f.messages[0].hasUnread, true);
+      assert.equal(f.messages[0].acknowledgement, null);
+    }
     assert.equal(typeof f.host.__chatplusSetForeground, "function");
     assert.equal(typeof f.host.__chatplusIsViewingNotification, "function");
     assert.equal(f.document.querySelector("#chatplus-desktop-theme"), null);

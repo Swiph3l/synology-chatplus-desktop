@@ -429,5 +429,8 @@
   "services.whatsappReadUnsupported": "Les actions de lecture de WhatsApp seront disponibles après vérification d’une interaction sûre avec son interface Web.",
   "services.whatsappMarkCurrentUnsupported": "Cette intégration ne permet pas encore de marquer la discussion actuelle comme lue.",
   "services.whatsappMarkAllUnsupported": "Tout marquer comme lu n’est pas pris en charge pour WhatsApp.",
-  "errors.whatsappUrl": "Les sessions Web WhatsApp nécessitent https://web.whatsapp.com/."
+  "errors.whatsappUrl": "Les sessions Web WhatsApp nécessitent https://web.whatsapp.com/.",
+  "services.messengerExperimental": "L’intégration de Messenger Web est expérimentale. Une connexion Facebook est nécessaire.",
+  "services.messengerReadUnsupported": "Les actions de lecture de Messenger seront disponibles après vérification d’une interaction Web sûre.",
+  "errors.messengerUrl": "Les sessions Web Messenger nécessitent https://www.facebook.com/messages/."
 }

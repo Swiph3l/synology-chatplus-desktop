@@ -10,6 +10,7 @@ pub enum ProviderId {
     Slack,
     Discord,
     Whatsapp,
+    Messenger,
     Mattermost,
 }
 
@@ -66,6 +67,14 @@ impl ProviderId {
                 notifications: true,
                 theme: false,
             },
+            Self::Messenger => ProviderDefinition {
+                display_name: "Messenger",
+                icon: "ME",
+                experimental: true,
+                unread: true,
+                notifications: true,
+                theme: false,
+            },
             Self::Mattermost => ProviderDefinition {
                 display_name: "Mattermost",
                 icon: "M",
@@ -83,6 +92,9 @@ impl ProviderId {
         if self == Self::Whatsapp && value.trim().is_empty() {
             return Ok("https://web.whatsapp.com/".into());
         }
+        if self == Self::Messenger && value.trim().is_empty() {
+            return Ok("https://www.facebook.com/messages/".into());
+        }
         let normalized = crate::state::normalize_server(value)?;
         let url = Url::parse(&normalized).map_err(|_| "Invalid service URL.")?;
         if self == Self::Slack && !slack_origin(&url) {
@@ -93,6 +105,11 @@ impl ProviderId {
         }
         if self == Self::Whatsapp && !whatsapp_origin(&url) {
             return Err("WhatsApp web sessions require https://web.whatsapp.com/.".into());
+        }
+        if self == Self::Messenger && !messenger_origin(&url) {
+            return Err(
+                "Messenger web sessions require https://www.facebook.com/messages/.".into(),
+            );
         }
         Ok(normalized)
     }
@@ -106,9 +123,19 @@ impl ProviderId {
         if self == Self::Whatsapp {
             return whatsapp_origin(target);
         }
+        if self == Self::Messenger {
+            return messenger_origin(target);
+        }
         Url::parse(configured)
             .is_ok_and(|url| crate::navigation::same_server(target, &url.origin()))
     }
+}
+fn messenger_origin(url: &Url) -> bool {
+    url.scheme() == "https"
+        && url.port_or_known_default() == Some(443)
+        && url.host_str() == Some("www.facebook.com")
+        && url.username().is_empty()
+        && url.password().is_none()
 }
 fn whatsapp_origin(url: &Url) -> bool {
     url.scheme() == "https"
@@ -716,6 +743,77 @@ mod tests {
         assert!(!restored[0].notifications);
         assert!(restored[1].notifications);
         assert_eq!(restored[0].url, "https://web.whatsapp.com/");
+    }
+    #[test]
+    fn messenger_uses_current_official_origin_and_isolated_profiles() {
+        let provider = ProviderId::Messenger;
+        assert_eq!(
+            provider.validate_url("").unwrap(),
+            "https://www.facebook.com/messages/"
+        );
+        assert_eq!(
+            serde_json::from_str::<ProviderId>("\"messenger\"").unwrap(),
+            provider
+        );
+        assert_eq!(provider.definition().display_name, "Messenger");
+        assert!(provider.definition().experimental);
+        assert!(provider.definition().unread && provider.definition().notifications);
+        assert!(!provider.definition().theme);
+        for value in [
+            "https://www.facebook.com/messages/",
+            "https://www.facebook.com/login/",
+            "https://www.facebook.com/checkpoint/",
+            "https://www.facebook.com:443/messages/t/1/",
+        ] {
+            assert!(provider.validate_url(value).is_ok(), "{value}");
+            assert!(
+                provider.allows(
+                    "https://www.facebook.com/messages/",
+                    &Url::parse(value).unwrap()
+                ),
+                "{value}"
+            );
+        }
+        for value in [
+            "http://www.facebook.com/messages/",
+            "https://www.facebook.com:8443/messages/",
+            "https://facebook.com/messages/",
+            "https://m.facebook.com/messages/",
+            "https://www.facebook.com.evil.example/",
+            "https://www.messenger.com/",
+            "https://user:password@www.facebook.com/messages/",
+        ] {
+            assert!(provider.validate_url(value).is_err(), "{value}");
+            assert!(
+                !provider.allows(
+                    "https://www.facebook.com/messages/",
+                    &Url::parse(value).unwrap()
+                ),
+                "{value}"
+            );
+        }
+        let mut personal = profile_service("messenger-personal");
+        personal.provider = provider;
+        personal.notifications = true;
+        let mut work = personal.clone();
+        work.id = "messenger-work".into();
+        work.notifications = false;
+        let mut services = vec![personal, work];
+        normalize_services(&mut services).unwrap();
+        let root = std::path::Path::new("profiles");
+        assert_ne!(
+            services[0].profile_directory(root),
+            services[1].profile_directory(root)
+        );
+        let personal_profile = services[0].profile_directory(root);
+        services.swap(0, 1);
+        services[1].name = "Renamed".into();
+        let mut restored: Vec<ServiceConfig> =
+            serde_json::from_slice(&serde_json::to_vec(&services).unwrap()).unwrap();
+        normalize_services(&mut restored).unwrap();
+        assert_eq!(restored[1].profile_directory(root), personal_profile);
+        assert!(restored[1].notifications);
+        assert!(!restored[0].notifications);
     }
     #[test]
     fn slack_requires_exact_https_domain_boundary() {

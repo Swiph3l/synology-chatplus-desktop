@@ -4,6 +4,7 @@ export type ProviderId =
   | "slack"
   | "discord"
   | "whatsapp"
+  | "messenger"
   | "mattermost";
 export type NamedNotificationColor =
   | "auto"
@@ -81,6 +82,15 @@ export const providers = {
     urlMode: "fixed",
     urlLabel: "",
     defaultUrl: "https://web.whatsapp.com/",
+  },
+  messenger: {
+    name: "Messenger",
+    icon: "ME",
+    experimental: true,
+    notifications: true,
+    urlMode: "fixed",
+    urlLabel: "",
+    defaultUrl: "https://www.facebook.com/messages/",
   },
   mattermost: {
     name: "Mattermost",

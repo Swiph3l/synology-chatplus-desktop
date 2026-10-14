@@ -16,7 +16,12 @@ export interface ProviderNotification {
 }
 
 export interface ProviderUnreadAdapter {
-  source: "chatplus-dom" | "synology-chat-dom" | "discord-dom" | "whatsapp-dom";
+  source:
+    | "chatplus-dom"
+    | "synology-chat-dom"
+    | "discord-dom"
+    | "whatsapp-dom"
+    | "messenger-dom";
   snapshot(): ProviderUnreadSnapshot;
   observe(changed: () => void): () => void;
   readContext(): string | null;

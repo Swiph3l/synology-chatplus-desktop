@@ -6,6 +6,7 @@ const assets: Record<ProviderId, string> = {
   slack: "/providers/slack.svg",
   discord: "/providers/discord.svg",
   whatsapp: "/providers/whatsapp.svg",
+  messenger: "/providers/messenger.svg",
   mattermost: "/providers/mattermost.svg",
 };
 

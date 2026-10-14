@@ -81,6 +81,17 @@ function normalizedServiceUrl(service: ServiceConfig): string {
     )
       throw new Error(t("errors.whatsappUrl"));
   }
+  if (service.provider === "messenger") {
+    const url = new URL(value);
+    if (
+      url.protocol !== "https:" ||
+      url.hostname !== "www.facebook.com" ||
+      (url.port && url.port !== "443") ||
+      url.username ||
+      url.password
+    )
+      throw new Error(t("errors.messengerUrl"));
+  }
   return value;
 }
 
@@ -878,7 +889,9 @@ export function serviceEditor(
       experimentalHelp.textContent = t(
         draft.provider === "whatsapp"
           ? "services.whatsappExperimental"
-          : "services.ssoHelp",
+          : draft.provider === "messenger"
+            ? "services.messengerExperimental"
+            : "services.ssoHelp",
       );
       updateColors();
     }

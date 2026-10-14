@@ -12,6 +12,7 @@ pub enum Source {
     ChatPlusDom,
     SynologyChatDom,
     DiscordDom,
+    MessengerDom,
     WhatsappDom,
 }
 impl Source {
@@ -20,6 +21,7 @@ impl Source {
             Self::ChatPlusDom => "chatplus-dom",
             Self::SynologyChatDom => "synology-chat-dom",
             Self::DiscordDom => "discord-dom",
+            Self::MessengerDom => "messenger-dom",
             Self::WhatsappDom => "whatsapp-dom",
         }
     }
@@ -33,6 +35,7 @@ impl Source {
                 Self::SynologyChatDom,
                 crate::providers::ProviderId::SynologyChat
             ) | (Self::DiscordDom, crate::providers::ProviderId::Discord)
+                | (Self::MessengerDom, crate::providers::ProviderId::Messenger)
                 | (Self::WhatsappDom, crate::providers::ProviderId::Whatsapp)
         )
     }

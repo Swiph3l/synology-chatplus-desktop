@@ -164,11 +164,13 @@ export function renderOnboarding(
     description.textContent = t(
       id === "whatsapp"
         ? "services.whatsappExperimental"
-        : definition.urlMode === "fixed"
-          ? "onboarding.fixedService"
-          : definition.urlMode === "workspace"
-            ? "onboarding.workspaceService"
-            : "onboarding.serverService",
+        : id === "messenger"
+          ? "services.messengerExperimental"
+          : definition.urlMode === "fixed"
+            ? "onboarding.fixedService"
+            : definition.urlMode === "workspace"
+              ? "onboarding.workspaceService"
+              : "onboarding.serverService",
     );
     const badge = document.createElement("span");
     badge.className = "onboarding-support";

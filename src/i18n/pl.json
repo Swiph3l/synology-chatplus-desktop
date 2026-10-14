@@ -354,5 +354,8 @@
   "services.whatsappReadUnsupported": "Oznaczanie jako przeczytane w WhatsApp będzie dostępne po zweryfikowaniu bezpiecznej interakcji z interfejsem WWW.",
   "services.whatsappMarkCurrentUnsupported": "Ta integracja nie obsługuje jeszcze oznaczania bieżącego czatu jako przeczytanego.",
   "services.whatsappMarkAllUnsupported": "Oznaczanie wszystkiego jako przeczytane nie jest obsługiwane w WhatsApp.",
-  "errors.whatsappUrl": "Sesje internetowe WhatsApp wymagają https://web.whatsapp.com/."
+  "errors.whatsappUrl": "Sesje internetowe WhatsApp wymagają https://web.whatsapp.com/.",
+  "services.messengerExperimental": "Integracja z Messengerem jest eksperymentalna. Wymagane jest logowanie przez Facebook.",
+  "services.messengerReadUnsupported": "Oznaczanie jako przeczytane w Messengerze będzie dostępne po zweryfikowaniu bezpiecznej interakcji z interfejsem WWW.",
+  "errors.messengerUrl": "Sesje internetowe Messengera wymagają https://www.facebook.com/messages/."
 }

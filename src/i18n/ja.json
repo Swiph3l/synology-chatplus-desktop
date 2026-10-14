@@ -429,5 +429,8 @@
   "services.whatsappReadUnsupported": "WhatsApp の既読操作は、安全な Web 画面操作が確認されるまで利用できません。",
   "services.whatsappMarkCurrentUnsupported": "この連携では、現在のチャットを既読にする操作にまだ対応していません。",
   "services.whatsappMarkAllUnsupported": "WhatsApp ですべてを既読にする操作には対応していません。",
-  "errors.whatsappUrl": "WhatsApp の Web セッションには https://web.whatsapp.com/ が必要です。"
+  "errors.whatsappUrl": "WhatsApp の Web セッションには https://web.whatsapp.com/ が必要です。",
+  "services.messengerExperimental": "Messenger Web との連携は試験的な機能です。Facebook へのログインが必要です。",
+  "services.messengerReadUnsupported": "Messenger の既読操作は、安全な Web 画面操作が確認されるまで利用できません。",
+  "errors.messengerUrl": "Messenger の Web セッションには https://www.facebook.com/messages/ が必要です。"
 }

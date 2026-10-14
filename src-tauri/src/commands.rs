@@ -384,6 +384,7 @@ pub fn get_providers(
         ProviderId::Discord,
         ProviderId::Mattermost,
         ProviderId::Whatsapp,
+        ProviderId::Messenger,
     ]
     .into_iter()
     .map(|id| id.definition())
