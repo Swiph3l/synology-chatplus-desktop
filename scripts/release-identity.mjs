@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
 import { validVersion, manifestName } from "./updater-metadata.mjs";
+
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 export function validateIdentity(tag, versions) {
   const version = versions[0];
@@ -42,10 +45,14 @@ export function validateSigning(project, key) {
   );
   assert.ok(key?.trim(), "Missing TAURI_SIGNING_PRIVATE_KEY secret");
 }
-export function repositoryIdentity(tag) {
-  const json = (file) => JSON.parse(readFileSync(file, "utf8"));
-  const cargo = readFileSync("src-tauri/Cargo.toml", "utf8");
-  const lock = readFileSync("src-tauri/Cargo.lock", "utf8");
+export function repositoryIdentity(
+  tag,
+  { repositoryRoot: root = repositoryRoot } = {},
+) {
+  const read = (file) => readFileSync(resolve(root, file), "utf8");
+  const json = (file) => JSON.parse(read(file));
+  const cargo = read("src-tauri/Cargo.toml");
+  const lock = read("src-tauri/Cargo.lock");
   const npmLock = json("package-lock.json");
   return validateIdentity(tag, [
     json("package.json").version,
@@ -56,7 +63,11 @@ export function repositoryIdentity(tag) {
     /name = "chatplus-desktop"\r?\nversion = "([^"]+)"/.exec(lock)?.[1],
   ]);
 }
-export function validateSourceCommit(tag, eventSha) {
+export function validateSourceCommit(
+  tag,
+  eventSha,
+  { repositoryRoot: root = repositoryRoot } = {},
+) {
   assert.match(
     eventSha ?? "",
     /^[a-f0-9]{40}$/i,
@@ -68,6 +79,7 @@ export function validateSourceCommit(tag, eventSha) {
   );
   const git = (revision) =>
     execFileSync("git", ["rev-parse", "--verify", revision], {
+      cwd: root,
       encoding: "utf8",
     }).trim();
   const commit = git(`${eventSha}^{commit}`);
@@ -140,7 +152,7 @@ if (
     );
   } else {
     validateSigning(
-      JSON.parse(readFileSync("project.json", "utf8")),
+      JSON.parse(readFileSync(resolve(repositoryRoot, "project.json"), "utf8")),
       process.env.TAURI_SIGNING_PRIVATE_KEY,
     );
   }
