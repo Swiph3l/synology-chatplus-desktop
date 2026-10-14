@@ -2,6 +2,65 @@
 
 All notable changes will be documented here. Versions follow Semantic Versioning.
 
+## 0.5.0-beta.6 - development candidate
+
+### Added
+
+- Compact Services Manager cards and separate add, edit and confirmed removal
+  dialogs, with independent drafts for duplicate provider instances.
+- Service ordering with drag handles, move controls and keyboard navigation;
+  sidebar icons also support holding for two seconds and dragging up or down.
+- Per-service notification colors, including RGB/HEX controls and random color
+  selection, retained with each service's stable identity.
+- A compact status-bar update button showing the updater's resolved target after
+  a successful check, with a tooltip and keyboard access to Settings -> Updates.
+- Complete German, French, Japanese and Traditional Chinese interfaces alongside
+  English, Polish and Spanish, including Settings and native menus.
+
+### Changed
+
+- Replace the update-channel selector with **Include beta updates**, off by default.
+  Existing Stable preferences migrate to off; Beta/Pre-release preferences migrate
+  to on without resetting services or settings.
+- All update checks select from published GitHub Releases using SemVer precedence.
+  Beta opt-in considers stable and prerelease versions together; drafts and
+  unpublished releases are excluded, and older versions are never offered.
+- Refine Settings service controls, update metadata, release-note layout, draft
+  feedback and keyboard focus.
+- Compact the Settings tabs, controls and fixed footer, align Theme and Language,
+  and group startup and window preferences with less vertical space.
+
+### Fixed
+
+- Keep the first service created by Connect on a fresh profile, including profiles
+  already using the current service schema.
+- Preserve applied Settings drafts until Save, including removal, ordering, colors
+  and explicit per-service notification edits during external settings changes.
+- Persist settings through atomic replacement and retain the original profile if
+  migration cannot be saved.
+- Keep update manifests, Windows installer assets, signatures and installation
+  confirmation bound to the selected release and saved beta preference.
+- Invalidate cached updates and verified downloads when the beta preference changes;
+  delayed events cannot restore a disallowed beta status-bar button.
+- Treat repositories without a newer eligible stable release as a successful
+  no-update check instead of a missing stable-feed error.
+- Serialize Windows startup and queue repeated-launch activation outside WebView
+  focus callbacks, retaining requests received before setup completes.
+
+### Security
+
+- Update the pinned CodeQL action to v4.38.3.
+- Pin release jobs to the triggering commit, validate tag/source identity and
+  artifact provenance, and require collected updater signatures to verify against
+  the configured public key before upload.
+
+This is an unpublished prerelease candidate, **not release-ready**. GLib 0.18.5
+remains in the Linux dependency graph, and a signed beta.6 installation/restart
+has not been validated. Beta.6 must be published as a
+prerelease with valid signed assets before eligible users can receive it. The final
+readiness decision and remaining native acceptance gates are recorded in
+[Development status](docs/DEVELOPMENT_STATUS.md).
+
 ## 0.5.0-beta.4 - development candidate
 
 ### Fixed

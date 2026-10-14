@@ -1,6 +1,6 @@
 # Updater and release architecture
 
-Rust owns checks, channel eligibility, metadata, progress/cancellation and verified
+Rust owns checks, release eligibility, metadata, progress/cancellation and verified
 bytes. The local update panel reads snapshots and requests actions; remote provider
 views have no updater permissions. The official Tauri updater verifies signatures
 before bytes can become installable, and installation requires user confirmation.
@@ -15,19 +15,46 @@ cached state without requesting GitHub. Manual checks show errors and allow retr
 automatic errors stay quiet. Busy checking/downloading/ready/installing operations
 share a locked gate.
 
-## Stable and Pre-release channels
+## Include beta updates
 
-Stable accepts production releases only, via GitHub's latest-release `latest.json`.
-Pre-release examines at most 100 published releases, chooses the highest eligible
-SemVer and accepts both beta/RC and newer stable versions. The saved channel never
-changes automatically. Drafts and missing eligible metadata are skipped.
+Settings exposes one preference, **Include beta updates**, which defaults to off.
+When off, only published stable GitHub Releases are eligible: both prerelease tags
+and releases marked prerelease are excluded. When on, published stable releases
+and alpha/beta/RC releases are eligible together. Drafts and unpublished releases
+are always excluded. Tags without a published GitHub Release, the changelog and
+source package versions are never remote update candidates.
+
+One shared release-selection function chooses the highest compatible version by
+normal SemVer precedence, strictly greater than the installed version. Publication
+date and GitHub list order do not override version precedence. Thus, with beta
+updates enabled, `0.6.0-beta.1` wins over `0.5.1`; `0.5.0` wins over
+`0.5.0-beta.6`; and `beta.10` follows `beta.6`. With beta updates off, an installed
+`0.5.0-beta.5` never downgrades to stable `0.4.9`, but can upgrade to stable `0.5.0`.
+Build metadata alone cannot make an upgrade. Startup, scheduled and manual checks
+all use this same selection path.
+
+Pagination is bounded to ten pages of 100 releases; an incomplete query reports an
+error instead of declaring the installation current. The saved preference never
+changes automatically. The new `includeBetaUpdates` boolean takes precedence over
+legacy settings; old `updateChannel: stable` migrates to false and old beta or
+pre-release values migrate to true. Missing preferences default to false. Migration
+preserves other settings and the last-check timestamp.
+No newer eligible release is a successful check, including repositories without a
+stable release. A newer eligible release with a missing manifest or package is an
+error, rather than a reason to silently select an older release.
 
 Stable tags produce `latest.json`; prerelease tags produce
 `latest-prerelease.json`. The selected release version determines the manifest,
-while the saved channel controls eligibility. Versions must be strictly newer by
-SemVer precedence; build metadata alone cannot make an upgrade. A channel change
+while the saved beta preference controls eligibility. A preference change
 invalidates in-flight results and previously verified downloads, even if changed
 away and back while requests are pending.
+The selected tag, full manifest version (including build metadata), published
+Windows x64 setup URL and signature asset must agree before an update is offered.
+Installation consent is bound to the exact version and beta preference under the updater
+lock. Settings blocks restart while its local draft has unsaved changes.
+The compact status-bar button uses only a successfully resolved allowed target;
+turning beta updates off immediately invalidates a cached beta target. Changing an
+unsaved checkbox does not affect checks until Settings is saved.
 
 ## Signature and transport policy
 
@@ -36,7 +63,9 @@ Use the complete base64-wrapped Tauri public-key file; the runtime and CLI decod
 that format internally. Initial download URLs must match the configured GitHub
 release path; redirects remain HTTPS. Downloads have a 512 MiB cap and show actual
 progress. Cancellation/stale-result guards keep rejected bytes out of ready/install.
-Never bypass TLS, signature verification or version/channel rechecks.
+The installer transfer has an explicit timeout as well as the metadata requests.
+Cancellation is rechecked after signature verification, before bytes become ready.
+Never bypass TLS, signature verification or version/preference rechecks.
 
 The private signing key and password belong outside source and reach only the
 explicit signed release build. Updater signatures are separate from Windows
@@ -55,6 +84,11 @@ source versions, Windows x64 host, production signing configuration and required
 CodeQL/security checks on the tagged main commit. It builds NSIS, collects actual
 artifacts/signatures, creates SBOMs/channel metadata/checksums and public attestations,
 then creates a **draft**. Publishing that draft is a separate maintainer action.
+Both jobs pin their checkout to the workflow event commit and validate the peeled
+tag against it. Collected target metadata carries version/source-commit provenance,
+which the manifest job checks before generating updater metadata. The release job
+also schedules the existing production signature verifier against the collected
+setup before uploading it; this audit has not run that verifier or any workflow.
 Branch development must stay lightweight and never creates release artifacts.
 Do not create a tag or publish as part of a reliability pass.
 

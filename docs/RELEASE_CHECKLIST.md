@@ -9,7 +9,7 @@ artifact hashes for each candidate. Never equate an unchecked item with PASS.
 - [ ] Select a reviewed, committed source revision; no private changes or files.
 - [ ] Complete [multi-service development gates](DEVELOPMENT_STATUS.md): migration, profiles, child-WebView layout, switching, single-instance restore and native notifications.
 - [ ] Capture [fresh screenshots](screenshots/README.md) from the actual candidate, including the metadata-derived About version.
-- [ ] Check beta/RC-to-stable updater eligibility without changing the saved channel.
+- [ ] Check beta/RC-to-stable updater eligibility with **Include beta updates** both off and on; verify no downgrade and no draft release is offered.
 - [ ] Align Cargo/npm/Tauri versions, release notes and eventual tag.
 - [ ] Run `npm ci`, `npm run format:check`, `npm run typecheck`, `npm test`.
 - [ ] Run `npm run build` and `npm run check:release`.

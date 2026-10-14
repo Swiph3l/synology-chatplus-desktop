@@ -412,11 +412,11 @@ artifacts or publish a release merely to run this checklist.
 3. While a check is pending, request a manual check. Verify there is only one
    request and the Updates section shows its state. Use instrumented/fake-clock
    scheduler tests for the six-hour boundary; do not wait six hours in unit tests.
-4. On Stable, expose a newer beta/RC and verify it is excluded. Expose a newer
+4. With **Include beta updates** off, expose a newer beta/RC and verify it is excluded. Expose a newer
    stable version and verify it is accepted.
-5. On Pre-release, verify beta.3 → beta.4, beta.4 → 0.5.0 and 0.5.0 → 0.5.1
-   ordering. Change channel during a pending request/download; verify an old
-   result cannot overwrite the new channel or become installable.
+5. With **Include beta updates** on, verify beta.3 → beta.4, beta.4 → 0.5.0 and 0.5.0 → 0.6.0-beta.1
+   ordering. Change the beta preference during a pending request/download; verify an old
+   result cannot overwrite the new preference or become installable. Exclude drafts in both modes.
 6. Choose **Check for Updates** manually and verify progress, installed version,
    result and release notes in the Updates section.
 7. Disconnect networking or return a temporary endpoint error. Verify startup
@@ -670,7 +670,7 @@ resolution have not been manually verified for this revision.
 
 - Enable optional automatic checks: one startup check after ten seconds, then at most
   six-hour attempts; manual check remains usable, and offline automatic failure is quiet.
-- Check Stable versus Pre-release eligibility and channel changes during check/download.
+- Check **Include beta updates** off/on eligibility and preference changes during check/download.
 - Use an authorized signed installer for download/cancel/signature rejection and explicit
   install/restart acceptance; preserve profile/login data. This checklist does not
   authorize making a tag, publishing an artifact or changing signing keys.
