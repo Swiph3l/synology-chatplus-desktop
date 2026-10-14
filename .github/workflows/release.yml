@@ -1,4 +1,4 @@
-﻿name: Windows signed draft release
+name: Windows signed draft release
 on:
   push:
     tags: ["v*"]
@@ -18,7 +18,7 @@ jobs:
           fetch-depth: 0
           # Pin the event commit; a tag moved after the event must fail identity checks.
           ref: ${{ github.sha }}
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6 (Node 24)
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v6 (Node 24)
         with:
           node-version: 22
           cache: npm
@@ -98,7 +98,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
           ref: ${{ github.sha }}
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6 (Node 24)
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v6 (Node 24)
         with:
           node-version: 22
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7 (Node 24)
