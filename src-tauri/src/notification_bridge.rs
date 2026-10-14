@@ -81,7 +81,7 @@ pub async fn enable_permission(app: &tauri::AppHandle) -> Result<(), String> {
             .ok_or("Open ChatPlus first, then enable notifications.")?;
         let settings = crate::state::current(app);
         let service = settings.active().ok_or("Open a service first.")?;
-        if !service.provider.definition().notifications {
+        if !service.supports_notifications() {
             return Err("Desktop notifications are unavailable for this provider.".into());
         }
         let server = service.url.clone();
@@ -260,7 +260,7 @@ impl PendingNotification {
             crate::unread::accept_read_for(app, &self.service.id, &[self.generation]);
             return false;
         }
-        let viewed = if self.service.provider.definition().unread {
+        let viewed = if self.service.supports_unread() {
             crate::unread::incoming_for(
                 app,
                 &self.service.id,
@@ -435,7 +435,7 @@ pub fn attach(
                 let mut json = PWSTR::null();
                 args.TryGetWebMessageAsString(&mut json)?;
                 let json = CoTaskMemPWSTR::from(json).to_string();
-                if unread_service.provider.definition().unread {
+                if unread_service.supports_unread() {
                     if let Some(unread) = parse_unread(&json) {
                         crate::unread::publish_for(
                             &unread_app,
@@ -476,7 +476,7 @@ pub fn attach(
                     args.SenderOrigin(&mut origin)?;
                     let origin = CoTaskMemPWSTR::from(origin).to_string();
                     if !crate::services::configured(&notify_app, &notify_service)
-                        || !notify_service.provider.definition().notifications
+                        || !notify_service.supports_notifications()
                         || !trusted_origin(&notify_service.url, &origin)
                     {
                         return Ok(());
@@ -574,7 +574,7 @@ pub fn attach(
                         .services
                         .iter()
                         .any(|s| s.id == permission_service.id && s.notifications)
-                    && permission_service.provider.definition().notifications
+                    && permission_service.supports_notifications()
                     && trusted_origin(&permission_service.url, &uri)
                     && notifications::permission(&permission_app).granted;
                 // Swiph3l: The saved notification preference authorizes only this configured origin; other permission kinds retain WebView policy.

@@ -18,6 +18,7 @@ mod state;
 mod tray;
 mod unread;
 mod updates;
+mod validation_fixture;
 #[cfg(test)]
 mod version_format;
 mod window;
@@ -61,12 +62,14 @@ fn main() {
             commands::get_connection_state,
             commands::get_unread_state,
             commands::activate_service,
+            commands::reorder_services,
             commands::open_settings,
             commands::show_service_context_menu,
             commands::take_service_settings_target,
             commands::remove_service,
             commands::close_settings,
             commands::get_providers,
+            commands::get_validation_fixture_service_ids,
             commands::get_notification_permission,
             commands::open_notification_settings,
             commands::send_test_notification,
@@ -93,6 +96,7 @@ fn main() {
             commands::developer_action
         ])
         .setup(|app| {
+            validation_fixture::initialize(&app.config().identifier);
             let settings = state::load(app.handle())?;
             app.manage(state::AppState(std::sync::Mutex::new(settings)));
             app.manage(state::Status::default());

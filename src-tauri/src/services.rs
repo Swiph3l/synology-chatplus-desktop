@@ -113,13 +113,72 @@ pub fn activate(app: &AppHandle, id: &str) -> Result<(), String> {
     state::persist(app, settings)?;
     show(app)
 }
+
+fn reorder_configuration(settings: &mut state::Settings, ids: &[String]) -> Result<bool, String> {
+    let enabled: Vec<_> = settings
+        .services
+        .iter()
+        .filter(|service| service.enabled)
+        .collect();
+    let unique: std::collections::HashSet<_> = ids.iter().map(String::as_str).collect();
+    if ids.len() != enabled.len()
+        || unique.len() != ids.len()
+        || enabled
+            .iter()
+            .any(|service| !unique.contains(service.id.as_str()))
+    {
+        return Err("Services changed. Try ordering them again.".into());
+    }
+    if enabled
+        .iter()
+        .zip(ids)
+        .all(|(service, id)| service.id == *id)
+    {
+        return Ok(false);
+    }
+    let reordered: Vec<ServiceConfig> = ids
+        .iter()
+        .map(|id| (**enabled.iter().find(|service| service.id == *id).unwrap()).clone())
+        .collect();
+    // Disabled services retain their full-list slots; the rail orders enabled entries only.
+    let mut reordered = reordered.into_iter();
+    for service in settings
+        .services
+        .iter_mut()
+        .filter(|service| service.enabled)
+    {
+        *service = reordered.next().unwrap();
+    }
+    Ok(true)
+}
+
+pub fn reorder(app: &AppHandle, ids: &[String]) -> Result<state::Settings, String> {
+    let lifecycle = app.state::<Lifecycle>();
+    let _transition = lifecycle
+        .0
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    // Apply only order to the authoritative state, preserving current preferences and session IDs.
+    let mut settings = state::current(app);
+    if reorder_configuration(&mut settings, ids)? {
+        state::persist(app, settings)?;
+    }
+    // Persistence broadcasts Settings and rail snapshots without recreating/focusing provider views.
+    Ok(state::current(app))
+}
 pub fn save(app: &AppHandle, settings: state::Settings) -> Result<(), String> {
     let lifecycle = app.state::<Lifecycle>();
     let _transition = lifecycle.0.lock().unwrap_or_else(|e| e.into_inner());
     // Swiph3l: Persist and reconcile under one lock so removal cannot race service activation or mute.
     let old = state::current(app);
     state::persist(app, settings)?;
-    reconcile_current(app, &old)
+    reconcile_current(app, &old).map_err(|error| {
+        if error.starts_with("Settings saved.") {
+            error
+        } else {
+            format!("Settings saved. Restart to apply service changes. {error}")
+        }
+    })
 }
 
 pub(crate) fn update_notification_config(
@@ -132,7 +191,7 @@ pub(crate) fn update_notification_config(
         .iter_mut()
         .find(|service| service.id == id && service.enabled)
         .ok_or("Choose an enabled configured service.")?;
-    if !service.provider.definition().notifications {
+    if !service.supports_notifications() {
         return Err("Desktop notifications are not supported for this provider.".into());
     }
     service.notifications = enabled;
@@ -177,6 +236,7 @@ mod removal_tests {
                     url: "https://example.com/chat/".into(),
                     enabled: true,
                     notifications: true,
+                    notification_color: crate::providers::NotificationColor::Auto,
                 })
                 .collect(),
             ..Default::default()
@@ -250,6 +310,75 @@ mod removal_tests {
             serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
         restarted.migrate_services().unwrap();
         assert_eq!(restarted.services, settings.services);
+    }
+
+    #[test]
+    fn rail_reordering_preserves_disabled_slots_profiles_active_and_preferences() {
+        let mut settings = settings();
+        let mut hidden = settings.services[0].clone();
+        hidden.id = "hidden".into();
+        hidden.enabled = false;
+        hidden.notifications = false;
+        settings.services.insert(1, hidden.clone());
+        settings.theme = state::Theme::Dark;
+        settings.unread_title = false;
+        let profiles: Vec<_> = settings
+            .services
+            .iter()
+            .map(|service| {
+                (
+                    service.id.clone(),
+                    service.profile_directory(std::path::Path::new("profiles")),
+                )
+            })
+            .collect();
+        assert!(reorder_configuration(&mut settings, &["second".into(), "first".into()]).unwrap());
+        assert_eq!(
+            settings
+                .services
+                .iter()
+                .map(|service| service.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["second", "hidden", "first"]
+        );
+        assert_eq!(settings.services[1], hidden);
+        assert_eq!(settings.active_service.as_deref(), Some("first"));
+        assert!(matches!(settings.theme, state::Theme::Dark));
+        assert!(!settings.unread_title);
+        for service in &settings.services {
+            assert_eq!(
+                service.profile_directory(std::path::Path::new("profiles")),
+                profiles.iter().find(|(id, _)| id == &service.id).unwrap().1
+            );
+        }
+        let restarted: state::Settings =
+            serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(restarted.services, settings.services);
+        assert!(!reorder_configuration(&mut settings, &["second".into(), "first".into()]).unwrap());
+    }
+
+    #[test]
+    fn rail_reordering_rejects_stale_missing_duplicate_disabled_and_unknown_ids_atomically() {
+        let original = settings();
+        for ids in [
+            vec!["first"],
+            vec!["first", "first"],
+            vec!["first", "unknown"],
+            vec!["first", "second", "extra"],
+            vec![],
+        ] {
+            let mut current = original.clone();
+            let before = serde_json::to_value(&current).unwrap();
+            assert!(reorder_configuration(
+                &mut current,
+                &ids.into_iter().map(String::from).collect::<Vec<_>>()
+            )
+            .is_err());
+            assert_eq!(serde_json::to_value(&current).unwrap(), before);
+        }
+        let mut current = original;
+        current.services[1].enabled = false;
+        assert!(reorder_configuration(&mut current, &["second".into(), "first".into()]).is_err());
     }
 }
 
@@ -359,11 +488,11 @@ fn create(app: &AppHandle, service: &ServiceConfig) -> Result<(), String> {
             include_str!("../theme-bootstrap.js")
         ));
     }
-    if service.provider.definition().unread {
+    if service.supports_unread() {
         // Swiph3l: Unread adapters are provider-specific and independent of theme support; Discord and Synology Chat must never receive ChatPlus styling.
         builder = builder.initialization_script(format!(
             "window.__chatplusProvider = {};\n{}",
-            serde_json::to_string(&service.provider).unwrap(),
+            serde_json::to_string(&service.unread_source_provider()).unwrap(),
             include_str!("../unread-bootstrap.js")
         ));
     }

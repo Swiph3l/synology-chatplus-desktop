@@ -7,7 +7,6 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_opener::OpenerExt;
-use tauri_plugin_store::StoreExt;
 use tauri_plugin_updater::{Update, Updater, UpdaterExt};
 use tokio::sync::Notify;
 
@@ -443,10 +442,7 @@ pub async fn check(app: &AppHandle, _manual: bool) -> Result<Snapshot, String> {
                 inner.update = update;
                 let checked_at = now();
                 inner.snapshot.last_successful_check = Some(checked_at);
-                if let Ok(store) = app.store("settings.json") {
-                    store.set("lastUpdateCheck", checked_at);
-                    let _ = store.save();
-                }
+                let _ = state::persist_value(app, "lastUpdateCheck", checked_at.into());
             }
             Err(error) => {
                 inner.check_failed(error);
@@ -621,8 +617,8 @@ pub fn open_release_page(app: &AppHandle) -> Result<(), String> {
         .map_err(|_| "Could not open release notes.".into())
 }
 pub fn start(app: &AppHandle) {
-    if let Ok(store) = app.store("settings.json") {
-        let last = store.get("lastUpdateCheck").and_then(|v| v.as_u64());
+    if let Ok(value) = state::stored_value(app, "lastUpdateCheck") {
+        let last = value.and_then(|v| v.as_u64());
         app.state::<Service>()
             .0
             .lock()

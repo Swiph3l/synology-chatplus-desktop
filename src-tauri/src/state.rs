@@ -6,6 +6,94 @@ use tauri_plugin_store::StoreExt;
 
 pub const AUTOSTART_ENTRY_NAME: &str = "ChatPlus Desktop";
 
+static SETTINGS_STORE_WRITE: Mutex<()> = Mutex::new(());
+
+struct SettingsStore(std::sync::Arc<tauri_plugin_store::Store<tauri::Wry>>);
+
+fn with_settings_store<T>(
+    app: &AppHandle,
+    action: impl FnOnce(&tauri_plugin_store::Store<tauri::Wry>) -> Result<T, String>,
+) -> Result<T, String> {
+    let _write = SETTINGS_STORE_WRITE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if app.try_state::<SettingsStore>().is_none() {
+        let store = app
+            .store_builder("settings.json")
+            .disable_auto_save()
+            .build()
+            .map_err(|_| "Could not open settings store.")?;
+        // Keep the same store/cache in application state, but remove the plugin's
+        // automatic exit writer, which otherwise bypasses atomic replacement.
+        store.close_resource();
+        // StoreBuilder suppresses load failures. Never let an unreadable or
+        // malformed existing file become an empty profile that migration saves.
+        let target = tauri_plugin_store::resolve_store_path(app, "settings.json")
+            .map_err(|_| "Could not resolve settings store.")?;
+        if target
+            .try_exists()
+            .map_err(|_| "Could not read settings store.")?
+        {
+            store
+                .reload_ignore_defaults()
+                .map_err(|_| "Could not read settings store.")?;
+        }
+        app.manage(SettingsStore(store));
+    }
+    let store = app.state::<SettingsStore>();
+    action(&store.0)
+}
+
+pub fn stored_value(app: &AppHandle, key: &str) -> Result<Option<serde_json::Value>, String> {
+    with_settings_store(app, |store| Ok(store.get(key)))
+}
+
+pub fn persist_value(app: &AppHandle, key: &str, value: serde_json::Value) -> Result<(), String> {
+    use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_TEMPORARY: AtomicU64 = AtomicU64::new(0);
+    with_settings_store(app, |store| {
+        // Keep the existing store object and all unrelated keys, including the
+        // updater timestamp. Only a complete replacement reaches the disk/cache.
+        let mut entries: std::collections::BTreeMap<_, _> = store.entries().into_iter().collect();
+        entries.insert(key.to_owned(), value.clone());
+        let bytes = serde_json::to_vec_pretty(&entries).map_err(|_| "Invalid settings.")?;
+        let target = tauri_plugin_store::resolve_store_path(app, "settings.json")
+            .map_err(|_| "Could not resolve settings store.")?;
+        let directory = target.parent().ok_or("Could not resolve settings store.")?;
+        std::fs::create_dir_all(directory).map_err(|_| "Could not save settings.")?;
+        let (temporary, mut file) = loop {
+            let serial = NEXT_TEMPORARY.fetch_add(1, Ordering::Relaxed);
+            let temporary =
+                directory.join(format!(".settings-{}-{serial}.tmp", std::process::id()));
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temporary)
+            {
+                Ok(file) => break (temporary, file),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(_) => return Err("Could not save settings.".into()),
+            }
+        };
+        let result = (|| -> std::io::Result<()> {
+            file.write_all(&bytes)?;
+            file.sync_all()?;
+            // Windows must not keep the temporary file open while replacing the
+            // existing file. Both files are on the same volume.
+            drop(file);
+            std::fs::rename(&temporary, &target)
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(&temporary);
+            return Err("Could not save settings.".into());
+        }
+        store.set(key, value);
+        Ok(())
+    })
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Language {
@@ -127,6 +215,7 @@ impl Settings {
                 url: self.server_url.clone(),
                 enabled: true,
                 notifications: true,
+                notification_color: crate::providers::NotificationColor::Auto,
             });
         }
         crate::providers::normalize_services(&mut self.services)?;
@@ -182,9 +271,7 @@ pub fn normalize_server(value: &str) -> Result<String, String> {
     Ok(url.into())
 }
 pub fn load(app: &AppHandle) -> Result<Settings, Box<dyn std::error::Error>> {
-    let store = app.store("settings.json")?;
-    let mut settings: Settings = store
-        .get("settings")
+    let mut settings: Settings = stored_value(app, "settings")?
         .map(serde_json::from_value)
         .transpose()?
         .unwrap_or_default();
@@ -193,14 +280,10 @@ pub fn load(app: &AppHandle) -> Result<Settings, Box<dyn std::error::Error>> {
     }
     settings.notification_cooldown =
         normalize_notification_cooldown_seconds(settings.notification_cooldown);
-    let before_migration = settings.clone();
     match settings.migrate_services() {
         Ok(true) => {
-            store.set("settings", serde_json::to_value(&settings)?);
             // Swiph3l: A failed migration write must retain the original profile for the next launch.
-            if store.save().is_err() {
-                store.set("settings", serde_json::to_value(before_migration)?);
-            }
+            let _ = persist_value(app, "settings", serde_json::to_value(&settings)?);
         }
         Ok(false) => {}
         Err(_) => {
@@ -224,9 +307,7 @@ pub fn persist(app: &AppHandle, mut settings: Settings) -> Result<(), String> {
     settings.migrate_services()?;
     settings.notification_cooldown =
         normalize_notification_cooldown_seconds(settings.notification_cooldown);
-    let store = app
-        .store("settings.json")
-        .map_err(|_| "Could not open settings store.")?;
+    let value = serde_json::to_value(&settings).map_err(|_| "Invalid settings.")?;
     let launch = app.autolaunch();
     let was_enabled = launch
         .is_enabled()
@@ -245,18 +326,13 @@ pub fn persist(app: &AppHandle, mut settings: Settings) -> Result<(), String> {
             println!("autostart: self-heal skipped ({error})");
         }
     }
-    store.set(
-        "settings",
-        serde_json::to_value(&settings).map_err(|_| "Invalid settings.")?,
-    );
-    if store.save().is_err() {
-        store.set("settings", serde_json::to_value(&old).unwrap());
+    if let Err(error) = persist_value(app, "settings", value) {
         let _ = if was_enabled {
             launch.enable()
         } else {
             launch.disable()
         };
-        return Err("Could not save settings.".into());
+        return Err(error);
     }
     *app.state::<AppState>()
         .0

@@ -95,7 +95,8 @@ pub async fn save_settings(
 ) -> Result<(), String> {
     local(&window, &["settings"])?;
     crate::services::save(&app, settings)?;
-    window::apply_theme(&app)?;
+    window::apply_theme(&app)
+        .map_err(|error| format!("Settings saved. Restart to apply the theme. {error}"))?;
     // Swiph3l: Keep Settings visible after Save so users can continue editing multiple options.
     window::focus(&window.as_ref().window())
         .map_err(|_| "Settings saved, but Settings could not be focused.".into())
@@ -248,6 +249,15 @@ pub async fn activate_service(
     crate::services::activate(&app, &id)
 }
 #[tauri::command]
+pub fn reorder_services(
+    window: tauri::Webview,
+    app: tauri::AppHandle,
+    ids: Vec<String>,
+) -> Result<Settings, String> {
+    local_view(&window, &["main"])?;
+    crate::services::reorder(&app, &ids)
+}
+#[tauri::command]
 pub async fn open_settings(
     window: tauri::Webview,
     app: tauri::AppHandle,
@@ -319,6 +329,20 @@ pub async fn close_settings(window: tauri::WebviewWindow) -> Result<(), String> 
     window
         .close()
         .map_err(|_| "Could not close Settings.".into())
+}
+
+#[tauri::command]
+pub fn get_validation_fixture_service_ids(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+) -> Result<Vec<String>, String> {
+    local(&window, &["settings"])?;
+    Ok(crate::state::current(&app)
+        .services
+        .into_iter()
+        .filter(crate::validation_fixture::mattermost)
+        .map(|service| service.id)
+        .collect())
 }
 
 #[tauri::command]

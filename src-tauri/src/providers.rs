@@ -108,6 +108,67 @@ fn slack_origin(url: &Url) -> bool {
             .host_str()
             .is_some_and(|host| host == "slack.com" || host.ends_with(".slack.com"))
 }
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum NotificationColor {
+    #[default]
+    Auto,
+    Blue,
+    Cyan,
+    Green,
+    Amber,
+    Orange,
+    Red,
+    Purple,
+    Magenta,
+    Custom(String),
+}
+fn custom_color(value: &str) -> Option<String> {
+    (value.len() == 7
+        && value.starts_with('#')
+        && value.as_bytes()[1..].iter().all(u8::is_ascii_hexdigit))
+    .then(|| value.to_ascii_lowercase())
+}
+impl Serialize for NotificationColor {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let token = match self {
+            Self::Auto => "auto",
+            Self::Blue => "blue",
+            Self::Cyan => "cyan",
+            Self::Green => "green",
+            Self::Amber => "amber",
+            Self::Orange => "orange",
+            Self::Red => "red",
+            Self::Purple => "purple",
+            Self::Magenta => "magenta",
+            Self::Custom(value) => {
+                return serializer
+                    .serialize_str(&custom_color(value).unwrap_or_else(|| "auto".into()));
+            }
+        };
+        serializer.serialize_str(token)
+    }
+}
+impl<'de> Deserialize<'de> for NotificationColor {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // A missing or unrecognized optional preference must never invalidate the
+        // service list. Only known tokens and validated #rrggbb colors are saved.
+        let value = serde_json::Value::deserialize(deserializer)?;
+        Ok(match value.as_str() {
+            Some("blue") => Self::Blue,
+            Some("cyan") => Self::Cyan,
+            Some("green") => Self::Green,
+            Some("amber") => Self::Amber,
+            Some("orange") => Self::Orange,
+            Some("red") => Self::Red,
+            Some("purple") => Self::Purple,
+            Some("magenta") => Self::Magenta,
+            Some(value) => custom_color(value).map_or(Self::Auto, Self::Custom),
+            _ => Self::Auto,
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServiceConfig {
@@ -118,8 +179,23 @@ pub struct ServiceConfig {
     pub enabled: bool,
     #[serde(default = "notifications_default")]
     pub notifications: bool,
+    #[serde(default)]
+    pub notification_color: NotificationColor,
 }
 impl ServiceConfig {
+    pub fn supports_notifications(&self) -> bool {
+        self.provider.definition().notifications || crate::validation_fixture::mattermost(self)
+    }
+    pub fn unread_source_provider(&self) -> ProviderId {
+        if crate::validation_fixture::mattermost(self) {
+            ProviderId::SynologyChatplus
+        } else {
+            self.provider
+        }
+    }
+    pub fn supports_unread(&self) -> bool {
+        self.unread_source_provider().definition().unread
+    }
     // The stable service ID is also its profile ID; provider type and display name
     // never determine a storage partition. The migrated primary keeps its old path.
     pub fn profile_directory(
@@ -163,12 +239,16 @@ pub fn normalize_services(services: &mut [ServiceConfig]) -> Result<(), String> 
         }
     }
     for service in services {
+        if let NotificationColor::Custom(value) = &service.notification_color {
+            service.notification_color =
+                custom_color(value).map_or(NotificationColor::Auto, NotificationColor::Custom);
+        }
         service.name = service.name.trim().chars().take(60).collect();
         if service.name.is_empty() {
             service.name = service.provider.definition().display_name.into();
         }
         service.url = service.provider.validate_url(&service.url)?;
-        if !service.provider.definition().notifications {
+        if !service.supports_notifications() {
             service.notifications = false;
         }
     }
@@ -185,7 +265,121 @@ mod tests {
             url: String::new(),
             enabled: true,
             notifications: false,
+            notification_color: NotificationColor::Auto,
         }
+    }
+    #[test]
+    fn notification_colors_default_and_round_trip() {
+        let mut historical = serde_json::to_value(profile_service("historical")).unwrap();
+        historical
+            .as_object_mut()
+            .unwrap()
+            .remove("notificationColor");
+        assert_eq!(
+            serde_json::from_value::<ServiceConfig>(historical.clone())
+                .unwrap()
+                .notification_color,
+            NotificationColor::Auto
+        );
+        for invalid in [
+            serde_json::json!("unknown"),
+            serde_json::json!("BLUE"),
+            serde_json::json!(null),
+            serde_json::json!(42),
+            serde_json::json!({ "color": "red" }),
+            serde_json::json!("#fff"),
+            serde_json::json!("#gg0000"),
+            serde_json::json!("rgb(255, 0, 0)"),
+            serde_json::json!("#000000; background: url(https://example.com/)"),
+        ] {
+            historical["notificationColor"] = invalid;
+            assert_eq!(
+                serde_json::from_value::<ServiceConfig>(historical.clone())
+                    .unwrap()
+                    .notification_color,
+                NotificationColor::Auto
+            );
+        }
+        for (color, token) in [
+            (NotificationColor::Auto, "auto"),
+            (NotificationColor::Blue, "blue"),
+            (NotificationColor::Cyan, "cyan"),
+            (NotificationColor::Green, "green"),
+            (NotificationColor::Amber, "amber"),
+            (NotificationColor::Orange, "orange"),
+            (NotificationColor::Red, "red"),
+            (NotificationColor::Purple, "purple"),
+            (NotificationColor::Magenta, "magenta"),
+        ] {
+            let mut service = profile_service("colored");
+            service.notification_color = color;
+            let saved = serde_json::to_value(&service).unwrap();
+            assert_eq!(saved["notificationColor"], token);
+            assert_eq!(
+                serde_json::from_value::<ServiceConfig>(saved).unwrap(),
+                service
+            );
+        }
+    }
+    #[test]
+    fn custom_notification_colors_validate_normalize_and_round_trip() {
+        for (input, expected) in [
+            ("#000000", "#000000"),
+            ("#FFFFFF", "#ffffff"),
+            ("#aB12Ef", "#ab12ef"),
+        ] {
+            let parsed: NotificationColor =
+                serde_json::from_value(serde_json::json!(input)).unwrap();
+            assert_eq!(parsed, NotificationColor::Custom(expected.into()));
+            let mut service = profile_service("custom-color");
+            service.notification_color = NotificationColor::Custom(input.into());
+            normalize_services(std::slice::from_mut(&mut service)).unwrap();
+            assert_eq!(service.notification_color, parsed);
+            let saved = serde_json::to_value(&service).unwrap();
+            assert_eq!(saved["notificationColor"], expected);
+            assert_eq!(
+                serde_json::from_value::<ServiceConfig>(saved).unwrap(),
+                service
+            );
+        }
+        for invalid in ["#fff", "#gg0000", "#ff000000", "#ffffff ", "var(--accent)"] {
+            let mut service = profile_service("invalid-color");
+            service.notification_color = NotificationColor::Custom(invalid.into());
+            assert_eq!(
+                serde_json::to_value(&service).unwrap()["notificationColor"],
+                "auto"
+            );
+            normalize_services(std::slice::from_mut(&mut service)).unwrap();
+            assert_eq!(service.notification_color, NotificationColor::Auto);
+        }
+    }
+    #[test]
+    fn reordered_duplicate_providers_keep_ids_profiles_and_colors_after_restart() {
+        let mut first = profile_service("discord-personal");
+        first.notification_color = NotificationColor::Custom("#e6b23f".into());
+        let mut second = profile_service("discord-work");
+        second.notification_color = NotificationColor::Purple;
+        let mut services = vec![first, second];
+        normalize_services(&mut services).unwrap();
+        let first = services[0].clone();
+        let second_profile = services[1].profile_directory(std::path::Path::new("profiles"));
+        services.swap(0, 1);
+        services[0].name = "Renamed work account".into();
+        assert_eq!(services[1], first);
+        let mut restarted: Vec<ServiceConfig> =
+            serde_json::from_slice(&serde_json::to_vec(&services).unwrap()).unwrap();
+        normalize_services(&mut restarted).unwrap();
+        assert_eq!(restarted, services);
+        assert_eq!(restarted[0].id, "discord-work");
+        assert_eq!(restarted[0].notification_color, NotificationColor::Purple);
+        assert_eq!(
+            restarted[1].notification_color,
+            NotificationColor::Custom("#e6b23f".into())
+        );
+        assert_eq!(
+            restarted[0].profile_directory(std::path::Path::new("profiles")),
+            second_profile
+        );
     }
     #[test]
     fn service_profiles_reject_traversal_and_duplicate_ids() {
@@ -196,6 +390,7 @@ mod tests {
             url: "https://example.com/chat/".into(),
             enabled: true,
             notifications: true,
+            notification_color: NotificationColor::Auto,
         };
         assert!(normalize_services(&mut [service.clone(), service.clone()]).is_err());
         for id in ["../profile", "x/y", "x\\y", "", "."] {
@@ -402,6 +597,7 @@ mod tests {
             url: String::new(),
             enabled: true,
             notifications: true,
+            notification_color: NotificationColor::Auto,
         };
         let mut work = personal.clone();
         work.id = "discord-work".into();
@@ -551,6 +747,7 @@ mod tests {
                 url: "https://chat.example.com/".into(),
                 enabled: true,
                 notifications: true,
+                notification_color: NotificationColor::Auto,
             })
             .collect();
         normalize_services(&mut services).unwrap();

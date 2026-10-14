@@ -144,7 +144,7 @@ pub fn sync_presentation(app: &AppHandle) {
         settings
             .services
             .iter()
-            .filter(|s| s.enabled && s.provider.definition().unread)
+            .filter(|s| s.enabled && s.supports_unread())
             .map(|service| {
                 (
                     service.id.clone(),
@@ -551,11 +551,9 @@ pub fn publish_for(
     provider_zero: bool,
 ) {
     let settings = crate::state::current(app);
-    if !settings
-        .services
-        .iter()
-        .any(|service| service.id == id && service.enabled && source.accepts(service.provider))
-    {
+    if !settings.services.iter().any(|service| {
+        service.id == id && service.enabled && source.accepts(service.unread_source_provider())
+    }) {
         return;
     }
     let foreground =
@@ -901,6 +899,7 @@ mod tests {
                         url: "https://example.invalid/".into(),
                         enabled: true,
                         notifications: true,
+                        notification_color: crate::providers::NotificationColor::Auto,
                     })
                     .collect(),
                 ..Default::default()
