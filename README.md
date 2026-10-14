@@ -67,14 +67,6 @@ Development work described here may be newer than the latest published release.
 Updater signatures verify updates separately from Windows Authenticode. Unsigned
 Windows builds may display a SmartScreen prompt. See [update details](docs/UPDATER.md).
 
-## Screenshots
-
-![ChatPlus Desktop service sidebar with separate ChatPlus and Discord profiles](docs/screenshots/service-rail.png)
-
-This Windows development capture shows the service rail from 2026-10-01 and excludes
-private provider content. It is an earlier visual reference, not acceptance evidence
-for this revision. [Screenshot provenance and more images](docs/screenshots/README.md).
-
 ## Installation
 
 1. Download the Windows x64 setup from [Releases](https://github.com/Swiph3l/synology-chatplus-desktop/releases).
