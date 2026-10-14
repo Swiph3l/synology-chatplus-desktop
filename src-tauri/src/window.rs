@@ -57,7 +57,11 @@ pub fn activate_notification(app: &AppHandle, service_id: Option<&str>) -> Resul
     open(app)?;
     let settings = state::current(app);
     if let Some(id) = notification_destination(&settings, service_id) {
-        crate::services::activate(app, id)?;
+        // The restored active service needs no preference write. Its provider
+        // click remains usable even when an unchanged settings file is read-only.
+        if settings.active_service.as_deref() != Some(id) {
+            crate::services::activate(app, id)?;
+        }
     }
     Ok(())
 }

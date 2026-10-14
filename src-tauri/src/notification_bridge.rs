@@ -1,6 +1,6 @@
 //! Browser notification events through WebView2; no remote Tauri IPC capability.
 #[cfg(windows)]
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 #[cfg(any(windows, test))]
 const EVENT_HISTORY_LIMIT: usize = 256;
 
@@ -240,6 +240,8 @@ struct PendingNotification {
     first_observation: bool,
     generation: u64,
     visibility_generation: u64,
+    bridge_id: u64,
+    provider_silent: bool,
 }
 
 #[cfg(windows)]
@@ -253,11 +255,27 @@ impl PendingNotification {
             self.generation,
             self.first_observation,
         );
-        if !crate::services::configured(app, &self.service) {
+        if !crate::services::configured(app, &self.service)
+            || !current_bridge(app, &self.service.id, self.bridge_id)
+        {
+            crate::diagnostics::notification(
+                app,
+                &self.service.id,
+                crate::diagnostics::NotificationEvent::ToastSuppressed,
+                crate::diagnostics::NotificationReason::StaleOrBackground,
+                self.generation,
+            );
             return false;
         }
         if crate::unread::acknowledged_after(app, &self.service.id, self.generation) {
             crate::unread::accept_read_for(app, &self.service.id, &[self.generation]);
+            crate::diagnostics::notification(
+                app,
+                &self.service.id,
+                crate::diagnostics::NotificationEvent::ToastSuppressed,
+                crate::diagnostics::NotificationReason::ExactArrival,
+                self.generation,
+            );
             return false;
         }
         let viewed = if self.service.supports_unread() {
@@ -301,6 +319,7 @@ impl PendingNotification {
             self.visibility_generation,
             provider_viewed,
             self.generation,
+            self.provider_silent,
         )
     }
 }
@@ -318,6 +337,110 @@ thread_local! {
     // Swiph3l: Notification and deferral interfaces belong to the WebView UI apartment;
     // async timers carry only a token, never an unsafe cross-thread COM reference.
     static NOTIFICATION_QUERIES: std::cell::RefCell<PendingQueries<NotificationQuery>> = std::cell::RefCell::new(PendingQueries::default());
+    // Only bounded originating browser notification handles stay on this COM
+    // apartment. Toast callbacks carry a native identity, never a provider URL.
+    static NOTIFICATION_ACTIVATIONS: std::cell::RefCell<std::collections::VecDeque<NotificationActivation>> = std::cell::RefCell::new(std::collections::VecDeque::new());
+}
+
+#[cfg(windows)]
+struct NotificationActivation {
+    notification: webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Notification,
+    service: crate::providers::ServiceConfig,
+    identity: String,
+    bridge_id: u64,
+    generation: u64,
+}
+
+#[cfg(windows)]
+fn current_bridge(app: &tauri::AppHandle, id: &str, bridge_id: u64) -> bool {
+    app.state::<crate::desktop_notifications::Service>()
+        .0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .bridges
+        .get(id)
+        .is_some_and(|(current, _)| *current == bridge_id)
+}
+
+#[cfg(windows)]
+pub fn report_activation(app: &tauri::AppHandle, id: &str, identity: &str) {
+    let context = NOTIFICATION_ACTIVATIONS.with(|contexts| {
+        let mut contexts = contexts.borrow_mut();
+        let position = contexts
+            .iter()
+            .position(|context| context.service.id == id && context.identity == identity)?;
+        contexts.remove(position)
+    });
+    use crate::diagnostics::{
+        notification, NotificationEvent as Event, NotificationReason as Reason,
+    };
+    let Some(context) = context else {
+        notification(
+            app,
+            id,
+            Event::ToastSuppressed,
+            Reason::ActivationUnavailable,
+            0,
+        );
+        return;
+    };
+    if !crate::services::configured(app, &context.service)
+        || !current_bridge(app, id, context.bridge_id)
+    {
+        notification(
+            app,
+            id,
+            Event::ToastSuppressed,
+            Reason::ActivationUnavailable,
+            context.generation,
+        );
+        return;
+    }
+    // The existing WinRT callback dispatches here on the WebView UI apartment
+    // after restoring its service. Let the provider's own onclick route its chat.
+    let result = unsafe { context.notification.ReportClicked() };
+    if result.is_err() {
+        let _ = app.emit_to("main", "notification-issue", ());
+    }
+    notification(
+        app,
+        id,
+        if result.is_ok() {
+            Event::ProviderActivated
+        } else {
+            Event::ToastSuppressed
+        },
+        if result.is_ok() {
+            Reason::ProviderActivation
+        } else {
+            Reason::ActivationFailed
+        },
+        context.generation,
+    );
+}
+
+#[cfg(windows)]
+fn finish_native_notification(
+    app: &tauri::AppHandle,
+    notification: &webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Notification,
+    pending: &PendingNotification,
+    provider_viewed: bool,
+) {
+    if pending.finish(app, provider_viewed) && unsafe { notification.ReportShown() }.is_ok() {
+        NOTIFICATION_ACTIVATIONS.with(|contexts| {
+            let mut contexts = contexts.borrow_mut();
+            if contexts.len() >= EVENT_HISTORY_LIMIT {
+                contexts.pop_front();
+            }
+            contexts.push_back(NotificationActivation {
+                notification: notification.clone(),
+                service: pending.service.clone(),
+                identity: pending.identity.clone(),
+                bridge_id: pending.bridge_id,
+                generation: pending.generation,
+            });
+        });
+    }
 }
 
 #[cfg(windows)]
@@ -331,11 +454,8 @@ fn finish_query(app: &tauri::AppHandle, token: u64, provider_viewed: bool) {
     query
         .completed
         .store(true, std::sync::atomic::Ordering::Release);
-    let shown = query.pending.finish(app, provider_viewed);
+    finish_native_notification(app, &query.notification, &query.pending, provider_viewed);
     unsafe {
-        if shown {
-            let _ = query.notification.ReportShown();
-        }
         let _ = query.deferral.Complete();
     }
 }
@@ -353,6 +473,12 @@ fn query_notification_view(
         Arc,
     };
     use windows::core::HSTRING;
+    if NOTIFICATION_QUERIES.with(|queries| queries.borrow().values.len() >= EVENT_HISTORY_LIMIT) {
+        // Bound unresponsive-renderer work without delaying trusted arrivals.
+        finish_native_notification(app, &notification, &pending, false);
+        let _ = unsafe { deferral.Complete() };
+        return;
+    }
     let completed = Arc::new(AtomicBool::new(false));
     let script = HSTRING::from(viewing_query(
         &pending.tag,
@@ -416,9 +542,28 @@ pub fn attach(
     let app = app.clone();
     let service = service.clone();
     window.with_webview(move |webview| unsafe {
+        app.state::<notifications::Service>()
+            .0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .bridges
+            .remove(&service.id);
         let Ok(core) = webview.controller().CoreWebView2() else {
             return;
         };
+        static NEXT_BRIDGE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let bridge_id = NEXT_BRIDGE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        {
+            let settings = crate::state::current(&app);
+            let state = app.state::<notifications::Service>();
+            let mut tracking = state.0.lock().unwrap_or_else(|e| e.into_inner());
+            tracking
+                .bridges
+                .retain(|id, _| settings.services.iter().any(|s| s.id == *id && s.enabled));
+            tracking
+                .bridges
+                .insert(service.id.clone(), (bridge_id, false));
+        }
         let unread_app = app.clone();
         let unread_service = service.clone();
         let _ = core.add_WebMessageReceived(
@@ -428,6 +573,7 @@ pub fn attach(
                 args.Source(&mut source)?;
                 let source = CoTaskMemPWSTR::from(source).to_string();
                 if !crate::services::configured(&unread_app, &unread_service)
+                    || !current_bridge(&unread_app, &unread_service.id, bridge_id)
                     || !trusted_origin(&unread_service.url, &source)
                 {
                     return Ok(());
@@ -436,6 +582,21 @@ pub fn attach(
                 args.TryGetWebMessageAsString(&mut json)?;
                 let json = CoTaskMemPWSTR::from(json).to_string();
                 if unread_service.supports_unread() {
+                    if let Some(diagnostic) = parse_diagnostic(&json) {
+                        if diagnostic
+                            .source
+                            .accepts(unread_service.unread_source_provider())
+                        {
+                            crate::diagnostics::notification(
+                                &unread_app,
+                                &unread_service.id,
+                                diagnostic.event,
+                                diagnostic.reason,
+                                diagnostic.generation,
+                            );
+                        }
+                        return Ok(());
+                    }
                     if let Some(unread) = parse_unread(&json) {
                         crate::unread::publish_for(
                             &unread_app,
@@ -460,8 +621,6 @@ pub fn attach(
         };
         let notify_app = app.clone();
         let notify_service = service.clone();
-        static NEXT_BRIDGE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-        let bridge_id = NEXT_BRIDGE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         // Swiph3l: Keep bounded canonical COM references on their WebView apartment so recycled pointers cannot merge distinct message events.
         let mut seen = EventHistory::<windows::core::IUnknown>::default();
         let registered = extended
@@ -476,6 +635,7 @@ pub fn attach(
                     args.SenderOrigin(&mut origin)?;
                     let origin = CoTaskMemPWSTR::from(origin).to_string();
                     if !crate::services::configured(&notify_app, &notify_service)
+                        || !current_bridge(&notify_app, &notify_service.id, bridge_id)
                         || !notify_service.supports_notifications()
                         || !trusted_origin(&notify_service.url, &origin)
                     {
@@ -493,6 +653,15 @@ pub fn attach(
                         seen.read_generation(token),
                     );
                     seen.remember_read_generation(token, generation.read);
+                    if !first_observation {
+                        crate::diagnostics::notification(
+                            &notify_app,
+                            &notify_service.id,
+                            crate::diagnostics::NotificationEvent::DuplicateSuppressed,
+                            crate::diagnostics::NotificationReason::DuplicateEvent,
+                            generation.read,
+                        );
+                    }
                     let content = read_notification_content(
                         |field| {
                             let mut value = PWSTR::null();
@@ -516,7 +685,26 @@ pub fn attach(
                         first_observation,
                         generation: generation.read,
                         visibility_generation: generation.visibility,
+                        bridge_id,
+                        provider_silent: {
+                            let mut silent = Default::default();
+                            notification
+                                .IsSilent(&mut silent)
+                                .map(|_| silent.as_bool())
+                                .unwrap_or(true)
+                        },
                     };
+                    crate::diagnostics::notification(
+                        &notify_app,
+                        &notify_service.id,
+                        crate::diagnostics::NotificationEvent::Normalized,
+                        if pending.provider_silent {
+                            crate::diagnostics::NotificationReason::ProviderSilent
+                        } else {
+                            crate::diagnostics::NotificationReason::BrowserEvent
+                        },
+                        generation.read,
+                    );
                     // Swiph3l: Background events need their tag retained by the
                     // renderer for later exact read proof; current visibility still gates suppression.
                     if let Some(core) = sender {
@@ -531,24 +719,31 @@ pub fn attach(
                                 );
                             }
                             NotificationDispatch::Conservative(pending) => {
-                                if pending.finish(&notify_app, false) {
-                                    let _ = notification.ReportShown();
-                                }
+                                finish_native_notification(
+                                    &notify_app,
+                                    &notification,
+                                    &pending,
+                                    false,
+                                );
                             }
                         }
-                    } else if pending.finish(&notify_app, false) {
-                        let _ = notification.ReportShown();
+                    } else {
+                        finish_native_notification(&notify_app, &notification, &pending, false);
                     }
                     Ok(())
                 })),
                 &mut 0,
             )
             .is_ok();
-        app.state::<notifications::Service>()
-            .0
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .bridge_available = registered;
+        if registered {
+            let state = app.state::<notifications::Service>();
+            let mut tracking = state.0.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some((current, available)) = tracking.bridges.get_mut(&service.id) {
+                if *current == bridge_id {
+                    *available = service.supports_notifications();
+                }
+            }
+        }
         if !registered {
             return;
         }
@@ -599,6 +794,53 @@ struct UnreadObservation {
     read_arrivals: Vec<u64>,
     proof_only: bool,
     provider_zero: bool,
+}
+
+struct RendererDiagnostic {
+    source: crate::unread::Source,
+    event: crate::diagnostics::NotificationEvent,
+    reason: crate::diagnostics::NotificationReason,
+    generation: u64,
+}
+
+fn parse_diagnostic(json: &str) -> Option<RendererDiagnostic> {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Message {
+        chatplus_unread_diagnostic: u8,
+        source: String,
+        event: String,
+        reason: String,
+        generation: u64,
+    }
+    if json.len() > 512 {
+        return None;
+    }
+    let value: Message = serde_json::from_str(json).ok()?;
+    if value.chatplus_unread_diagnostic != 1 || value.generation > 9_007_199_254_740_991 {
+        return None;
+    }
+    let source = match value.source.as_str() {
+        "chatplus-dom" => crate::unread::Source::ChatPlusDom,
+        "synology-chat-dom" => crate::unread::Source::SynologyChatDom,
+        "discord-dom" => crate::unread::Source::DiscordDom,
+        _ => return None,
+    };
+    use crate::diagnostics::{NotificationEvent as Event, NotificationReason as Reason};
+    let (event, reason) = match (value.event.as_str(), value.reason.as_str()) {
+        ("detected", "provider-observation") => (Event::Detected, Reason::ProviderObservation),
+        ("normalized", "provider-observation") => (Event::Normalized, Reason::ProviderObservation),
+        ("duplicate-suppressed", "unchanged-state") => {
+            (Event::DuplicateSuppressed, Reason::UnchangedState)
+        }
+        _ => return None,
+    };
+    Some(RendererDiagnostic {
+        source,
+        event,
+        reason,
+        generation: value.generation,
+    })
 }
 
 fn parse_unread(json: &str) -> Option<UnreadObservation> {

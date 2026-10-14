@@ -13,6 +13,9 @@ const NOTIFICATION_HISTORY_LIMIT: usize = 128;
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NotificationEvent {
+    Detected,
+    Normalized,
+    DuplicateSuppressed,
     NotificationArrival,
     UnreadLatched,
     ReadCandidate,
@@ -22,6 +25,7 @@ pub enum NotificationEvent {
     ToastSubmitted,
     ToastSuppressed,
     ToastActivated,
+    ProviderActivated,
 }
 
 #[derive(Clone, Copy, Serialize)]
@@ -41,6 +45,11 @@ pub enum NotificationReason {
     SubmitFailed,
     NativeSubmission,
     ExistingWindow,
+    UnchangedState,
+    ProviderSilent,
+    ProviderActivation,
+    ActivationUnavailable,
+    ActivationFailed,
 }
 
 #[derive(Serialize)]

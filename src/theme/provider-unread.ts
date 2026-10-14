@@ -1,6 +1,7 @@
 import type {
   ProviderNotification,
   ProviderUnreadAdapter,
+  ProviderUnreadSnapshot,
 } from "./providers/types";
 
 export interface ProviderHostWindow {
@@ -23,6 +24,8 @@ export function installUnreadAdapter(
   host: ProviderHostWindow,
 ) {
   let lastKey: string | undefined;
+  let lastDiagnosticKey: string | undefined;
+  let duplicateDiagnosticKey: string | undefined;
   let disposed = false;
   let scheduled = false;
   let foreground = false;
@@ -44,6 +47,53 @@ export function installUnreadAdapter(
   const unseenArrivals = new Map<number, ProviderNotification | null>();
   const acceptedArrivals = new Set<number>();
   let arrivalOverflow = false;
+  const revokeRead = () => {
+    interaction = null;
+    interactionContent = null;
+    interactionSawUnread = false;
+    pendingRead = null;
+  };
+  const post = (payload: object): boolean => {
+    if (disposed || !host.chrome?.webview) return false;
+    try {
+      host.chrome.webview.postMessage(JSON.stringify(payload));
+      return true;
+    } catch {
+      // Navigation can revoke the native bridge. A later observation may retry;
+      // a failed send must not reserve a dedup key or manufacture read evidence.
+      return false;
+    }
+  };
+  const diagnostic = (
+    event: "detected" | "normalized" | "duplicate-suppressed",
+    reason: "provider-observation" | "unchanged-state",
+  ) =>
+    post({
+      chatplusUnreadDiagnostic: 1,
+      source: adapter.source,
+      event,
+      reason,
+      generation,
+    });
+  const normalize = (
+    state: ProviderUnreadSnapshot,
+  ): ProviderUnreadSnapshot => ({
+    hasUnread:
+      state.hasUnread === true
+        ? true
+        : state.hasUnread === false
+          ? false
+          : null,
+    // Current providers expose dots/overlapping mentions, not reliable message
+    // totals. Preserve unknown and reject malformed counts rather than inventing zero.
+    count:
+      state.hasUnread === true &&
+      Number.isSafeInteger(state.count) &&
+      state.count! > 0 &&
+      state.count! <= 0xffffffff
+        ? state.count
+        : null,
+  });
   const retain = (
     arrival: number,
     notification: ProviderNotification | null,
@@ -68,27 +118,52 @@ export function installUnreadAdapter(
     proofOnly = false,
     readScope?: "provider-zero",
   ) => {
-    const key = `${hasUnread ? 1 : 0}:${count ?? "dot"}:${proofOnly ? "proof" : "state"}:${readScope ?? "exact"}:${acknowledgement === null ? "observation" : `${acknowledgement}:${interactionSequence}`}`;
-    if (lastKey === key) return;
-    lastKey = key;
-    host.chrome?.webview?.postMessage(
-      JSON.stringify({
+    const arrivals =
+      acknowledgement === null
+        ? []
+        : [...new Set(readArrivals)].filter(
+            (arrival) => Number.isSafeInteger(arrival) && arrival > 0,
+          );
+    // State equality is separate from exact read-token equality. A new arrival
+    // proof cannot disappear merely because its provider badge is unchanged.
+    const proofKey = [...arrivals].sort((a, b) => a - b).join(",");
+    const key = `${hasUnread ? 1 : 0}:${count ?? "dot"}:${proofOnly ? "proof" : "state"}:${readScope ?? "exact"}:${acknowledgement === null ? "observation" : `${acknowledgement}:${interactionSequence}:${proofKey}`}`;
+    if (lastKey === key) {
+      if (
+        duplicateDiagnosticKey !== key &&
+        diagnostic("duplicate-suppressed", "unchanged-state")
+      )
+        duplicateDiagnosticKey = key;
+      return;
+    }
+    if (
+      post({
         chatplusUnread: 1,
         source: adapter.source,
         hasUnread,
         count,
         reason,
         acknowledgement,
-        readArrivals: acknowledgement === null ? [] : readArrivals,
+        readArrivals: arrivals,
         proofOnly: proofOnly || undefined,
         readScope,
-      }),
-    );
+      })
+    ) {
+      lastKey = key;
+      duplicateDiagnosticKey = undefined;
+    }
   };
   const report = () => {
     scheduled = false;
     if (disposed) return;
-    const state = adapter.snapshot();
+    const state = normalize(adapter.snapshot());
+    const diagnosticKey = `${state.hasUnread === null ? "unknown" : Number(state.hasUnread)}:${state.count ?? "dot"}`;
+    if (lastDiagnosticKey !== diagnosticKey) {
+      diagnostic("detected", "provider-observation");
+      if (diagnostic("normalized", "provider-observation"))
+        lastDiagnosticKey = diagnosticKey;
+    }
+    if (!visible()) revokeRead();
     if (state.hasUnread === true) {
       // Swiph3l: Input before a new message cannot acknowledge it; a gesture is retained only when it already observed the unread being read.
       if (lastUnread !== true && !interactionSawUnread) interaction = null;
@@ -189,15 +264,14 @@ export function installUnreadAdapter(
     queueMicrotask(report);
   };
   host.__chatplusSetForeground = (value, nextGeneration, nextIncoming = 0) => {
+    if (disposed || !Number.isSafeInteger(nextGeneration) || nextGeneration < 0)
+      return;
     // Swiph3l: Queued native snapshots may arrive out of order; old visibility must never revive a revoked conversation gesture.
     if (nextGeneration < generation) return;
     const newArrival =
       Number.isSafeInteger(nextIncoming) && nextIncoming > incomingSequence;
     if (value !== foreground || generation !== nextGeneration || newArrival) {
-      interaction = null;
-      interactionContent = null;
-      interactionSawUnread = false;
-      pendingRead = null;
+      revokeRead();
     }
     if (newArrival) {
       incomingSequence = nextIncoming;
@@ -209,15 +283,13 @@ export function installUnreadAdapter(
     schedule();
   };
   host.__chatplusIsViewingNotification = (notification) => {
+    if (disposed) return false;
     const arrival = notification.arrival;
     if (Number.isSafeInteger(arrival) && arrival! > 0) {
       if (arrival! > incomingSequence) {
         // Swiph3l: A notification query can beat its queued native projection;
         // revoke prior input here too so an old gesture cannot read a new event.
-        interaction = null;
-        interactionContent = null;
-        interactionSawUnread = false;
-        pendingRead = null;
+        revokeRead();
       }
       incomingSequence = Math.max(incomingSequence, arrival!);
       retain(arrival!, notification);
@@ -226,7 +298,7 @@ export function installUnreadAdapter(
     return visible() && adapter.isViewingNotification(notification);
   };
   host.__chatplusAcceptRead = (arrivals) => {
-    if (!Array.isArray(arrivals) || arrivals.length > 256) return;
+    if (disposed || !Array.isArray(arrivals) || arrivals.length > 256) return;
     for (const arrival of arrivals) {
       if (!Number.isSafeInteger(arrival) || arrival <= 0) continue;
       unseenArrivals.delete(arrival);
@@ -248,13 +320,17 @@ export function installUnreadAdapter(
     schedule();
   };
   host.__chatplusCompleteArrival = (arrival) => {
+    if (disposed) return;
+    if (!visible()) {
+      revokeRead();
+      return;
+    }
     const candidate = pendingRead;
     if (
       !Number.isSafeInteger(arrival) ||
       arrival <= 0 ||
       arrival > incomingSequence ||
       candidate === null ||
-      !visible() ||
       candidate.generation !== generation ||
       candidate.incomingSequence !== incomingSequence ||
       adapter.readContext() !== candidate.context ||
@@ -271,7 +347,7 @@ export function installUnreadAdapter(
     schedule();
   };
   const interact = (event: Event) => {
-    if (!event.isTrusted || !visible()) return;
+    if (disposed || !event.isTrusted || !visible()) return;
     if (
       event instanceof KeyboardEvent &&
       ["Alt", "Control", "Meta", "Shift", "Tab"].includes(event.key)
@@ -281,7 +357,7 @@ export function installUnreadAdapter(
     if (context === null) return;
     interaction = context;
     interactionContent = adapter.contentContext();
-    interactionSawUnread = adapter.snapshot().hasUnread === true;
+    interactionSawUnread = normalize(adapter.snapshot()).hasUnread === true;
     interactionSequence += 1;
     schedule();
   };
@@ -291,6 +367,16 @@ export function installUnreadAdapter(
   document.addEventListener("beforeinput", interact, true);
   document.addEventListener("input", interact, true);
   document.addEventListener("wheel", interact, true);
+  const presentationChanged = (event: Event) => {
+    // A child document can lose focus while its native frame stays foreground.
+    // Restoring it is presentation, never continuation of an earlier read gesture.
+    if (event.type === "blur" || event.type === "focus" || !visible())
+      revokeRead();
+    schedule();
+  };
+  document.defaultView?.addEventListener("blur", presentationChanged, true);
+  document.defaultView?.addEventListener("focus", presentationChanged, true);
+  document.addEventListener("visibilitychange", presentationChanged, true);
   adapter.onHostForegroundChanged?.(false);
   const stop = adapter.observe(schedule);
   schedule();
@@ -303,6 +389,17 @@ export function installUnreadAdapter(
     document.removeEventListener("beforeinput", interact, true);
     document.removeEventListener("input", interact, true);
     document.removeEventListener("wheel", interact, true);
+    document.defaultView?.removeEventListener(
+      "blur",
+      presentationChanged,
+      true,
+    );
+    document.defaultView?.removeEventListener(
+      "focus",
+      presentationChanged,
+      true,
+    );
+    document.removeEventListener("visibilitychange", presentationChanged, true);
     delete host.__chatplusSetForeground;
     delete host.__chatplusIsViewingNotification;
     delete host.__chatplusAcceptRead;

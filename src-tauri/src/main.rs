@@ -10,6 +10,7 @@ mod menu;
 mod native_shortcuts;
 mod navigation;
 mod notification_bridge;
+mod notification_presentation;
 mod platform;
 mod project;
 mod providers;
@@ -45,8 +46,11 @@ fn main() {
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             single_instance::activate(app);
         }))
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_notification::init());
+        .plugin(tauri_plugin_updater::Builder::new().build());
+    // Windows provider WebViews need the browser Notification API for the native
+    // bridge; the plugin replaces it with a shell-only Tauri IPC polyfill.
+    #[cfg(not(windows))]
+    let builder = builder.plugin(tauri_plugin_notification::init());
     let app = builder
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_opener::init())

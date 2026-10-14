@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { build } from "esbuild";
 import { runInNewContext } from "node:vm";
+import { bridgeMessages } from "./helpers/bridge-messages.mjs";
 
 const result = await build({
   entryPoints: ["src/theme/provider-unread.ts"],
@@ -17,8 +18,9 @@ function fixture({
   source = "chatplus-dom",
   providerZero = false,
 } = {}) {
-  const messages = [],
-    tasks = [],
+  const bridge = bridgeMessages();
+  const { messages, diagnostics, allMessages } = bridge;
+  const tasks = [],
     listeners = new Map();
   let focused = true;
   let changed;
@@ -28,7 +30,7 @@ function fixture({
   let aggregateUnknown = false;
   const window = {
     chrome: {
-      webview: { postMessage: (value) => messages.push(JSON.parse(value)) },
+      webview: { postMessage: bridge.postMessage },
     },
   };
   window.top = window;
@@ -87,6 +89,8 @@ function fixture({
   flush();
   return {
     messages,
+    diagnostics,
+    allMessages,
     document,
     window,
     stop,
@@ -375,6 +379,37 @@ test("exact event proofs progress through unknown aggregate UI without proposing
   assert.deepEqual(f.messages.at(-1).readArrivals, [1]);
   assert.equal(f.messages.at(-1).proofOnly, true);
   assert.equal(f.messages.at(-1).reason, "native-read-proof");
+});
+
+test("unread diagnostics remain observable without becoming unread state transitions", () => {
+  const f = fixture();
+  assert.equal(f.messages.length, 1);
+  assert.deepEqual(
+    f.diagnostics.map(({ event, source }) => ({ event, source })),
+    [
+      { event: "detected", source: "chatplus-dom" },
+      { event: "normalized", source: "chatplus-dom" },
+    ],
+  );
+  assert.ok(
+    f.diagnostics.every((message) => message.chatplusUnreadDiagnostic === 1),
+  );
+  assert.ok(f.messages.every((message) => message.chatplusUnread === 1));
+  f.badges(true);
+  f.flush();
+  assert.equal(f.messages.length, 1, "unchanged observations stay coalesced");
+  assert.ok(
+    f.diagnostics.some((message) => message.event === "duplicate-suppressed"),
+    "production duplicate telemetry remains captured separately",
+  );
+  const notification = { type: "notification", tag: "message-arrival" };
+  f.window.chrome.webview.postMessage(JSON.stringify(notification));
+  assert.deepEqual(
+    f.messages.at(-1),
+    notification,
+    "non-diagnostic bridge messages are retained",
+  );
+  assert.equal(f.allMessages.length, f.messages.length + f.diagnostics.length);
 });
 
 test("initial sidebar unread is observed and unchanged/missing provider state cannot invent a clear", () => {

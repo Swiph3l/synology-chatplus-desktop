@@ -7,12 +7,14 @@ use std::{
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Emitter, Manager};
+#[cfg(not(windows))]
 use tauri_plugin_notification::NotificationExt;
+const DELIVERY_HISTORY_LIMIT: usize = 256;
 #[derive(Default)]
 pub struct Service(pub Mutex<Tracking>);
 #[derive(Default)]
 pub struct Tracking {
-    pub bridge_available: bool,
+    pub bridges: HashMap<String, (u64, bool)>,
     duplicates: HashMap<u64, Instant>,
     retryable: HashMap<u64, Instant>,
     pub last_status: String,
@@ -36,15 +38,19 @@ pub struct Permission {
 }
 pub fn permission(app: &AppHandle) -> Permission {
     // Swiph3l: Native Windows sender state and WebView Notification.permission are separate notification paths.
+    #[cfg(not(windows))]
     let plugin_state = app.notification().permission_state().ok();
     let native = native_state(app);
+    let settings = crate::state::current(app);
     let available = app
         .state::<Service>()
         .0
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .bridge_available;
-    let (state, native_granted, mut message) = match native {
+        .bridges
+        .get(settings.active_service.as_deref().unwrap_or_default())
+        .is_some_and(|(_, available)| *available);
+    let (state, native_granted, message) = match native {
         NativeState::Enabled => (
             "enabled",
             true,
@@ -66,10 +72,17 @@ pub fn permission(app: &AppHandle) -> Permission {
             crate::i18n::t(app, "notification.permissionUnavailable"),
         ),
     };
-    let mut granted = native_granted;
-    if matches!(plugin_state, Some(tauri::plugin::PermissionState::Denied)) {
-        granted = false;
-        message = crate::i18n::t(app, "notification.permissionPolicyBlocked");
+    #[cfg(windows)]
+    let granted = native_granted;
+    #[cfg(not(windows))]
+    let (granted, message) = if matches!(plugin_state, Some(tauri::plugin::PermissionState::Denied))
+    {
+        (
+            false,
+            crate::i18n::t(app, "notification.permissionPolicyBlocked"),
+        )
+    } else {
+        (native_granted, message)
     };
     Permission {
         webview_state: "unknown".into(),
@@ -80,6 +93,7 @@ pub fn permission(app: &AppHandle) -> Permission {
     }
 }
 pub fn request_permission(app: &AppHandle) -> Result<Permission, String> {
+    #[cfg(not(windows))]
     if !matches!(
         app.notification().permission_state(),
         Ok(tauri::plugin::PermissionState::Granted)
@@ -99,14 +113,35 @@ pub fn send_test(app: &AppHandle, sound: bool) -> Result<(), String> {
     if !permission.granted {
         return Err(permission.message);
     }
-    show(
-        app,
+    let settings = crate::state::current(app);
+    let service = settings.services.iter().find(|service| {
+        service.enabled && Some(service.id.as_str()) == settings.active_service.as_deref()
+    });
+    let presentation = crate::notification_presentation::prepare(
+        service,
+        &NotificationPreview::Full,
         "ChatPlus Desktop",
         &crate::i18n::t(app, "notification.testBody"),
+        &settings.language,
+    );
+    show(
+        app,
+        &presentation,
         sound,
+        service.map(|service| service.id.clone()),
         None,
         0,
     )
+}
+#[cfg(windows)]
+fn sender_id(identifier: &str, development: bool) -> &str {
+    // Development executables have no installer-created AUMID shortcut. Use the
+    // registered sender recommended by the WinRT backend, as Tauri's plugin does.
+    if development {
+        tauri_winrt_notification::Toast::POWERSHELL_APP_ID
+    } else {
+        identifier
+    }
 }
 fn native_state(app: &AppHandle) -> NativeState {
     #[cfg(windows)]
@@ -118,7 +153,7 @@ fn native_state(app: &AppHandle) -> NativeState {
         // Swiph3l: The installed shortcut AUMID and toast notifier AUMID must match exactly.
         // Swiph3l: Validate the installed .lnk property store, not only generated NSIS.
         let Ok(notifier) = ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(
-            &app.config().identifier,
+            sender_id(&app.config().identifier, cfg!(debug_assertions)),
         )) else {
             return NativeState::NotRegistered;
         };
@@ -198,6 +233,7 @@ pub fn deliver_for(
     generation: u64,
     provider_viewed: bool,
     arrival_generation: u64,
+    provider_silent: bool,
 ) -> bool {
     let settings = crate::state::current(app);
     use crate::diagnostics::{
@@ -234,7 +270,8 @@ pub fn deliver_for(
     if !reserved {
         return suppress(Reason::DuplicateEvent);
     }
-    let (title, body) = preview(
+    let presentation = crate::notification_presentation::prepare(
+        Some(config),
         &settings.notification_preview,
         title,
         body,
@@ -242,10 +279,10 @@ pub fn deliver_for(
     );
     let result = show(
         app,
-        &title,
-        &body,
-        settings.notification_sound,
+        &presentation,
+        settings.notification_sound && !provider_silent,
         Some(id.to_string()),
+        Some(identity.to_string()),
         arrival_generation,
     );
     let service = app.state::<Service>();
@@ -305,6 +342,16 @@ fn release_failed_delivery(tracking: &mut Tracking, duplicate: u64, at: Instant)
         tracking.duplicates.remove(&duplicate);
     }
     tracking.retryable.insert(duplicate, at);
+    if tracking.retryable.len() > DELIVERY_HISTORY_LIMIT {
+        if let Some(oldest) = tracking
+            .retryable
+            .iter()
+            .min_by_key(|(_, at)| **at)
+            .map(|(key, _)| *key)
+        {
+            tracking.retryable.remove(&oldest);
+        }
+    }
 }
 
 fn event_key(identity: &str) -> u64 {
@@ -315,22 +362,33 @@ fn event_key(identity: &str) -> u64 {
 #[cfg(windows)]
 fn show(
     app: &AppHandle,
-    title: &str,
-    body: &str,
+    presentation: &crate::notification_presentation::Presentation,
     sound: bool,
     service_id: Option<String>,
+    event_identity: Option<String>,
     arrival_generation: u64,
 ) -> Result<(), String> {
     // Swiph3l: The desktop plugin drops activation callbacks/errors; use its WinRT backend once for routing and explicit silence.
-    use tauri_winrt_notification::{Sound, Toast};
+    use tauri_winrt_notification::{IconCrop, Sound, Toast};
     let handle = app.clone();
-    Toast::new(&app.config().identifier)
-        .title(title)
-        .text1(body)
+    let settings = crate::state::current(app);
+    let service = settings
+        .services
+        .iter()
+        .find(|service| Some(service.id.as_str()) == service_id.as_deref());
+    let mut toast = Toast::new(sender_id(&app.config().identifier, cfg!(debug_assertions)))
+        .title(&presentation.title)
+        .text1(&presentation.body)
+        .text2(&presentation.attribution);
+    if let Ok(icon) = crate::notification_presentation::icon_path(app, service) {
+        toast = toast.icon(&icon, IconCrop::Square, &presentation.attribution);
+    }
+    toast
         .sound(if sound { Some(Sound::IM) } else { None })
         .on_activated(move |_| {
             let app = handle.clone();
             let id = service_id.clone();
+            let identity = event_identity.clone();
             let dispatcher = app.clone();
             let _ = dispatcher.run_on_main_thread(move || {
                 // Swiph3l: WinRT activation is off-thread; restore and WebView activation must run on the existing UI thread.
@@ -343,7 +401,20 @@ fn show(
                         arrival_generation,
                     );
                 }
-                let _ = crate::window::activate_notification(&app, id.as_deref());
+                if crate::window::activate_notification(&app, id.as_deref()).is_ok() {
+                    if let (Some(id), Some(identity)) = (id.as_deref(), identity.as_deref()) {
+                        crate::notification_bridge::report_activation(&app, id, identity);
+                    }
+                } else if let Some(id) = id.as_deref() {
+                    let _ = app.emit_to("main", "notification-issue", ());
+                    crate::diagnostics::notification(
+                        &app,
+                        id,
+                        crate::diagnostics::NotificationEvent::ToastSuppressed,
+                        crate::diagnostics::NotificationReason::ActivationFailed,
+                        arrival_generation,
+                    );
+                }
             });
             Ok(())
         })
@@ -353,13 +424,17 @@ fn show(
 #[cfg(not(windows))]
 fn show(
     app: &AppHandle,
-    title: &str,
-    body: &str,
+    presentation: &crate::notification_presentation::Presentation,
     sound: bool,
     _service_id: Option<String>,
+    _event_identity: Option<String>,
     _arrival_generation: u64,
 ) -> Result<(), String> {
-    let mut builder = app.notification().builder().title(title).body(body);
+    let mut builder = app
+        .notification()
+        .builder()
+        .title(&presentation.title)
+        .body(&presentation.body);
     if sound {
         builder = builder.sound("message-new-instant");
     }
@@ -435,6 +510,20 @@ pub fn taskbar(window: &tauri::Window, unread: &crate::unread::Unread) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
+    #[test]
+    fn development_toast_sender_uses_registered_fallback_and_release_keeps_its_identifier() {
+        let identifier = "io.github.swiph3l.chatplus-desktop.services-validation";
+        assert_eq!(
+            sender_id(identifier, true),
+            tauri_winrt_notification::Toast::POWERSHELL_APP_ID
+        );
+        assert_eq!(sender_id(identifier, false), identifier);
+        assert_eq!(
+            sender_id("io.github.swiph3l.chatplus-desktop", false),
+            "io.github.swiph3l.chatplus-desktop"
+        );
+    }
     #[test]
     fn consecutive_distinct_messages_in_one_conversation_both_deliver_and_duplicates_do_not() {
         let mut tracking = Tracking::default();
@@ -657,5 +746,15 @@ fn duplicate_suppressed(tracking: &mut Tracking, key: u64, at: Instant) -> bool 
         return true;
     }
     tracking.duplicates.insert(key, at);
+    if tracking.duplicates.len() > DELIVERY_HISTORY_LIMIT {
+        if let Some(oldest) = tracking
+            .duplicates
+            .iter()
+            .min_by_key(|(_, at)| **at)
+            .map(|(key, _)| *key)
+        {
+            tracking.duplicates.remove(&oldest);
+        }
+    }
     false
 }

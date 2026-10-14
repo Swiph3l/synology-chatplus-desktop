@@ -1,5 +1,6 @@
 export interface ServiceUnreadState {
   hasUnread: boolean;
+  totalUnreadCount?: number | null;
   generation?: number;
   source?: string | null;
   lastArrival?: number | null;

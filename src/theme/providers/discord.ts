@@ -394,12 +394,19 @@ export function createDiscordAdapter(
       if (!row || !visible(row, document)) return false;
       const bounds = viewport.scroller.getBoundingClientRect();
       const message = row.getBoundingClientRect();
-      return (
-        message.bottom > bounds.top &&
-        message.top < bounds.bottom &&
-        message.right > bounds.left &&
-        message.left < bounds.right
+      const left = Math.max(message.left, bounds.left);
+      const right = Math.min(message.right, bounds.right);
+      const top = Math.max(message.top, bounds.top);
+      const bottom = Math.min(message.bottom, bounds.bottom);
+      if (right <= left || bottom <= top) return false;
+      // A picker/popover can cover the newest message while the middle of the
+      // conversation remains visible. Rectangle overlap alone is not proof that
+      // this exact notification was observed; test its actual visible intersection.
+      const hit = document.elementFromPoint(
+        (left + right) / 2,
+        (top + bottom) / 2,
       );
+      return hit !== null && row.contains(hit);
     },
     observe(changed) {
       const Observer = view?.MutationObserver;
