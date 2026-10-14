@@ -211,7 +211,7 @@ export async function renderServices() {
       button.setAttribute("aria-label", title);
       button.addEventListener("click", () => {
         void invoke("open_settings", {
-          section: kind === "add" ? "services" : "general",
+          section: kind === "add" ? "services-add" : "general",
         }).catch(() => {
           footer.report(t("rail.settingsError"));
         });
@@ -224,6 +224,25 @@ export async function renderServices() {
     const previous = app.querySelector(".service-rail");
     if (previous) previous.replaceWith(rail);
     else app.prepend(rail);
+    app.querySelector(".workspace-empty")?.remove();
+    if (!settings.services.length) {
+      const empty = document.createElement("section");
+      empty.className = "workspace-empty";
+      empty.setAttribute("aria-labelledby", "workspace-empty-heading");
+      const heading = document.createElement("h1");
+      heading.id = "workspace-empty-heading";
+      heading.textContent = t("onboarding.empty");
+      const add = document.createElement("button");
+      add.type = "button";
+      add.textContent = t("onboarding.addService");
+      add.addEventListener("click", () => {
+        void invoke("open_settings", { section: "services-add" }).catch(() => {
+          footer.report(t("rail.settingsError"));
+        });
+      });
+      empty.append(heading, add);
+      app.append(empty);
+    }
     services.scrollTop = scrollTop;
     if (focusKey) {
       const target = [

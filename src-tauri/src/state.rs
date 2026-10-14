@@ -157,6 +157,7 @@ pub fn normalize_notification_cooldown_seconds(value: u16) -> u16 {
 // before decoding, without maintaining a second copy of the settings schema.
 #[serde(remote = "Self", rename_all = "camelCase", default)]
 pub struct Settings {
+    pub onboarding_completed: bool,
     pub server_url: String,
     pub services: Vec<crate::providers::ServiceConfig>,
     pub active_service: Option<String>,
@@ -180,6 +181,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            onboarding_completed: false,
             server_url: String::new(),
             services: Vec::new(),
             active_service: None,
@@ -214,8 +216,22 @@ impl<'de> Deserialize<'de> for Settings {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let mut value = serde_json::Value::deserialize(deserializer)?;
         migrate_update_preference(&mut value);
+        migrate_onboarding_preference(&mut value);
         Self::deserialize(value).map_err(serde::de::Error::custom)
     }
+}
+
+fn migrate_onboarding_preference(value: &mut serde_json::Value) -> bool {
+    let Some(settings) = value.as_object_mut() else {
+        return false;
+    };
+    if settings.contains_key("onboardingCompleted") {
+        return false;
+    }
+    // Missing means a profile written before onboarding existed, including an
+    // intentionally empty workspace. Only a new Settings::default is pending.
+    settings.insert("onboardingCompleted".into(), true.into());
+    true
 }
 
 fn migrate_update_preference(value: &mut serde_json::Value) -> bool {
@@ -325,24 +341,46 @@ pub fn normalize_server(value: &str) -> Result<String, String> {
     url.set_path(&path);
     Ok(url.into())
 }
-pub fn load(app: &AppHandle) -> Result<Settings, Box<dyn std::error::Error>> {
-    let mut stored = stored_value(app, "settings")?;
-    let update_preference_migrated = stored
-        .as_mut()
-        .map(migrate_update_preference)
-        .unwrap_or(false);
+fn load_preferences(
+    stored: &mut Option<serde_json::Value>,
+    existing_profile: bool,
+) -> Result<(Settings, bool), serde_json::Error> {
+    let mut migrated = false;
+    if let Some(value) = stored.as_mut() {
+        migrated |= migrate_update_preference(value);
+        migrated |= migrate_onboarding_preference(value);
+    }
     let mut settings: Settings = stored
         .clone()
         .map(serde_json::from_value)
         .transpose()?
         .unwrap_or_default();
+    // An empty legacy store is still an existing profile. A fresh pending
+    // profile has an explicit false flag, so restarting it stays distinguishable.
+    // A configured first service also completes onboarding on a later launch,
+    // even if the user closed its initial window before pressing Continue.
+    if (existing_profile && stored.is_none())
+        || !settings.services.is_empty()
+        || !settings.server_url.is_empty()
+    {
+        migrated |= !settings.onboarding_completed;
+        settings.onboarding_completed = true;
+    }
+    Ok((settings, migrated))
+}
+
+pub fn load(app: &AppHandle) -> Result<Settings, Box<dyn std::error::Error>> {
+    let existing_profile =
+        tauri_plugin_store::resolve_store_path(app, "settings.json")?.try_exists()?;
+    let mut stored = stored_value(app, "settings")?;
+    let (mut settings, preferences_migrated) = load_preferences(&mut stored, existing_profile)?;
     if !settings.server_url.is_empty() {
         settings.server_url = normalize_server(&settings.server_url).unwrap_or_default();
     }
     settings.notification_cooldown =
         normalize_notification_cooldown_seconds(settings.notification_cooldown);
     match settings.migrate_services() {
-        Ok(service_migrated) if service_migrated || update_preference_migrated => {
+        Ok(service_migrated) if service_migrated || preferences_migrated => {
             // Swiph3l: A failed migration write must retain the original profile for the next launch.
             let _ = persist_value(app, "settings", migrated_settings_value(&settings, stored)?);
         }
@@ -365,6 +403,8 @@ pub fn load(app: &AppHandle) -> Result<Settings, Box<dyn std::error::Error>> {
 }
 pub fn persist(app: &AppHandle, mut settings: Settings) -> Result<(), String> {
     let old = current(app);
+    // A later settings draft must not undo an explicit Skip or Continue.
+    settings.onboarding_completed |= old.onboarding_completed;
     settings.migrate_services()?;
     settings.notification_cooldown =
         normalize_notification_cooldown_seconds(settings.notification_cooldown);
@@ -474,6 +514,90 @@ fn to_utf16le(value: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn fresh_onboarding_survives_restart_and_skip_stays_complete_without_services() {
+        let (mut fresh, _) = load_preferences(&mut None, false).unwrap();
+        assert!(!fresh.onboarding_completed);
+        fresh.migrate_services().unwrap();
+        let mut stored = Some(serde_json::to_value(&fresh).unwrap());
+        let (mut restarted, migrated) = load_preferences(&mut stored, true).unwrap();
+        assert!(!migrated);
+        assert!(!restarted.onboarding_completed);
+        assert!(restarted.services.is_empty());
+        restarted.onboarding_completed = true;
+        let mut skipped = Some(serde_json::to_value(&restarted).unwrap());
+        let (skipped, migrated) = load_preferences(&mut skipped, true).unwrap();
+        assert!(!migrated);
+        assert!(skipped.onboarding_completed);
+        assert!(skipped.services.is_empty());
+        assert!(skipped.active_service.is_none());
+    }
+
+    #[test]
+    fn existing_empty_profiles_and_beta_five_configuration_never_start_onboarding() {
+        for value in [
+            None,
+            Some(serde_json::json!({})),
+            Some(serde_json::json!({"serviceSchema": 1, "services": []})),
+            Some(
+                serde_json::json!({"serverUrl": "https://example.com/chat/", "theme": "dark", "language": "pl"}),
+            ),
+        ] {
+            let mut stored = value;
+            let (mut settings, _) = load_preferences(&mut stored, true).unwrap();
+            assert!(settings.onboarding_completed);
+            settings.migrate_services().unwrap();
+            if !settings.services.is_empty() {
+                assert_eq!(settings.services[0].id, "chatplus");
+                assert_eq!(settings.language, Language::Pl);
+                assert!(matches!(settings.theme, Theme::Dark));
+            }
+            let mut persisted = Some(migrated_settings_value(&settings, stored).unwrap());
+            let (reopened, migrated) = load_preferences(&mut persisted, true).unwrap();
+            assert!(reopened.onboarding_completed);
+            assert!(!migrated);
+        }
+    }
+
+    #[test]
+    fn a_service_saved_during_onboarding_opens_normally_on_a_later_launch() {
+        let mut pending = Settings {
+            server_url: "https://example.com/chat/".into(),
+            ..Settings::default()
+        };
+        pending.migrate_services().unwrap();
+        let serialized = serde_json::to_value(&pending).unwrap();
+        let saved: Settings = serde_json::from_value(serialized.clone()).unwrap();
+        assert!(
+            !saved.onboarding_completed,
+            "an in-session save still permits Add another"
+        );
+        let mut stored = Some(serialized);
+        let (reopened, migrated) = load_preferences(&mut stored, true).unwrap();
+        assert!(migrated);
+        assert!(reopened.onboarding_completed);
+        assert_eq!(reopened.services, saved.services);
+        assert_eq!(reopened.active_service, saved.active_service);
+        let mut round_trip = Some(migrated_settings_value(&reopened, stored).unwrap());
+        assert!(!load_preferences(&mut round_trip, true).unwrap().1);
+    }
+
+    #[test]
+    fn onboarding_migration_preserves_unrelated_profile_fields_and_is_idempotent() {
+        let mut stored = Some(serde_json::json!({
+            "theme": "dark", "includeBetaUpdates": true,
+            "serviceSchema": 1, "futurePreference": {"keep": true}
+        }));
+        let (settings, migrated) = load_preferences(&mut stored, true).unwrap();
+        assert!(migrated);
+        assert!(settings.onboarding_completed);
+        assert!(settings.include_beta_updates);
+        let mut value = migrated_settings_value(&settings, stored).unwrap();
+        assert_eq!(value["futurePreference"], serde_json::json!({"keep": true}));
+        assert_eq!(value["onboardingCompleted"], true);
+        assert!(!migrate_onboarding_preference(&mut value));
+    }
+
     #[test]
     fn legacy_migration_is_deterministic_idempotent_and_preserves_preferences() {
         let mut settings: Settings = serde_json::from_value(serde_json::json!({

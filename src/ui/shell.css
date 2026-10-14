@@ -63,6 +63,21 @@ body.services-page {
 .services-page main[aria-busy="true"] > p {
   display: none;
 }
+.workspace-empty {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: center;
+  justify-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 20px;
+  text-align: center;
+}
+.workspace-empty h1 {
+  font-size: 16px;
+}
 .service-rail {
   display: flex;
   flex-direction: column;

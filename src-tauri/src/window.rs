@@ -75,6 +75,15 @@ fn notification_destination<'a>(
 
 pub fn show_main_window(app: &AppHandle) -> Result<bool, String> {
     let Some(window) = app.get_window("main") else {
+        // First run has only the provider picker. A secondary launch restores
+        // that existing window without creating a second onboarding session.
+        if !state::current(app).onboarding_completed {
+            if let Some(settings) = app.get_webview_window("settings") {
+                focus(&settings.as_ref().window())
+                    .map_err(|_| "Could not focus ChatPlus.".to_string())?;
+                return Ok(true);
+            }
+        }
         return Ok(false);
     };
     focus(&window).map_err(|_| "Could not focus ChatPlus.".to_string())?;
@@ -97,8 +106,8 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
         return Ok(());
     }
     let settings = state::current(app);
-    if settings.server_url.is_empty() {
-        return crate::shell::settings(app).map_err(|_| "Could not open setup.".into());
+    if !settings.onboarding_completed {
+        return crate::shell::onboarding(app).map_err(|_| "Could not open setup.".into());
     }
     let window = WebviewWindowBuilder::new(
         app,

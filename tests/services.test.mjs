@@ -36,6 +36,64 @@ const result = await build({
   ],
 });
 
+test("an empty workspace offers the normal Add service flow without a provider assumption", async () => {
+  const { window, document } = parseHTML(
+    '<html><body><main id="app"></main></body></html>',
+  );
+  const settings = {
+    onboardingCompleted: true,
+    services: [],
+    activeService: null,
+    includeBetaUpdates: false,
+  };
+  const calls = [],
+    events = new Map();
+  const context = {
+    window,
+    document,
+    nativeInvoke: async (command, args) => {
+      calls.push({ command, args });
+      if (command === "get_settings") return settings;
+    },
+    nativeListen: async (event, callback) => {
+      events.set(event, callback);
+      return () => {};
+    },
+  };
+  runInNewContext(result.outputFiles[0].text, context);
+  await context.railUi.renderServices();
+  assert.equal(document.querySelectorAll(".rail-services button").length, 0);
+  assert.equal(
+    document.querySelector(".workspace-empty h1").textContent,
+    "No services configured.",
+  );
+  document.querySelector(".workspace-empty button").click();
+  document.querySelector('[data-rail-key="add"]').click();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(
+    calls
+      .filter((call) => call.command === "open_settings")
+      .map((call) => call.args.section),
+    ["services-add", "services-add"],
+  );
+  events.get("services-changed")({
+    payload: {
+      ...settings,
+      services: [
+        {
+          id: "community",
+          provider: "discord",
+          name: "Community",
+          enabled: true,
+        },
+      ],
+      activeService: "community",
+    },
+  });
+  assert.equal(document.querySelector(".workspace-empty"), null);
+  assert.equal(document.querySelectorAll(".rail-services button").length, 1);
+});
+
 test("two Discord instances keep separate rail identities and configured-name tooltips", async () => {
   const { window, document } = parseHTML(
     '<html><body><main id="app"></main></body></html>',

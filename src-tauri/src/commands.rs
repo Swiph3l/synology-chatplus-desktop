@@ -102,6 +102,17 @@ pub async fn save_settings(
         .map_err(|_| "Settings saved, but Settings could not be focused.".into())
 }
 #[tauri::command]
+pub async fn complete_onboarding(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+) -> Result<Settings, String> {
+    local(&window, &["settings"])?;
+    crate::services::complete_onboarding(&app)?;
+    window::open(&app)?;
+    window.close().map_err(|_| "Could not close Settings.")?;
+    Ok(state::current(&app))
+}
+#[tauri::command]
 pub fn get_about_info(
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,

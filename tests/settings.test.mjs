@@ -14,7 +14,7 @@ import {
 const result = await build({
   stdin: {
     contents:
-      'export { renderSettings } from "./src/settings/settings.ts"; export { languageNames, resources } from "./src/i18n/index.ts";',
+      'export { renderSettings } from "./src/settings/settings.ts"; export { languageNames, resources } from "./src/i18n/index.ts"; export { providers } from "./src/app/providers.ts";',
     resolveDir: process.cwd(),
   },
   bundle: true,
@@ -73,6 +73,7 @@ async function fixture(options = {}) {
     },
   });
   const settings = {
+    onboardingCompleted: true,
     serverUrl: "https://example.com/chat/",
     serviceSchema: 1,
     activeService: "chatplus",
@@ -192,6 +193,10 @@ async function fixture(options = {}) {
         await options.beforeUpdateReady?.({ document, window, listeners });
         return structuredClone(updateState);
       }
+      if (command === "complete_onboarding") {
+        settings.onboardingCompleted = true;
+        return structuredClone(settings);
+      }
       if (command === "save_settings") {
         await deferred.get(command)?.promise;
         if (failSave) throw "Could not save settings.";
@@ -249,6 +254,10 @@ async function fixture(options = {}) {
     listeners,
     languageNames: context.settingsUi.languageNames,
     resources: context.settingsUi.resources,
+    providers: context.settingsUi.providers,
+    recoverSave: () => {
+      failSave = false;
+    },
     defer: (command) => {
       let resolve;
       const promise = new Promise((done) => {
@@ -277,69 +286,322 @@ async function fixture(options = {}) {
   };
 }
 
-test("first-run Connect persists a complete first service when the profile already uses schema 1", async () => {
+function freshSettings(overrides = {}) {
+  return {
+    onboardingCompleted: false,
+    serverUrl: "",
+    services: [],
+    activeService: null,
+    serviceSchema: 1,
+    ...overrides,
+  };
+}
+
+function pickOnboardingProvider(fixture, provider) {
+  fixture.document
+    .querySelector(`.onboarding-provider[data-provider="${provider}"]`)
+    .click();
+}
+
+test("fresh onboarding lists the actual registry with truthful support and no preselected provider", async () => {
+  const f = await fixture({ settings: freshSettings() });
+  const cards = [...f.document.querySelectorAll(".onboarding-provider")];
+  assert.deepEqual(
+    cards.map((card) => card.dataset.provider),
+    Object.keys(f.providers),
+  );
+  assert.equal(
+    f.document.querySelector(".onboarding-provider[aria-pressed=true]"),
+    null,
+  );
+  assert.equal(f.document.querySelector("dialog"), null);
+  assert.equal(f.document.getElementById("server"), null);
+  for (const card of cards) {
+    const provider = f.providers[card.dataset.provider];
+    assert.equal(card.querySelector("strong").textContent, provider.name);
+    assert.ok(card.querySelector(".provider-icon"));
+    assert.equal(
+      card.querySelector(".onboarding-support").textContent,
+      provider.experimental ? "Experimental" : "Supported",
+    );
+    assert.ok(card.querySelector("small").textContent);
+  }
+  assert.equal(
+    f.calls.some((call) => call.command === "save_settings"),
+    false,
+  );
+});
+
+test("choosing ChatPlus reuses the shared validation and persists a fresh isolated service identity", async () => {
   const f = await fixture({
-    settings: {
-      serverUrl: "",
-      services: [],
-      activeService: null,
-      serviceSchema: 1,
-      includeBetaUpdates: true,
-    },
+    settings: freshSettings({ includeBetaUpdates: true }),
   });
-  const server = f.document.getElementById("server");
-  server.value = "http://127.0.0.1:17830/beta6/a";
-  dispatch(f.window, server, "input");
-  submitSettings(f);
+  pickOnboardingProvider(f, "synology-chatplus");
+  assert.equal(
+    f.document.getElementById("service-dialog-provider-synology-chatplus")
+      .checked,
+    true,
+  );
+  setServiceField(f, "url", "invalid");
+  applyServiceDialog(f);
+  assert.equal(
+    f.calls.some((call) => call.command === "save_settings"),
+    false,
+  );
+  assert.ok(f.document.querySelector("dialog[open]"));
+  setServiceField(f, "name", "Home ChatPlus");
+  setServiceField(f, "url", "https://chat.example/chat");
+  applyServiceDialog(f);
   await f.flush();
   const saved = f.calls.find((call) => call.command === "save_settings").args
     .settings;
-  assert.equal(saved.serviceSchema, 1);
-  assert.equal(saved.activeService, "chatplus");
-  assert.equal(saved.serverUrl, "http://127.0.0.1:17830/beta6/a/");
-  assert.deepEqual(saved.services, [
-    {
-      id: "chatplus",
-      provider: "synology-chatplus",
-      name: "ChatPlus",
-      url: "http://127.0.0.1:17830/beta6/a/",
-      enabled: true,
-      notifications: true,
-      notificationColor: "auto",
-    },
-  ]);
-  assert.equal(f.settings.services.length, 1);
-  assert.equal(f.settings.activeService, "chatplus");
-  assert.equal(server.value, saved.serverUrl);
+  assert.equal(saved.services.length, 1);
+  assert.match(saved.services[0].id, /^service-/);
+  assert.notEqual(saved.services[0].id, "chatplus");
+  assert.equal(saved.services[0].provider, "synology-chatplus");
+  assert.equal(saved.services[0].name, "Home ChatPlus");
+  assert.equal(saved.services[0].url, "https://chat.example/chat/");
+  assert.equal(saved.activeService, saved.services[0].id);
+  assert.equal(saved.serverUrl, saved.services[0].url);
   assert.equal(saved.includeBetaUpdates, true);
-  assert.equal(saved.autostart, false);
-  assert.equal(saved.automaticUpdates, false);
-  assert.equal(saved.desktopNotifications, false);
-  assert.ok(f.document.getElementById("save-feedback").textContent);
+  assert.equal(saved.onboardingCompleted, false);
+  assert.equal(f.document.getElementById("onboarding-picker").hidden, true);
+  assert.equal(
+    f.document.getElementById("onboarding-continue").disabled,
+    false,
+  );
+  assert.equal(f.document.getElementById("add-service").hidden, false);
 });
 
-test("failed first-run Connect retains the URL without adding a persisted service", async () => {
-  const f = await fixture({
-    settings: {
-      serverUrl: "",
+test("a non-primary provider opens its own shared form without creating a Synology service", async () => {
+  const f = await fixture({ settings: freshSettings() });
+  pickOnboardingProvider(f, "discord");
+  assert.equal(
+    f.document.getElementById("service-dialog-provider-discord").checked,
+    true,
+  );
+  assert.equal(
+    f.document.getElementById("service-dialog-url").closest(".service-field")
+      .hidden,
+    true,
+  );
+  setServiceField(f, "name", "Community");
+  applyServiceDialog(f);
+  await f.flush();
+  assert.equal(f.settings.services.length, 1);
+  assert.equal(f.settings.services[0].provider, "discord");
+  assert.equal(f.settings.services[0].url, f.providers.discord.defaultUrl);
+  assert.equal(f.settings.services[0].name, "Community");
+});
+
+test("onboarding saves two different providers before Continue and preserves separate IDs", async () => {
+  const f = await fixture({ settings: freshSettings() });
+  pickOnboardingProvider(f, "discord");
+  applyServiceDialog(f);
+  await f.flush();
+  const firstId = f.settings.services[0].id;
+  f.document.getElementById("add-service").click();
+  assert.equal(
+    f.document.querySelector(".onboarding-provider[aria-pressed=true]"),
+    null,
+  );
+  pickOnboardingProvider(f, "mattermost");
+  setServiceField(f, "url", "https://team.example/");
+  setServiceField(f, "name", "Team");
+  applyServiceDialog(f);
+  await f.flush();
+  assert.deepEqual(
+    f.settings.services.map((service) => service.provider),
+    ["discord", "mattermost"],
+  );
+  assert.equal(f.settings.services[0].id, firstId);
+  assert.notEqual(f.settings.services[1].id, firstId);
+  assert.equal(f.settings.services[1].notifications, false);
+  assert.equal(
+    f.calls.some((call) => call.command === "complete_onboarding"),
+    false,
+  );
+  f.document.getElementById("onboarding-continue").click();
+  await f.flush();
+  assert.equal(f.settings.onboardingCompleted, true);
+  assert.equal(f.calls.at(-1).command, "complete_onboarding");
+});
+
+test("Skip persists completion without inventing a service and does not repeat on reopen", async () => {
+  const f = await fixture({ settings: freshSettings() });
+  f.document.getElementById("onboarding-skip").click();
+  await f.flush();
+  assert.equal(f.settings.onboardingCompleted, true);
+  assert.equal(f.settings.services.length, 0);
+  assert.equal(
+    f.calls.some((call) => call.command === "save_settings"),
+    false,
+  );
+  const reopened = await fixture({ settings: f.settings });
+  assert.equal(reopened.document.querySelector(".onboarding-providers"), null);
+  assert.ok(reopened.document.getElementById("tab-services"));
+});
+
+test("existing and legacy empty profiles bypass onboarding and use the normal Add route", async () => {
+  for (const settings of [
+    {},
+    { onboardingCompleted: undefined },
+    {
+      onboardingCompleted: true,
       services: [],
       activeService: null,
-      serviceSchema: 1,
+      serverUrl: "",
     },
+  ]) {
+    const f = await fixture({ settings });
+    assert.equal(f.document.querySelector(".onboarding-providers"), null);
+    assert.ok(f.document.getElementById("tab-services"));
+  }
+  const f = await fixture({
+    settings: { ...freshSettings(), onboardingCompleted: true },
+    search: "?section=services&action=add",
   });
-  const server = f.document.getElementById("server");
-  server.value = "http://127.0.0.1:17830/beta6/a/";
-  dispatch(f.window, server, "input");
+  assert.ok(f.document.querySelector(".service-dialog[open]"));
+  assert.equal(
+    f.document.getElementById("tab-services").getAttribute("aria-selected"),
+    "true",
+  );
+});
+
+test("onboarding Cancel does not save and a failed Add retains one draft for retry", async () => {
+  const f = await fixture({ settings: freshSettings() });
+  pickOnboardingProvider(f, "discord");
+  f.document.querySelector(".service-dialog-footer .secondary").click();
+  assert.equal(
+    f.calls.some((call) => call.command === "save_settings"),
+    false,
+  );
+  pickOnboardingProvider(f, "discord");
   f.fail();
-  submitSettings(f);
+  applyServiceDialog(f);
   await f.flush();
   assert.equal(f.settings.services.length, 0);
-  assert.equal(server.value, "http://127.0.0.1:17830/beta6/a/");
   assert.match(
-    f.document.getElementById("status").textContent,
+    f.document.getElementById("onboarding-status").textContent,
     /Could not save/,
   );
-  assert.equal(f.document.getElementById("save").disabled, false);
+  assert.equal(f.document.getElementById("onboarding-continue").disabled, true);
+  assert.equal(f.document.getElementById("onboarding-retry").hidden, false);
+  const id = f.calls.find((call) => call.command === "save_settings").args
+    .settings.services[0].id;
+  f.recoverSave();
+  f.document.getElementById("onboarding-retry").click();
+  await f.flush();
+  assert.equal(f.settings.services.length, 1);
+  assert.equal(f.settings.services[0].id, id);
+  assert.equal(
+    f.document.getElementById("onboarding-continue").disabled,
+    false,
+  );
+});
+
+test("onboarding waits for persistence and cannot complete behind an open dialog", async () => {
+  const f = await fixture({ settings: freshSettings() });
+  pickOnboardingProvider(f, "discord");
+  f.document.getElementById("onboarding-skip").click();
+  await f.flush();
+  assert.equal(
+    f.calls.some((call) => call.command === "complete_onboarding"),
+    false,
+  );
+  const finishSave = f.defer("save_settings");
+  applyServiceDialog(f);
+  await f.flush();
+  assert.equal(f.document.getElementById("onboarding-continue").disabled, true);
+  assert.equal(f.document.getElementById("add-service").disabled, true);
+  f.document.getElementById("onboarding-continue").click();
+  await f.flush();
+  assert.equal(
+    f.calls.some((call) => call.command === "complete_onboarding"),
+    false,
+  );
+  finishSave();
+  await f.flush();
+  assert.equal(f.settings.services.length, 1);
+  assert.equal(
+    f.document.getElementById("onboarding-continue").disabled,
+    false,
+  );
+});
+
+test("onboarding accepts a committed save warning and Continue keeps one persisted identity", async () => {
+  const f = await fixture({ settings: freshSettings() });
+  f.failRemovalAfterSave();
+  pickOnboardingProvider(f, "discord");
+  applyServiceDialog(f);
+  await f.flush();
+  assert.equal(f.settings.services.length, 1);
+  const id = f.settings.services[0].id;
+  assert.equal(f.document.getElementById("onboarding-retry").hidden, true);
+  assert.equal(
+    f.document.getElementById("onboarding-continue").disabled,
+    false,
+  );
+  assert.equal(f.document.getElementById("onboarding-picker").hidden, true);
+  assert.match(
+    f.document.getElementById("onboarding-status").textContent,
+    /saved/i,
+  );
+  f.document.getElementById("onboarding-continue").click();
+  await f.flush();
+  assert.equal(f.settings.onboardingCompleted, true);
+  assert.deepEqual(
+    f.settings.services.map((service) => service.id),
+    [id],
+  );
+  assert.equal(
+    f.calls.filter((call) => call.command === "save_settings").length,
+    1,
+  );
+  assert.equal(f.calls.at(-1).command, "complete_onboarding");
+});
+
+test("a persisted service ID cannot acknowledge an onboarding edit that was not saved", async () => {
+  const f = await fixture({ settings: freshSettings() });
+  pickOnboardingProvider(f, "discord");
+  applyServiceDialog(f);
+  await f.flush();
+  const persisted = structuredClone(f.settings.services[0]);
+  f.document
+    .getElementById(`service-${persisted.id}-settings`)
+    .querySelector('[data-action="edit"]')
+    .click();
+  setServiceField(f, "name", "Unsaved edit");
+  f.fail();
+  applyServiceDialog(f);
+  await f.flush();
+  assert.deepEqual(f.settings.services[0], persisted);
+  assert.equal(
+    f.document.querySelector(".service-card-name").textContent,
+    "Unsaved edit",
+  );
+  assert.equal(f.document.getElementById("onboarding-retry").hidden, false);
+  assert.equal(f.document.getElementById("onboarding-continue").disabled, true);
+  assert.match(
+    f.document.getElementById("onboarding-status").textContent,
+    /Could not save/,
+  );
+});
+
+test("the existing Settings Add request preserves drafts and refuses a second dialog", async () => {
+  const f = await fixture();
+  f.document.getElementById("theme").value = "dark";
+  f.listeners.get("settings-add-service-requested")();
+  const dialog = f.document.querySelector(".service-dialog[open]");
+  assert.ok(dialog);
+  assert.equal(f.document.getElementById("theme").value, "dark");
+  f.listeners.get("settings-add-service-requested")();
+  assert.equal(f.document.querySelectorAll(".service-dialog[open]").length, 1);
+  assert.equal(f.document.querySelector(".service-dialog[open]"), dialog);
+  assert.equal(
+    f.calls.some((call) => call.command === "save_settings"),
+    false,
+  );
 });
 
 test("six Settings sections keep keyboard navigation and route requests outside the scrolling content", async () => {

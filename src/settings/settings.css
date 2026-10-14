@@ -230,6 +230,115 @@
 .setup-page .settings-content {
   overflow: visible;
 }
+.settings-page.onboarding-page {
+  height: 100dvh;
+  overflow: hidden;
+  padding: 16px 20px 12px;
+}
+.onboarding-page #app {
+  height: 100%;
+  min-height: 0;
+  max-width: 720px;
+  display: flex;
+  flex-direction: column;
+}
+.onboarding-page .page-header {
+  margin-bottom: 18px;
+  flex-shrink: 0;
+}
+.onboarding-page .page-header h1 {
+  font-size: 20px;
+}
+.onboarding-page .onboarding-content {
+  overflow-y: auto;
+  padding-right: 6px;
+}
+.onboarding-page h2 {
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+#onboarding-heading:focus {
+  outline: none;
+}
+.onboarding-providers {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.onboarding-provider {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+  min-height: 92px;
+  padding: 12px;
+  border-radius: 6px;
+  text-align: left;
+}
+.onboarding-provider .provider-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.onboarding-provider-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  gap: 4px;
+}
+.onboarding-provider strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.onboarding-provider small {
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.onboarding-support {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.onboarding-provider .experimental-badge {
+  margin: 0;
+  padding: 0 5px;
+}
+#onboarding-services {
+  margin-top: 18px;
+}
+#onboarding-services:first-child {
+  margin-top: 0;
+}
+#onboarding-status {
+  flex-shrink: 0;
+  margin: 8px 0 0;
+  color: var(--danger);
+}
+.onboarding-page .onboarding-footer {
+  flex-wrap: wrap;
+  padding-top: 12px;
+  margin-top: 10px;
+}
+.onboarding-footer #onboarding-skip,
+.onboarding-footer #onboarding-retry {
+  margin-right: auto;
+}
+.onboarding-footer button {
+  min-height: 32px;
+  padding: 5px 10px;
+}
+@media (max-width: 470px) {
+  .onboarding-providers {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .onboarding-provider {
+    min-height: 76px;
+  }
+  .settings-page.onboarding-page {
+    padding: 14px;
+  }
+}
 
 /* Services keeps all persistent actions in Settings; cards only summarize the draft. */
 .services-heading {

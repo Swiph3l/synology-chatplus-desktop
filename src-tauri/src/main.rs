@@ -89,6 +89,7 @@ fn main() {
             commands::request_notification_permission,
             commands::get_status,
             commands::save_settings,
+            commands::complete_onboarding,
             commands::get_about_info,
             commands::copy_diagnostics,
             commands::show_about,
@@ -123,6 +124,7 @@ fn main() {
             menu::create(app.handle())?;
             tray::create(app.handle())?;
             // Configured Windows startup always owns Main, even when Settings is requested.
+            // Only a fresh profile keeps the provider picker until Skip/Continue.
             // A later EXE launch restores that existing Main without creating views.
             let settings_requested = std::env::args().any(|arg| arg == "--settings");
             if cfg!(windows) || !settings_requested {

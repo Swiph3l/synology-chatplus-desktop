@@ -106,3 +106,32 @@ test("Spanish controls, interpolation, provider validation and error feedback ne
   );
   setLanguage("en");
 });
+
+test("onboarding is translated in every locale and remains provider-neutral", () => {
+  const keys = [
+    "onboarding.welcome",
+    "onboarding.chooseFirst",
+    "onboarding.addService",
+    "onboarding.addAnother",
+    "onboarding.continue",
+    "onboarding.skip",
+    "onboarding.empty",
+    "onboarding.supported",
+    "onboarding.serverService",
+    "onboarding.workspaceService",
+    "onboarding.fixedService",
+    "onboarding.serviceHelp",
+  ];
+  for (const language of Object.keys(resources)) {
+    setLanguage(language);
+    for (const key of keys) {
+      const value = t(key);
+      assert.equal(value, resources[language][key], `${language}: ${key}`);
+      assert.notEqual(value, key, `${language}: ${key}`);
+      if (language !== "en")
+        assert.notEqual(value, resources.en[key], `${language}: ${key}`);
+      assert.doesNotMatch(value, /Synology|Discord|Slack|Mattermost/);
+    }
+  }
+  setLanguage("en");
+});

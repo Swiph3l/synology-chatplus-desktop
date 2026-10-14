@@ -20,6 +20,7 @@ import {
   type Language,
 } from "../i18n";
 import { serviceEditor } from "./services";
+import { renderOnboarding } from "./onboarding";
 import {
   providers,
   serviceSupportsNotifications,
@@ -51,22 +52,21 @@ export async function renderSettings() {
     service: Pick<ServiceConfig, "id" | "provider" | "url">,
   ) => serviceSupportsNotifications(service, fixtureServiceIds);
   setLanguage(original.language);
-  const firstRun = !original.services.length;
+  if (original.onboardingCompleted === false) {
+    applyTheme(original.theme);
+    renderOnboarding(app, original, supportsNotifications);
+    return;
+  }
   const serviceDraft = structuredClone(original.services);
   const notificationDraftEdits = new Set<string>();
-  document.body.classList.toggle("setup-page", firstRun);
+  document.body.classList.remove("setup-page", "onboarding-page");
   app.innerHTML = `
-    <header class="page-header"><img class="brand" src="/chatplus.png" alt="" width="32" height="32"><h1>${firstRun ? "ChatPlus Desktop" : t("common.settings")}</h1></header>
-    ${firstRun ? `<h2 class="connect-heading">${t("settings.connectHeading")}</h2>` : ""}
+    <header class="page-header"><img class="brand" src="/chatplus.png" alt="" width="32" height="32"><h1>${t("common.settings")}</h1></header>
     <form id="settings">
-      ${firstRun ? "" : `<nav class="settings-tabs" role="tablist" aria-label="${t("settings.categories")}">${["general", "notifications", "updates", "services", "changelog", "about"].map((section, index) => `<button type="button" id="tab-${section}" role="tab" data-tab="${section}" aria-controls="panel-${section}" aria-selected="${index === 0}" aria-pressed="${index === 0}" tabindex="${index === 0 ? 0 : -1}">${t(`common.${section}` as "common.general")}</button>`).join("")}</nav>`}
+      <nav class="settings-tabs" role="tablist" aria-label="${t("settings.categories")}">${["general", "notifications", "updates", "services", "changelog", "about"].map((section, index) => `<button type="button" id="tab-${section}" role="tab" data-tab="${section}" aria-controls="panel-${section}" aria-selected="${index === 0}" aria-pressed="${index === 0}" tabindex="${index === 0 ? 0 : -1}">${t(`common.${section}` as "common.general")}</button>`).join("")}</nav>
       <div class="settings-content">
       <div data-panel="general">
-      <fieldset class="server-section">${firstRun ? "" : `<legend>${t("settings.server")}</legend>`}<label for="server">${t("settings.serverUrl")}</label><input id="server" type="url" required placeholder="https://example.com/chat/" autocomplete="url" spellcheck="false">${firstRun ? "" : `<small>${t("settings.serverHelp")}</small>`}</fieldset>
-      ${
-        firstRun
-          ? ""
-          : `
+      <fieldset class="server-section"><legend>${t("settings.server")}</legend><label for="server">${t("settings.serverUrl")}</label><input id="server" type="url" required placeholder="https://example.com/chat/" autocomplete="url" spellcheck="false"><small>${t("settings.serverHelp")}</small></fieldset>
       <fieldset><legend>${t("settings.appearance")}</legend><div class="settings-appearance-controls"><div><label for="theme">${t("settings.theme")}</label><select id="theme"><option value="system">${t("settings.system")}</option><option value="light">${t("settings.light")}</option><option value="dark">${t("settings.dark")}</option></select></div><div><label for="language">${t("settings.language")}</label><select id="language" aria-describedby="language-help">${Object.entries(
         languageNames,
       )
@@ -75,13 +75,8 @@ export async function renderSettings() {
           "",
         )}</select></div></div><small id="language-help">${t("settings.languageHelp")}</small></fieldset>
       <fieldset><legend>${t("settings.startup")}</legend><label class="toggle"><input id="autostart" type="checkbox">${/Windows/i.test(navigator.userAgent) ? t("settings.startWindows") : t("settings.startLogin")}</label></fieldset>
-      <fieldset><legend>${t("settings.window")}</legend><label class="toggle"><input id="minimize" type="checkbox">${t("settings.minimizeTray")}</label><label class="toggle"><input id="close" type="checkbox">${t("settings.closeTray")}</label><label class="toggle"><input id="external" type="checkbox">${t("settings.externalLinks")}</label></fieldset>`
-      }
+      <fieldset><legend>${t("settings.window")}</legend><label class="toggle"><input id="minimize" type="checkbox">${t("settings.minimizeTray")}</label><label class="toggle"><input id="close" type="checkbox">${t("settings.closeTray")}</label><label class="toggle"><input id="external" type="checkbox">${t("settings.externalLinks")}</label></fieldset>
       </div>
-      ${
-        firstRun
-          ? ""
-          : `
       <div data-panel="notifications" hidden>
         <fieldset><legend>${t("common.notifications")}</legend>
           <label class="toggle"><input id="desktop-notifications" type="checkbox">${t("notifications.desktop")}</label>
@@ -114,13 +109,11 @@ export async function renderSettings() {
         <div id="update-details"></div>
       </div>
       <div data-panel="changelog" hidden><div id="changelog-content"></div></div>
-      <div data-panel="about" hidden><div id="about-content"></div></div>`
-      }
+      <div data-panel="about" hidden><div id="about-content"></div></div>
       </div>
       <p id="status" role="status" aria-live="polite"></p>
-      <div class="form-footer"><div class="settings-save-state" role="status" aria-live="polite" aria-atomic="true"><span id="draft-status"></span><p id="save-feedback" hidden></p></div><button id="close-settings" type="button" class="secondary">${t("common.close")}</button><button id="save" type="submit">${firstRun ? t("settings.connect") : t("common.save")}</button></div>
-    </form>
-    ${firstRun ? `<footer><span>${t("settings.community")}</span></footer>` : ""}`;
+      <div class="form-footer"><div class="settings-save-state" role="status" aria-live="polite" aria-atomic="true"><span id="draft-status"></span><p id="save-feedback" hidden></p></div><button id="close-settings" type="button" class="secondary">${t("common.close")}</button><button id="save" type="submit">${t("common.save")}</button></div>
+    </form>`;
   const input = (id: string) => document.getElementById(id) as HTMLInputElement;
   const theme = document.querySelector<HTMLSelectElement>("#theme");
   const status = document.getElementById("status")!;
@@ -222,9 +215,9 @@ export async function renderSettings() {
     const definition = providers[service?.provider ?? "synology-chatplus"];
     const section = document.querySelector<HTMLElement>(".server-section")!;
     // Swiph3l: Services owns provider URL editing; this hidden legacy field only synchronizes the active URL for migration/save.
-    section.hidden = !firstRun;
-    input("server").required = firstRun;
-    if (!firstRun) {
+    section.hidden = true;
+    input("server").required = false;
+    {
       section.querySelector("label")!.textContent = t(
         definition.urlMode === "workspace"
           ? "settings.workspaceUrl"
@@ -248,7 +241,7 @@ export async function renderSettings() {
   document.getElementById("close-settings")!.addEventListener("click", () => {
     void invoke("close_settings");
   });
-  if (!firstRun) {
+  {
     serviceManager = serviceEditor(
       document.getElementById("service-editor")!,
       serviceDraft,
@@ -313,10 +306,9 @@ export async function renderSettings() {
   const readDraft = (): Settings => ({
     ...original,
     services: structuredClone(serviceDraft),
-    serverUrl: firstRun
-      ? input("server").value
-      : (serviceDraft.find((service) => service.id === original.activeService)
-          ?.url ?? ""),
+    serverUrl:
+      serviceDraft.find((service) => service.id === original.activeService)
+        ?.url ?? "",
     ...(theme
       ? {
           theme: theme.value as Theme,
@@ -351,7 +343,6 @@ export async function renderSettings() {
   const settingsKey = (settings: Settings) =>
     JSON.stringify({
       services: settings.services.map(serviceKey),
-      serverUrl: firstRun ? settings.serverUrl : undefined,
       theme: settings.theme,
       language: settings.language,
       autostart: settings.autostart,
@@ -387,7 +378,7 @@ export async function renderSettings() {
       persistencePending ||
       permissionPending ||
       externalConflict ||
-      (!firstRun && !dirty);
+      !dirty;
     window.dispatchEvent(new Event("settings-draft-changed"));
   };
   for (const eventName of ["input", "change"])
@@ -479,6 +470,12 @@ export async function renderSettings() {
   await listen<string>("settings-section-requested", ({ payload }) =>
     showSection(payload),
   );
+  const addService = () => {
+    if (persistencePending || serviceManager?.isDialogOpen()) return;
+    showSection("services");
+    serviceManager?.add();
+  };
+  await listen("settings-add-service-requested", addService);
   if (typeof location !== "undefined")
     showSection(
       new URLSearchParams(location.search).get("section") ?? "general",
@@ -593,7 +590,7 @@ export async function renderSettings() {
         externalConflict = true;
     }
     original = structuredClone(payload);
-    if (!firstRun) input("server").value = payload.serverUrl;
+    input("server").value = payload.serverUrl;
     configureServerField(
       payload.services.find((service) => service.id === payload.activeService),
     );
@@ -617,7 +614,7 @@ export async function renderSettings() {
   await refreshFixtureCapabilities();
   if (refreshed && settingsEventRevision === beforeRefresh)
     acceptExternalSettings(refreshed);
-  if (!firstRun) {
+  {
     renderChangelog(document.getElementById("changelog-content")!);
     await mountAboutPanel(document.getElementById("about-content")!);
     await mountUpdatePanel(document.getElementById("update-details")!, {
@@ -789,7 +786,7 @@ export async function renderSettings() {
       serviceManager?.isDialogOpen()
     )
       return;
-    if (!firstRun && settingsKey(readDraft()) === settingsKey(original)) return;
+    if (settingsKey(readDraft()) === settingsKey(original)) return;
     const restoreSaveFocus = document.activeElement === button;
     const previousLanguage = original.language ?? "en";
     const snapshot = readDraft();
@@ -837,25 +834,7 @@ export async function renderSettings() {
           service.notificationColor,
         ),
       }));
-      if (firstRun) {
-        snapshot.serverUrl = normalizeServer(snapshot.serverUrl);
-        const active = snapshot.services.find(
-          (service) => service.id === snapshot.activeService,
-        );
-        if (active) active.url = snapshot.serverUrl;
-      }
       expectedSaved = structuredClone(snapshot);
-      if (firstRun && !expectedSaved.services.length) {
-        expectedSaved.services.push({
-          id: "chatplus",
-          provider: "synology-chatplus",
-          name: "ChatPlus",
-          url: snapshot.serverUrl,
-          enabled: true,
-          notifications: true,
-          notificationColor: "auto",
-        });
-      }
       if (
         !expectedSaved.services.some(
           (service) =>
@@ -869,17 +848,13 @@ export async function renderSettings() {
           (service) => service.id === expectedSaved!.activeService,
         )?.url ?? "";
       expectedSaved.serviceSchema = 1;
-      // First-run profiles already use the current service schema. Persist the
-      // newly created service, rather than relying on legacy URL migration.
-      await saveSettings(firstRun ? expectedSaved : snapshot);
+      await saveSettings(snapshot);
       // Use the authoritative normalized configuration. A missing follow-up reply
       // does not turn an acknowledged successful save into a persistence failure.
       acceptSaved(
         await readSaved().catch(() => pendingSettings ?? expectedSaved!),
       );
-      showSaveFeedback(
-        firstRun ? t("settings.saved") : t("settings.savedContinue"),
-      );
+      showSaveFeedback(t("settings.savedContinue"));
     } catch (error) {
       // Native reconciliation can fail after the disk transaction succeeded.
       // Report that explicitly; a failed transaction retains all unsaved edits.
@@ -932,5 +907,9 @@ export async function renderSettings() {
   });
   readyToSave = true;
   updateDirty();
-  if (firstRun) input("server").focus();
+  if (
+    typeof location !== "undefined" &&
+    new URLSearchParams(location.search).get("action") === "add"
+  )
+    addService();
 }

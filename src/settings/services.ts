@@ -26,14 +26,6 @@ export interface ServiceDraftChange {
   notificationServiceId?: string;
 }
 
-const providerOrder: ProviderId[] = [
-  "synology-chatplus",
-  "synology-chat",
-  "discord",
-  "slack",
-  "mattermost",
-];
-
 function actionIcon(kind: "drag" | "up" | "down" | "edit" | "remove") {
   const icon = document.createElement("span");
   icon.className = "service-action-icon";
@@ -88,6 +80,7 @@ export function serviceEditor(
   supportsNotifications: (
     service: Pick<ServiceConfig, "id" | "provider" | "url">,
   ) => boolean = serviceSupportsNotifications,
+  dialogHelp: { saveHelp?: string; removalHelp?: string } = {},
 ) {
   let disabled = false;
   let disposed = false;
@@ -515,7 +508,7 @@ export function serviceEditor(
     const footer = document.createElement("div");
     footer.className = "service-dialog-footer";
     const help = document.createElement("small");
-    help.textContent = t("services.draftHelp");
+    help.textContent = dialogHelp.saveHelp ?? t("services.draftHelp");
     const actions = document.createElement("div");
     actions.className = "actions";
     const cancel = document.createElement("button");
@@ -576,7 +569,7 @@ export function serviceEditor(
     providerChoices.className = "service-provider-choices";
     providerField.append(legend, providerChoices);
     const radios = new Map<ProviderId, HTMLInputElement>();
-    for (const id of providerOrder.filter((id) => id in providers)) {
+    for (const id of Object.keys(providers) as ProviderId[]) {
       const definition = providers[id];
       const label = document.createElement("label");
       label.className = "service-provider-choice";
@@ -992,13 +985,12 @@ export function serviceEditor(
     }
   };
 
-  function add() {
+  function add(provider: ProviderId = "synology-chatplus") {
     if (disabled || disposed || mode) return;
     if (services.length >= 12) {
       live.textContent = t("services.limit");
       return;
     }
-    const provider: ProviderId = "synology-chatplus";
     // Every opening, including after Cancel, allocates a new isolated draft and UUID.
     open(
       { type: "create" },
@@ -1032,7 +1024,7 @@ export function serviceEditor(
     removalController = new AbortController();
     try {
       const accepted = await confirmServiceRemoval(service.name, {
-        help: t("services.draftRemovalHelp"),
+        help: dialogHelp.removalHelp ?? t("services.draftRemovalHelp"),
         signal: removalController.signal,
       });
       if (!accepted || disposed || disabled || mode !== removalMode)

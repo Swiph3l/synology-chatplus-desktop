@@ -65,29 +65,45 @@ fn open(
 pub fn settings(app: &AppHandle) -> tauri::Result<()> {
     settings_section(app, "general")
 }
+pub fn onboarding(app: &AppHandle) -> tauri::Result<()> {
+    open(
+        app,
+        "settings",
+        "index.html?onboarding=1",
+        "ChatPlus Desktop",
+        (720., 600.),
+        true,
+    )
+}
 pub fn settings_section(app: &AppHandle, section: &str) -> tauri::Result<()> {
+    if !state::current(app).onboarding_completed {
+        return onboarding(app);
+    }
+    let add_service = section == "services-add";
     let section = match section {
         "notifications" | "updates" | "services" | "changelog" | "about" => section,
+        "services-add" => "services",
         _ => "general",
     };
-    let first_run = state::current(app).services.is_empty();
     let existing = app.get_webview_window("settings").is_some();
-    let path = format!("index.html?section={section}");
+    let path = format!(
+        "index.html?section={section}{}",
+        if add_service { "&action=add" } else { "" }
+    );
     open(
         app,
         "settings",
         &path,
         "ChatPlus Desktop",
-        if first_run {
-            (460., 280.)
-        } else {
-            (720., 600.)
-        },
+        (720., 600.),
         true,
     )?;
     // Swiph3l: New windows read the route from their URL; existing windows receive it after restore without losing unsaved drafts.
     if existing {
         let _ = app.emit_to("settings", "settings-section-requested", section);
+        if add_service {
+            let _ = app.emit_to("settings", "settings-add-service-requested", ());
+        }
     }
     Ok(())
 }

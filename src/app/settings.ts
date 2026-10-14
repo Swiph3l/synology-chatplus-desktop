@@ -3,6 +3,7 @@ import type { ServiceConfig } from "./providers";
 import type { Language } from "../i18n";
 export type Theme = "system" | "light" | "dark";
 export interface Settings {
+  onboardingCompleted: boolean;
   serverUrl: string;
   services: ServiceConfig[];
   activeService: string | null;

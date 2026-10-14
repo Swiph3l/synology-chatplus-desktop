@@ -75,7 +75,12 @@ pub fn layout(app: &AppHandle) {
 pub fn show(app: &AppHandle) -> Result<(), String> {
     let settings = state::current(app);
     let Some(service) = settings.active().cloned() else {
-        return crate::shell::settings(app).map_err(|_| "Could not open Settings.".into());
+        // A skipped setup or an empty existing profile owns a normal workspace.
+        layout(app);
+        let _ = app.emit_to("main", "services-changed", &settings);
+        crate::unread::refresh(app);
+        crate::connection::refresh(app);
+        return Ok(());
     };
     let session_label = label(&service.id);
     if app.get_webview(&session_label).is_none() {
@@ -181,6 +186,17 @@ pub fn save(app: &AppHandle, settings: state::Settings) -> Result<(), String> {
     })
 }
 
+pub fn complete_onboarding(app: &AppHandle) -> Result<state::Settings, String> {
+    let lifecycle = app.state::<Lifecycle>();
+    let _transition = lifecycle.0.lock().unwrap_or_else(|e| e.into_inner());
+    let mut settings = state::current(app);
+    if !settings.onboarding_completed {
+        settings.onboarding_completed = true;
+        state::persist(app, settings)?;
+    }
+    Ok(state::current(app))
+}
+
 pub(crate) fn update_notification_config(
     settings: &mut state::Settings,
     id: &str,
@@ -243,6 +259,55 @@ mod removal_tests {
         };
         settings.migrate_services().unwrap();
         settings
+    }
+    #[test]
+    fn first_service_and_add_another_wait_for_continue_while_skip_opens_an_empty_workspace() {
+        use std::cell::RefCell;
+        let events = RefCell::new(Vec::new());
+        let reconcile = |settings: &state::Settings, main_exists| {
+            reconcile_workspace(
+                settings,
+                main_exists,
+                || {
+                    events.borrow_mut().push("open-main");
+                    Ok(())
+                },
+                || {
+                    events.borrow_mut().push("show-services");
+                    Ok(())
+                },
+            )
+            .unwrap();
+        };
+        let mut onboarding = state::Settings::default();
+        for service in settings().services {
+            onboarding.services.push(service);
+            onboarding.migrate_services().unwrap();
+            reconcile(&onboarding, false);
+            assert!(
+                events.borrow().is_empty(),
+                "saving a service must leave Add another/Continue visible"
+            );
+        }
+        onboarding.onboarding_completed = true;
+        reconcile(&onboarding, false);
+        assert_eq!(*events.borrow(), ["open-main", "show-services"]);
+        events.borrow_mut().clear();
+        onboarding.services.clear();
+        onboarding.migrate_services().unwrap();
+        reconcile(&onboarding, false);
+        assert_eq!(
+            *events.borrow(),
+            ["open-main", "show-services"],
+            "Skip must open the workspace without a provider"
+        );
+        events.borrow_mut().clear();
+        reconcile(&onboarding, true);
+        assert_eq!(
+            *events.borrow(),
+            ["show-services"],
+            "existing Main is never recreated by settings saves"
+        );
     }
     #[test]
     fn native_service_geometry_reserves_footer_and_stays_positive_at_any_scale() {
@@ -408,10 +473,29 @@ fn reconcile_current(app: &AppHandle, old: &state::Settings) -> Result<(), Strin
             crate::unread::remove(app, &service.id);
         }
     }
-    if app.get_window("main").is_none() {
-        crate::window::open(app)?;
+    reconcile_workspace(
+        &settings,
+        app.get_window("main").is_some(),
+        || crate::window::open(app),
+        || show(app),
+    )
+}
+
+fn reconcile_workspace(
+    settings: &state::Settings,
+    main_exists: bool,
+    open: impl FnOnce() -> Result<(), String>,
+    show: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    if !main_exists {
+        // Reuse normal service validation/persistence during first run, but let
+        // the user add another service before opening any provider WebViews.
+        if !settings.onboarding_completed {
+            return Ok(());
+        }
+        open()?;
     }
-    show(app)
+    show()
 }
 fn create(app: &AppHandle, service: &ServiceConfig) -> Result<(), String> {
     let session = ServiceSession::new(service);
