@@ -357,5 +357,8 @@
   "errors.whatsappUrl": "Sesje internetowe WhatsApp wymagają https://web.whatsapp.com/.",
   "services.messengerExperimental": "Integracja z Messengerem jest eksperymentalna. Wymagane jest logowanie przez Facebook.",
   "services.messengerReadUnsupported": "Oznaczanie jako przeczytane w Messengerze będzie dostępne po zweryfikowaniu bezpiecznej interakcji z interfejsem WWW.",
-  "errors.messengerUrl": "Sesje internetowe Messengera wymagają https://www.facebook.com/messages/."
+  "errors.messengerUrl": "Sesje internetowe Messengera wymagają https://www.facebook.com/messages/.",
+  "rail.allowProviderNotifications": "Zezwól na powiadomienia dostawcy",
+  "rail.providerNotificationsEnabled": "Zezwolono na powiadomienia przeglądarki. W razie potrzeby przeładuj usługę; ustawienia powiadomień pulpitu nadal obowiązują.",
+  "rail.providerNotificationsError": "Otwórz usługę i sprawdź uprawnienia powiadomień systemu Windows, a następnie spróbuj ponownie."
 }

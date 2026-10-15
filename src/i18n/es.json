@@ -357,5 +357,8 @@
   "errors.whatsappUrl": "Las sesiones web de WhatsApp requieren https://web.whatsapp.com/.",
   "services.messengerExperimental": "La integración con Messenger Web es experimental. Es necesario iniciar sesión en Facebook.",
   "services.messengerReadUnsupported": "Las acciones de lectura de Messenger no están disponibles hasta verificar una interacción web segura.",
-  "errors.messengerUrl": "Las sesiones web de Messenger requieren https://www.facebook.com/messages/."
+  "errors.messengerUrl": "Las sesiones web de Messenger requieren https://www.facebook.com/messages/.",
+  "rail.allowProviderNotifications": "Permitir notificaciones del proveedor",
+  "rail.providerNotificationsEnabled": "Permiso del navegador concedido. Recarga el servicio si es necesario; las preferencias de notificaciones de escritorio siguen vigentes.",
+  "rail.providerNotificationsError": "Abre el servicio y comprueba el permiso de notificaciones de Windows; después vuelve a intentarlo."
 }

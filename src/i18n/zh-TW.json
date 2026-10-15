@@ -432,5 +432,8 @@
   "errors.whatsappUrl": "WhatsApp 網頁工作階段必須使用 https://web.whatsapp.com/。",
   "services.messengerExperimental": "Messenger Web 整合為實驗性功能，需要登入 Facebook。",
   "services.messengerReadUnsupported": "Messenger 的已讀操作須待安全的網頁介面互動經過驗證後才能使用。",
-  "errors.messengerUrl": "Messenger 網頁工作階段必須使用 https://www.facebook.com/messages/。"
+  "errors.messengerUrl": "Messenger 網頁工作階段必須使用 https://www.facebook.com/messages/。",
+  "rail.allowProviderNotifications": "允許服務供應商通知",
+  "rail.providerNotificationsEnabled": "已允許瀏覽器通知。必要時請重新載入服務；桌面通知偏好設定仍然適用。",
+  "rail.providerNotificationsError": "請開啟服務並檢查 Windows 通知權限，然後再試一次。"
 }

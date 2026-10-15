@@ -357,5 +357,8 @@
   "errors.whatsappUrl": "WhatsApp web sessions require https://web.whatsapp.com/.",
   "services.messengerExperimental": "Messenger Web integration is experimental. Facebook login is required.",
   "services.messengerReadUnsupported": "Messenger read actions are not supported until a safe Web interaction is verified.",
-  "errors.messengerUrl": "Messenger web sessions require https://www.facebook.com/messages/."
+  "errors.messengerUrl": "Messenger web sessions require https://www.facebook.com/messages/.",
+  "rail.allowProviderNotifications": "Allow provider notifications",
+  "rail.providerNotificationsEnabled": "Browser permission allowed. Reload the service if needed; desktop notification preferences still apply.",
+  "rail.providerNotificationsError": "Open the service and check Windows notification permission, then try again."
 }

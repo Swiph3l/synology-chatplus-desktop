@@ -432,5 +432,8 @@
   "errors.whatsappUrl": "WhatsApp-Websitzungen benötigen https://web.whatsapp.com/.",
   "services.messengerExperimental": "Die Messenger-Web-Integration ist experimentell. Eine Facebook-Anmeldung ist erforderlich.",
   "services.messengerReadUnsupported": "Messenger-Leseaktionen sind erst nach Prüfung einer sicheren Interaktion mit der Weboberfläche verfügbar.",
-  "errors.messengerUrl": "Messenger-Websitzungen benötigen https://www.facebook.com/messages/."
+  "errors.messengerUrl": "Messenger-Websitzungen benötigen https://www.facebook.com/messages/.",
+  "rail.allowProviderNotifications": "Anbieterbenachrichtigungen erlauben",
+  "rail.providerNotificationsEnabled": "Browserberechtigung erteilt. Lade den Dienst bei Bedarf neu; die Einstellungen für Desktopbenachrichtigungen gelten weiterhin.",
+  "rail.providerNotificationsError": "Öffne den Dienst und prüfe die Windows-Benachrichtigungsberechtigung. Versuche es dann erneut."
 }

@@ -432,5 +432,8 @@
   "errors.whatsappUrl": "WhatsApp の Web セッションには https://web.whatsapp.com/ が必要です。",
   "services.messengerExperimental": "Messenger Web との連携は試験的な機能です。Facebook へのログインが必要です。",
   "services.messengerReadUnsupported": "Messenger の既読操作は、安全な Web 画面操作が確認されるまで利用できません。",
-  "errors.messengerUrl": "Messenger の Web セッションには https://www.facebook.com/messages/ が必要です。"
+  "errors.messengerUrl": "Messenger の Web セッションには https://www.facebook.com/messages/ が必要です。",
+  "rail.allowProviderNotifications": "サービス提供元の通知を許可",
+  "rail.providerNotificationsEnabled": "ブラウザーの通知を許可しました。必要に応じてサービスを再読み込みしてください。デスクトップ通知の設定は引き続き適用されます。",
+  "rail.providerNotificationsError": "サービスを開き、Windows の通知権限を確認してから再試行してください。"
 }

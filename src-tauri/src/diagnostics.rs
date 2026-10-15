@@ -55,6 +55,8 @@ pub enum NotificationReason {
     NativePermissionBlocked,
     NativePermissionUnavailable,
     FrontendPermissionMismatch,
+    ProviderOriginGranted,
+    ProviderPermissionRefreshRequired,
 }
 
 #[derive(Serialize)]

@@ -46,15 +46,44 @@ impl<T: PartialEq> EventHistory<T> {
 }
 
 pub async fn permission_state(app: &tauri::AppHandle) -> String {
+    let Some(id) = crate::state::current(app).active_service else {
+        return "unavailable".into();
+    };
+    permission_state_for(app, &id).await
+}
+
+pub async fn permission_state_for(app: &tauri::AppHandle, id: &str) -> String {
     #[cfg(windows)]
     {
-        use windows::core::w;
-        let Some(window) = crate::services::active(app) else {
+        use webview2_com::CoTaskMemPWSTR;
+        use windows::core::{w, PWSTR};
+        let Ok(service) = permission_service(&crate::state::current(app), id) else {
             return "unavailable".into();
         };
+        let Some(window) = app.get_webview(&crate::services::label(id)) else {
+            return "unavailable".into();
+        };
+        let bridge = app
+            .state::<crate::desktop_notifications::Service>()
+            .0
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .bridges
+            .get(id)
+            .copied();
+        let Some((bridge_id, true)) = bridge else {
+            return "unavailable".into();
+        };
+        let query_app = app.clone();
         let (tx, rx) = tokio::sync::oneshot::channel();
         if window.with_webview(move |view| unsafe {
             if let Ok(core) = view.controller().CoreWebView2() {
+                let mut source = PWSTR::null();
+                if core.Source(&mut source).is_err() { return; }
+                let source = CoTaskMemPWSTR::from(source).to_string();
+                let current = query_app.state::<crate::desktop_notifications::Service>().0.lock()
+                    .unwrap_or_else(|error| error.into_inner()).bridges.get(&service.id).copied();
+                if !permission_scope_valid(&crate::state::current(&query_app), &service, bridge_id, current, &source) { return; }
                 let _ = core.ExecuteScript(w!("typeof Notification === 'undefined' ? 'unavailable' : Notification.permission"),
                     &webview2_com::ExecuteScriptCompletedHandler::create(Box::new(move |status, value| {
                         let value = if status.is_ok() { serde_json::from_str::<String>(&value).unwrap_or_default() } else { "unknown".into() };
@@ -66,38 +95,135 @@ pub async fn permission_state(app: &tauri::AppHandle) -> String {
             if let Ok(Ok(value)) = tokio::time::timeout(std::time::Duration::from_secs(2), rx).await { return value; }
         }
     }
-    let _ = app;
+    let _ = (app, id);
     "unknown".into()
 }
 
-// Called only by the explicit local Enable notifications action, after OS access
-// was checked. Grants only the configured origin; never changes Windows policy.
+// Existing Settings action delegates to the same instance-scoped native grant.
 pub async fn enable_permission(app: &tauri::AppHandle) -> Result<(), String> {
+    let id = crate::state::current(app)
+        .active_service
+        .ok_or("Open a service first.")?;
+    enable_permission_for(app, &id).await
+}
+
+fn permission_service(
+    settings: &crate::state::Settings,
+    id: &str,
+) -> Result<crate::providers::ServiceConfig, String> {
+    settings
+        .services
+        .iter()
+        .find(|service| service.id == id && service.enabled && service.supports_notifications())
+        .cloned()
+        .ok_or_else(|| "Desktop notifications are unavailable for this service.".into())
+}
+
+fn permission_scope_valid(
+    settings: &crate::state::Settings,
+    service: &crate::providers::ServiceConfig,
+    bridge_id: u64,
+    current: Option<(u64, bool)>,
+    source: &str,
+) -> bool {
+    current == Some((bridge_id, true))
+        && permission_service(settings, &service.id).is_ok_and(|configured| {
+            configured.provider == service.provider && configured.url == service.url
+        })
+        && trusted_origin(&service.url, source)
+        && url::Url::parse(source)
+            .is_ok_and(|source| service.provider.allows(&service.url, &source))
+}
+
+// Swiph3l: An explicit grant is scoped to this profile and its configured origin;
+// granting browser permission must not overwrite delivery preferences or OS policy.
+pub async fn enable_permission_for(app: &tauri::AppHandle, id: &str) -> Result<(), String> {
+    let service = permission_service(&crate::state::current(app), id)?;
+    let permission = crate::desktop_notifications::permission(app);
+    if !permission.granted {
+        return Err(permission.message);
+    }
     #[cfg(windows)]
     {
+        use tauri::Manager;
+        use webview2_com::CoTaskMemPWSTR;
         use webview2_com::Microsoft::Web::WebView2::Win32::*;
-        use windows::core::{Interface, HSTRING};
-        let window = crate::services::active(app)
-            .ok_or("Open ChatPlus first, then enable notifications.")?;
-        let settings = crate::state::current(app);
-        let service = settings.active().ok_or("Open a service first.")?;
-        if !service.supports_notifications() {
-            return Err("Desktop notifications are unavailable for this provider.".into());
-        }
-        let server = service.url.clone();
-        let origin = url::Url::parse(&server)
-            .map_err(|_| "Configure your ChatPlus server first.")?
+        use windows::core::{Interface, HSTRING, PWSTR};
+        let window = app
+            .get_webview(&crate::services::label(id))
+            .ok_or("Open this service first.")?;
+        let bridge_id = app
+            .state::<crate::desktop_notifications::Service>()
+            .0
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .bridges
+            .get(id)
+            .filter(|(_, available)| *available)
+            .map(|(bridge_id, _)| *bridge_id)
+            .ok_or("Provider notification bridge unavailable. Reload the service and retry.")?;
+        let origin = url::Url::parse(&service.url)
+            .map_err(|_| "Configure a valid service URL first.")?
             .origin()
             .ascii_serialization();
+        let validate = |source: &str| {
+            let bridge = app
+                .state::<crate::desktop_notifications::Service>()
+                .0
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .bridges
+                .get(id)
+                .copied();
+            permission_scope_valid(
+                &crate::state::current(app),
+                &service,
+                bridge_id,
+                bridge,
+                source,
+            )
+        };
+        if !validate(
+            window
+                .url()
+                .map_err(|_| "Could not inspect the provider session.")?
+                .as_str(),
+        ) {
+            return Err("Provider session changed. Open the configured service and retry.".into());
+        }
         let (tx, rx) = tokio::sync::oneshot::channel();
+        let request_app = app.clone();
+        let request_service = service.clone();
         window
             .with_webview(move |view| unsafe {
                 let result = (|| -> windows::core::Result<()> {
-                    let core = view
-                        .controller()
-                        .CoreWebView2()?
-                        .cast::<ICoreWebView2_13>()?;
-                    let profile = core.Profile()?.cast::<ICoreWebView2Profile4>()?;
+                    let core = view.controller().CoreWebView2()?;
+                    let mut source = PWSTR::null();
+                    core.Source(&mut source)?;
+                    let source = CoTaskMemPWSTR::from(source).to_string();
+                    let current = request_app
+                        .state::<crate::desktop_notifications::Service>()
+                        .0
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .bridges
+                        .get(&request_service.id)
+                        .copied();
+                    if !permission_scope_valid(
+                        &crate::state::current(&request_app),
+                        &request_service,
+                        bridge_id,
+                        current,
+                        &source,
+                    ) {
+                        return Err(windows::core::Error::from_hresult(windows::core::HRESULT(
+                            0x80070005_u32 as i32,
+                        )));
+                    }
+                    let profile = core
+                        .cast::<ICoreWebView2_13>()?
+                        .Profile()?
+                        .cast::<ICoreWebView2Profile4>()?;
                     profile.SetPermissionState(
                         COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS,
                         &HSTRING::from(origin),
@@ -114,14 +240,50 @@ pub async fn enable_permission(app: &tauri::AppHandle) -> Result<(), String> {
             })
             .map_err(|_| "Could not access WebView notification permission.")?;
         return match tokio::time::timeout(std::time::Duration::from_secs(2), rx).await {
-            Ok(Ok(true)) => Ok(()),
-            _ => Err("Could not enable WebView notifications. Check ChatPlus notification settings and restart the app.".into()),
+            Ok(Ok(true))
+                if validate(
+                    window
+                        .url()
+                        .map_err(|_| "Provider session changed.")?
+                        .as_str(),
+                ) =>
+            {
+                let state = permission_state_for(app, id).await;
+                if !validate(
+                    window
+                        .url()
+                        .map_err(|_| "Provider session changed.")?
+                        .as_str(),
+                ) {
+                    return Err(
+                        "Provider session changed. Open the configured service and retry.".into(),
+                    );
+                }
+                crate::diagnostics::notification(
+                    app,
+                    id,
+                    crate::diagnostics::NotificationEvent::PermissionChecked,
+                    if state == "granted" {
+                        crate::diagnostics::NotificationReason::ProviderOriginGranted
+                    } else {
+                        crate::diagnostics::NotificationReason::ProviderPermissionRefreshRequired
+                    },
+                    bridge_id,
+                );
+                Ok(())
+            }
+            Ok(Ok(true)) => {
+                Err("Provider session changed. Open the configured service and retry.".into())
+            }
+            _ => Err(
+                "Could not enable provider notifications. Reload this service and retry.".into(),
+            ),
         };
     }
     #[cfg(not(windows))]
     {
-        let _ = app;
-        Ok(())
+        let _ = (app, service);
+        Err("Provider notification permission controls require Windows WebView2.".into())
     }
 }
 pub fn trusted_origin(server: &str, sender: &str) -> bool {
@@ -766,6 +928,7 @@ pub fn attach(
                 let settings = crate::state::current(&permission_app);
                 let allow = settings.desktop_notifications
                     && crate::services::configured(&permission_app, &permission_service)
+                    && current_bridge(&permission_app, &permission_service.id, bridge_id)
                     && settings
                         .services
                         .iter()
@@ -774,6 +937,13 @@ pub fn attach(
                     && trusted_origin(&permission_service.url, &uri)
                     && notifications::permission(&permission_app).granted;
                 // Swiph3l: The saved notification preference authorizes only this configured origin; other permission kinds retain WebView policy.
+                // Temporary delivery settings must not become a persistent
+                // browser-origin denial requiring the missing address-bar UI.
+                if !allow {
+                    if let Ok(transient) = args.cast::<webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2PermissionRequestedEventArgs3>() {
+                        let _ = transient.SetSavesInProfile(false);
+                    }
+                }
                 args.SetState(if allow {
                     COREWEBVIEW2_PERMISSION_STATE_ALLOW
                 } else {
@@ -998,6 +1168,132 @@ pub fn attach(
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn whatsapp_permission_settings() -> crate::state::Settings {
+        use crate::providers::{NotificationColor, ProviderId, ServiceConfig};
+        crate::state::Settings {
+            desktop_notifications: false,
+            active_service: Some("whatsapp-personal".into()),
+            services: ["whatsapp-personal", "whatsapp-work"]
+                .into_iter()
+                .map(|id| ServiceConfig {
+                    id: id.into(),
+                    provider: ProviderId::Whatsapp,
+                    name: id.into(),
+                    url: "https://web.whatsapp.com/".into(),
+                    enabled: true,
+                    notifications: false,
+                    notification_color: NotificationColor::Auto,
+                })
+                .collect(),
+            ..Default::default()
+        }
+    }
+    #[test]
+    fn explicit_provider_permission_scope_uses_clicked_instance_without_changing_preferences() {
+        let settings = whatsapp_permission_settings();
+        let saved = serde_json::to_value(&settings).unwrap();
+        let target = permission_service(&settings, "whatsapp-work").unwrap();
+        assert_eq!(target.id, "whatsapp-work");
+        assert_ne!(Some(target.id.as_str()), settings.active_service.as_deref());
+        assert!(permission_scope_valid(
+            &settings,
+            &target,
+            22,
+            Some((22, true)),
+            "https://web.whatsapp.com/"
+        ));
+        assert!(
+            !permission_scope_valid(
+                &settings,
+                &target,
+                22,
+                Some((11, true)),
+                "https://web.whatsapp.com/"
+            ),
+            "another same-origin instance's bridge cannot authorize this profile"
+        );
+        assert!(
+            !permission_scope_valid(
+                &settings,
+                &target,
+                22,
+                Some((23, true)),
+                "https://web.whatsapp.com/"
+            ),
+            "replaced sessions must be retried"
+        );
+        assert!(!permission_scope_valid(
+            &settings,
+            &target,
+            22,
+            Some((22, false)),
+            "https://web.whatsapp.com/"
+        ));
+        assert!(!permission_scope_valid(
+            &settings,
+            &target,
+            22,
+            None,
+            "https://web.whatsapp.com/"
+        ));
+        assert!(permission_service(&settings, "missing").is_err());
+        assert_eq!(
+            serde_json::to_value(&settings).unwrap(),
+            saved,
+            "permission operations do not enable saved global delivery or unmute either instance"
+        );
+        assert!(
+            !settings.desktop_notifications
+                && settings
+                    .services
+                    .iter()
+                    .all(|service| !service.notifications)
+        );
+    }
+    #[test]
+    fn provider_permission_requires_exact_origin_and_current_configured_session() {
+        let mut settings = whatsapp_permission_settings();
+        let target = permission_service(&settings, "whatsapp-work").unwrap();
+        for source in [
+            "http://web.whatsapp.com/",
+            "https://web.whatsapp.com:8443/",
+            "https://web.whatsapp.com.evil.example/",
+            "https://user@web.whatsapp.com/",
+            "https://whatsapp.com/",
+            "about:blank",
+        ] {
+            assert!(
+                !permission_scope_valid(&settings, &target, 22, Some((22, true)), source),
+                "{source}"
+            );
+        }
+        settings.services[1].enabled = false;
+        assert!(!permission_scope_valid(
+            &settings,
+            &target,
+            22,
+            Some((22, true)),
+            "https://web.whatsapp.com/"
+        ));
+        settings.services[1].enabled = true;
+        settings.services[1].url = "https://other.example/".into();
+        assert!(!permission_scope_valid(
+            &settings,
+            &target,
+            22,
+            Some((22, true)),
+            "https://web.whatsapp.com/"
+        ));
+        settings.services[1].url = target.url.clone();
+        settings.services[1].provider = crate::providers::ProviderId::Messenger;
+        assert!(!permission_scope_valid(
+            &settings,
+            &target,
+            22,
+            Some((22, true)),
+            "https://web.whatsapp.com/"
+        ));
+    }
     #[test]
     fn scoped_provider_evidence_preserves_unknown_and_explicit_reliable_counts() {
         let unknown = parse_unread(r#"{"chatplusUnread":1,"hasUnread":null,"certainty":"unknown","source":"whatsapp-dom","providerRevision":4,"currentConversation":"runtime-chat-1"}"#).unwrap();

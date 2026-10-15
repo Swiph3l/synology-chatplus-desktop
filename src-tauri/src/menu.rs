@@ -116,6 +116,7 @@ pub struct MenuState {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ServiceAction {
     Open,
+    AllowProviderNotifications,
     Mute,
     Unmute,
     Notifications,
@@ -127,6 +128,7 @@ impl ServiceAction {
     fn key(self) -> &'static str {
         match self {
             Self::Open => "open",
+            Self::AllowProviderNotifications => "allow-notifications",
             Self::Mute => "mute",
             Self::Unmute => "unmute",
             Self::Notifications => "notifications",
@@ -138,6 +140,7 @@ impl ServiceAction {
     fn title(self) -> &'static str {
         match self {
             Self::Open => "Open",
+            Self::AllowProviderNotifications => "Allow provider notifications",
             Self::Mute => "Mute desktop notifications",
             Self::Unmute => "Unmute desktop notifications",
             Self::Notifications => "Desktop notification settings…",
@@ -160,6 +163,7 @@ impl ServiceAction {
         }
         let action = match action {
             "open" => Self::Open,
+            "allow-notifications" => Self::AllowProviderNotifications,
             "mute" => Self::Mute,
             "unmute" => Self::Unmute,
             "notifications" => Self::Notifications,
@@ -174,6 +178,9 @@ impl ServiceAction {
         service.enabled
             && match self {
                 Self::Mute | Self::Unmute | Self::Notifications => service.supports_notifications(),
+                Self::AllowProviderNotifications => {
+                    cfg!(windows) && service.supports_notifications()
+                }
                 _ => true,
             }
     }
@@ -193,6 +200,9 @@ fn service_actions(service: &ServiceConfig) -> Vec<ServiceAction> {
     }
     let mut actions = vec![ServiceAction::Open];
     if service.supports_notifications() {
+        if cfg!(windows) {
+            actions.push(ServiceAction::AllowProviderNotifications);
+        }
         actions.push(if service.notifications {
             ServiceAction::Mute
         } else {
@@ -237,6 +247,24 @@ pub fn dispatch_service(app: &AppHandle, action: ServiceAction, id: &str) -> Res
     }
     match action {
         ServiceAction::Open => crate::services::activate(app, id),
+        ServiceAction::AllowProviderNotifications => {
+            let permission_app = app.clone();
+            let permission_id = id.to_owned();
+            tauri::async_runtime::spawn(async move {
+                let result = crate::notification_bridge::enable_permission_for(
+                    &permission_app,
+                    &permission_id,
+                )
+                .await;
+                let key = if result.is_ok() {
+                    "rail.providerNotificationsEnabled"
+                } else {
+                    "rail.providerNotificationsError"
+                };
+                crate::shell::report(&permission_app, crate::i18n::t(&permission_app, key));
+            });
+            Ok(())
+        }
         ServiceAction::Mute | ServiceAction::Unmute => {
             // Desired state, not a toggle: a delayed selection must not undo a newer mute.
             crate::services::set_notifications(app, id, action == ServiceAction::Unmute)
@@ -318,8 +346,13 @@ pub fn service_popup(app: &AppHandle, id: &str, x: f64, y: f64) -> Result<(), St
             &MenuItem::with_id(
                 app,
                 action.id(id),
-                crate::i18n::localize(&state::current(app).language, action.title()),
-                true,
+                match action {
+                    ServiceAction::AllowProviderNotifications => {
+                        crate::i18n::t(app, "rail.allowProviderNotifications")
+                    }
+                    _ => crate::i18n::localize(&state::current(app).language, action.title()),
+                },
+                action.allowed(&service),
                 None::<&str>,
             )
             .map_err(|_| "Could not create service menu item.")?,
@@ -675,17 +708,20 @@ mod tests {
     fn service_menu_actions_follow_real_capabilities_and_mute_state() {
         use crate::providers::ProviderId;
         let mut service = configured("first", ProviderId::SynologyChatplus);
-        assert_eq!(
-            service_actions(&service),
-            vec![
+        assert_eq!(service_actions(&service), {
+            let mut actions = vec![
                 ServiceAction::Open,
                 ServiceAction::Mute,
                 ServiceAction::Notifications,
                 ServiceAction::Rename,
                 ServiceAction::Settings,
-                ServiceAction::Remove
-            ]
-        );
+                ServiceAction::Remove,
+            ];
+            if cfg!(windows) {
+                actions.insert(1, ServiceAction::AllowProviderNotifications);
+            }
+            actions
+        });
         service.notifications = false;
         assert!(service_actions(&service).contains(&ServiceAction::Unmute));
         assert!(!service_actions(&service).contains(&ServiceAction::Mute));
@@ -746,6 +782,37 @@ mod tests {
             ServiceAction::Notifications.settings_field(),
             Some("notifications")
         );
+    }
+    #[test]
+    fn experimental_provider_permission_actions_target_exact_instances_and_disable_unverified_reads(
+    ) {
+        for provider in [
+            crate::providers::ProviderId::Whatsapp,
+            crate::providers::ProviderId::Messenger,
+        ] {
+            let first = configured("account-a", provider);
+            let second = configured("account-b", provider);
+            for service in [&first, &second] {
+                let actions = service_actions(service);
+                assert_eq!(
+                    actions.contains(&ServiceAction::AllowProviderNotifications),
+                    cfg!(windows)
+                );
+                assert_eq!(
+                    ServiceAction::parse(
+                        &ServiceAction::AllowProviderNotifications.id(&service.id)
+                    ),
+                    Some((
+                        ServiceAction::AllowProviderNotifications,
+                        service.id.as_str()
+                    ))
+                );
+            }
+            assert_ne!(
+                ServiceAction::AllowProviderNotifications.id(&first.id),
+                ServiceAction::AllowProviderNotifications.id(&second.id)
+            );
+        }
     }
     #[test]
     fn mute_updates_only_target_preference_and_revalidates_stale_actions() {

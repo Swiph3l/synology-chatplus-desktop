@@ -177,3 +177,23 @@ test("Messenger adapter never inspects private DOM/contact data or acknowledges 
   assert.equal(personal.snapshot().hasUnread, null);
   assert.equal(work.snapshot().hasUnread, null);
 });
+
+test("all seven locales explain Messenger status and scoped provider notification permission", async () => {
+  for (const locale of ["en", "pl", "es", "de", "fr", "ja", "zh-TW"]) {
+    const strings = JSON.parse(
+      await readFile(`src/i18n/${locale}.json`, "utf8"),
+    );
+    for (const key of [
+      "services.messengerExperimental",
+      "services.messengerReadUnsupported",
+      "errors.messengerUrl",
+      "rail.allowProviderNotifications",
+      "rail.providerNotificationsEnabled",
+      "rail.providerNotificationsError",
+    ]) {
+      assert.ok(strings[key]?.trim(), `${locale}: ${key}`);
+      assert.doesNotMatch(strings[key], /\?{2,}/);
+    }
+    assert.match(strings["services.messengerExperimental"], /Facebook/);
+  }
+});
