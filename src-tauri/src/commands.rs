@@ -24,7 +24,10 @@ pub async fn get_notification_permission(
 ) -> Result<crate::desktop_notifications::Permission, String> {
     local(&window, &["settings"])?;
     let mut result = crate::desktop_notifications::permission(&app);
-    result.webview_state = crate::notification_bridge::permission_state(&app).await;
+    result.set_webview_state(
+        &app,
+        crate::notification_bridge::permission_state(&app).await,
+    );
     Ok(result)
 }
 #[tauri::command]
@@ -57,7 +60,10 @@ pub async fn request_notification_permission(
         let _ = crate::notification_bridge::enable_permission(&app).await;
     }
     let mut result = result;
-    result.webview_state = crate::notification_bridge::permission_state(&app).await;
+    result.set_webview_state(
+        &app,
+        crate::notification_bridge::permission_state(&app).await,
+    );
     Ok(result)
 }
 #[tauri::command]

@@ -5,6 +5,8 @@ export interface NotificationPermission {
   state: "enabled" | "blocked" | "not-registered" | "unavailable";
   bridgeAvailable: boolean;
   message: string;
+  authority?: "windows-native" | "native-plugin";
+  lastSendSucceeded?: boolean | null;
 }
 export const notifications = {
   openSettings: () => invoke<void>("open_notification_settings"),

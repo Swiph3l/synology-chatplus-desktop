@@ -188,7 +188,18 @@ async function fixture(options = {}) {
           granted: true,
           webviewState: "granted",
           message: "Fixture",
+          ...options.permission,
         };
+      if (command === "request_notification_permission") {
+        if (options.permissionError) throw options.permissionError;
+        return {
+          state: "enabled",
+          granted: true,
+          webviewState: "granted",
+          message: "Fixture",
+          ...options.permission,
+        };
+      }
       if (command === "get_update_state") {
         await options.beforeUpdateReady?.({ document, window, listeners });
         return structuredClone(updateState);
@@ -295,6 +306,43 @@ function freshSettings(overrides = {}) {
     serviceSchema: 1,
     ...overrides,
   };
+}
+
+test("native permission remains authoritative when the browser shim reports denied", async () => {
+  const f = await fixture({
+    settings: { desktopNotifications: true },
+    permission: { state: "enabled", granted: true, webviewState: "denied" },
+  });
+  f.document.getElementById("enable-notifications").click();
+  await f.flush();
+  assert.equal(
+    f.document.getElementById("desktop-notifications").checked,
+    true,
+  );
+  f.document.getElementById("save").click();
+  await f.flush();
+  assert.equal(f.settings.desktopNotifications, true);
+});
+
+for (const failure of ["native-blocked", "request-error"]) {
+  test(`notification ${failure} preserves the saved user preference`, async () => {
+    const f = await fixture({
+      settings: { desktopNotifications: true },
+      permission: { state: "blocked", granted: false, webviewState: "denied" },
+      ...(failure === "request-error"
+        ? { permissionError: "Native unavailable" }
+        : {}),
+    });
+    f.document.getElementById("enable-notifications").click();
+    await f.flush();
+    assert.equal(
+      f.document.getElementById("desktop-notifications").checked,
+      true,
+    );
+    f.document.getElementById("save").click();
+    await f.flush();
+    assert.equal(f.settings.desktopNotifications, true);
+  });
 }
 
 function pickOnboardingProvider(fixture, provider) {

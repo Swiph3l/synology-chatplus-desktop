@@ -702,12 +702,13 @@ export async function renderSettings() {
       updateDirty();
       try {
         const result = await notifications.requestPermission();
-        input("desktop-notifications").checked = result.granted;
+        // Saved intent is independent of native capability and the cached browser
+        // shim. A rejected/stale permission check must not silently opt the user out.
+        if (result.granted) input("desktop-notifications").checked = true;
         showPermission(result);
         if (input("desktop-notifications").checked)
           status.textContent = t("notifications.permissionAvailable");
       } catch (error) {
-        input("desktop-notifications").checked = false;
         status.textContent = localizeError(error, "notifications.enableError");
         await refreshPermission();
       } finally {

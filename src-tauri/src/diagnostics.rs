@@ -26,6 +26,7 @@ pub enum NotificationEvent {
     ToastSuppressed,
     ToastActivated,
     ProviderActivated,
+    PermissionChecked,
 }
 
 #[derive(Clone, Copy, Serialize)]
@@ -50,6 +51,10 @@ pub enum NotificationReason {
     ProviderActivation,
     ActivationUnavailable,
     ActivationFailed,
+    NativePermissionEnabled,
+    NativePermissionBlocked,
+    NativePermissionUnavailable,
+    FrontendPermissionMismatch,
 }
 
 #[derive(Serialize)]

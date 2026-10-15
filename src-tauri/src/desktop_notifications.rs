@@ -18,6 +18,8 @@ pub struct Tracking {
     duplicates: HashMap<u64, Instant>,
     retryable: HashMap<u64, Instant>,
     pub last_status: String,
+    pub last_send_succeeded: Option<bool>,
+    last_permission: Option<NativeState>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -35,6 +37,24 @@ pub struct Permission {
     pub state: String,
     pub bridge_available: bool,
     pub message: String,
+    pub authority: &'static str,
+    pub last_send_succeeded: Option<bool>,
+}
+impl Permission {
+    pub fn set_webview_state(&mut self, app: &AppHandle, state: String) {
+        if self.granted && state == "denied" {
+            if let Some(id) = crate::state::current(app).active_service {
+                crate::diagnostics::notification(
+                    app,
+                    &id,
+                    crate::diagnostics::NotificationEvent::PermissionChecked,
+                    crate::diagnostics::NotificationReason::FrontendPermissionMismatch,
+                    0,
+                );
+            }
+        }
+        self.webview_state = state;
+    }
 }
 pub fn permission(app: &AppHandle) -> Permission {
     // Swiph3l: Native Windows sender state and WebView Notification.permission are separate notification paths.
@@ -42,14 +62,37 @@ pub fn permission(app: &AppHandle) -> Permission {
     let plugin_state = app.notification().permission_state().ok();
     let native = native_state(app);
     let settings = crate::state::current(app);
-    let available = app
-        .state::<Service>()
-        .0
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .bridges
-        .get(settings.active_service.as_deref().unwrap_or_default())
-        .is_some_and(|(_, available)| *available);
+    let (available, last_send_succeeded, changed) = {
+        let service = app.state::<Service>();
+        let mut tracking = service.0.lock().unwrap_or_else(|e| e.into_inner());
+        let available = tracking
+            .bridges
+            .get(settings.active_service.as_deref().unwrap_or_default())
+            .is_some_and(|(_, available)| *available);
+        let changed = tracking.last_permission != Some(native);
+        tracking.last_permission = Some(native);
+        (available, tracking.last_send_succeeded, changed)
+    };
+    if changed {
+        if let Some(id) = settings.active_service.as_deref() {
+            use crate::diagnostics::{
+                notification, NotificationEvent as Event, NotificationReason as Reason,
+            };
+            notification(
+                app,
+                id,
+                Event::PermissionChecked,
+                match native {
+                    NativeState::Enabled => Reason::NativePermissionEnabled,
+                    NativeState::Blocked => Reason::NativePermissionBlocked,
+                    NativeState::NotRegistered | NativeState::Unavailable => {
+                        Reason::NativePermissionUnavailable
+                    }
+                },
+                0,
+            );
+        }
+    }
     let (state, native_granted, message) = match native {
         NativeState::Enabled => (
             "enabled",
@@ -90,6 +133,12 @@ pub fn permission(app: &AppHandle) -> Permission {
         state: state.into(),
         bridge_available: available,
         message,
+        authority: if cfg!(windows) {
+            "windows-native"
+        } else {
+            "native-plugin"
+        },
+        last_send_succeeded,
     }
 }
 pub fn request_permission(app: &AppHandle) -> Result<Permission, String> {
@@ -124,18 +173,34 @@ pub fn send_test(app: &AppHandle, sound: bool) -> Result<(), String> {
         &crate::i18n::t(app, "notification.testBody"),
         &settings.language,
     );
-    show(
+    let result = show(
         app,
         &presentation,
         sound,
         service.map(|service| service.id.clone()),
         None,
         0,
-    )
+    );
+    record_send_result(app, &result);
+    result
+}
+
+fn record_send_result(app: &AppHandle, result: &Result<(), String>) {
+    let service = app.state::<Service>();
+    let mut tracking = service.0.lock().unwrap_or_else(|e| e.into_inner());
+    tracking.last_send_succeeded = Some(result.is_ok());
+    tracking.last_status = crate::i18n::t(
+        app,
+        if result.is_ok() {
+            "notification.submitSuccess"
+        } else {
+            "notification.submitFailed"
+        },
+    );
 }
 #[cfg(windows)]
 fn sender_id(identifier: &str, development: bool) -> &str {
-    // Development executables have no installer-created AUMID shortcut. Use the
+    // Swiph3l: Development executables have no installer-created AUMID shortcut. Use the
     // registered sender recommended by the WinRT backend, as Tauri's plugin does.
     if development {
         tauri_winrt_notification::Toast::POWERSHELL_APP_ID
@@ -299,6 +364,7 @@ pub fn deliver_for(
     } else {
         crate::i18n::t(app, "notification.submitFailed")
     };
+    tracking.last_send_succeeded = Some(result.is_ok());
     drop(tracking);
     if result.is_err() {
         let _ = app.emit_to("main", "notification-issue", ());
