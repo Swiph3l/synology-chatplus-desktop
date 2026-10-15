@@ -2,6 +2,7 @@
 use serde::Serialize;
 use std::{
     collections::{HashMap, HashSet},
+    hash::{BuildHasher, Hash, Hasher},
     sync::Mutex,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -12,8 +13,8 @@ pub enum Source {
     ChatPlusDom,
     SynologyChatDom,
     DiscordDom,
-    MessengerDom,
     WhatsappDom,
+    MessengerDom,
 }
 impl Source {
     fn label(self) -> &'static str {
@@ -21,8 +22,8 @@ impl Source {
             Self::ChatPlusDom => "chatplus-dom",
             Self::SynologyChatDom => "synology-chat-dom",
             Self::DiscordDom => "discord-dom",
-            Self::MessengerDom => "messenger-dom",
             Self::WhatsappDom => "whatsapp-dom",
+            Self::MessengerDom => "messenger-dom",
         }
     }
     pub fn accepts(self, provider: crate::providers::ProviderId) -> bool {
@@ -35,10 +36,40 @@ impl Source {
                 Self::SynologyChatDom,
                 crate::providers::ProviderId::SynologyChat
             ) | (Self::DiscordDom, crate::providers::ProviderId::Discord)
-                | (Self::MessengerDom, crate::providers::ProviderId::Messenger)
                 | (Self::WhatsappDom, crate::providers::ProviderId::Whatsapp)
+                | (Self::MessengerDom, crate::providers::ProviderId::Messenger)
         )
     }
+}
+#[derive(Clone, Copy, Default, serde::Deserialize, Serialize, PartialEq, Eq, Debug, Hash)]
+#[serde(rename_all = "kebab-case")]
+pub enum Certainty {
+    KnownUnread,
+    KnownRead,
+    #[default]
+    Unknown,
+}
+#[derive(Clone, Default, serde::Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationObservation {
+    pub id: String,
+    pub has_unread: Option<bool>,
+    pub count: Option<u32>,
+}
+#[derive(Default)]
+pub struct ProviderEvidence {
+    pub revision: Option<u64>,
+    pub certainty: Certainty,
+    pub current_conversation: Option<String>,
+    pub conversations: Vec<ConversationObservation>,
+}
+#[derive(Clone, Serialize, PartialEq, Eq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationEvidence {
+    /// Runtime-only opaque identity; never a chat title, URL, tag, or phone number.
+    pub id: String,
+    pub has_unread: Option<bool>,
+    pub count: Option<u32>,
 }
 #[derive(Clone, Default, Serialize, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -51,6 +82,11 @@ pub struct Unread {
     pub source: Option<&'static str>,
     pub last_arrival: Option<u64>,
     pub last_read_evidence: Option<u64>,
+    pub certainty: Certainty,
+    pub last_provider_revision: Option<u64>,
+    pub current_conversation: Option<String>,
+    pub conversations: Vec<ConversationEvidence>,
+    pub locally_acknowledged: bool,
 }
 #[derive(Default)]
 pub struct Service(Mutex<Tracking>);
@@ -74,6 +110,9 @@ struct Tracking {
     presentation_generation: u64,
     visibility_generation: u64,
     revision: u64,
+    evidence_hasher: std::collections::hash_map::RandomState,
+    provider_fingerprints: HashMap<String, u64>,
+    local_acknowledgements: HashMap<String, Option<u64>>,
 }
 struct ReadProof {
     through: u64,
@@ -93,6 +132,8 @@ pub fn remove(app: &AppHandle, id: &str) {
     tracking.pending_generations.remove(id);
     tracking.observed_unread_arrivals.remove(id);
     tracking.observed_unread_overflow.remove(id);
+    tracking.provider_fingerprints.remove(id);
+    tracking.local_acknowledgements.remove(id);
     tracking.revision += 1;
     drop(tracking);
     refresh(app);
@@ -517,6 +558,7 @@ fn latch_arrival(tracking: &mut Tracking, id: &str, generation: u64, at: u64) ->
         return false;
     }
     remember_unread_arrival(tracking, id, generation);
+    tracking.local_acknowledgements.remove(id);
     // Swiph3l: Selected/loaded conversations are not acknowledgements. Every
     // arrival latches before its asynchronous view query or native toast.
     observe(&mut tracking.observations, id, true, false, at);
@@ -524,6 +566,10 @@ fn latch_arrival(tracking: &mut Tracking, id: &str, generation: u64, at: u64) ->
     state.generation += 1;
     state.source = Some("browser-notification");
     state.last_arrival = Some(at);
+    state.locally_acknowledged = false;
+    state.certainty = Certainty::KnownUnread;
+    // Browser events prove unread, but do not prove an exact provider total.
+    state.total_unread_count = None;
     tracking.revision += 1;
     true
 }
@@ -554,14 +600,15 @@ pub fn title(value: &Unread, enabled: bool) -> String {
 pub fn publish_for(
     app: &AppHandle,
     id: &str,
-    _count: Option<u32>,
-    has_unread: bool,
+    count: Option<u32>,
+    has_unread: Option<bool>,
     source: Source,
     _reason: &str,
     acknowledgement: Option<u64>,
     read_arrivals: &[u64],
     proof_only: bool,
     provider_zero: bool,
+    evidence: &ProviderEvidence,
 ) {
     let settings = crate::state::current(app);
     if !settings.services.iter().any(|service| {
@@ -578,21 +625,51 @@ pub fn publish_for(
         .observations
         .get(id)
         .is_some_and(|state| state.has_unread);
-    let outcome = observe_provider_scoped(
+    let at = now();
+    let suppressed = same_local_acknowledgement(&tracking, id, count, has_unread, evidence);
+    let mut outcome = if let Some(has_unread) = has_unread.filter(|_| !suppressed) {
+        observe_provider_scoped(
+            &mut tracking,
+            id,
+            has_unread,
+            foreground,
+            acknowledgement,
+            read_arrivals,
+            proof_only,
+            at,
+            provider_zero,
+        )
+    } else if proof_only && !suppressed {
+        observe_provider_scoped(
+            &mut tracking,
+            id,
+            false,
+            foreground,
+            acknowledgement,
+            read_arrivals,
+            true,
+            at,
+            false,
+        )
+    } else {
+        ProviderObservation {
+            changed: false,
+            accepted: Vec::new(),
+        }
+    };
+    outcome.changed |= record_provider_evidence(
         &mut tracking,
         id,
+        count,
         has_unread,
-        foreground,
-        acknowledgement,
-        read_arrivals,
-        proof_only,
-        now(),
-        provider_zero,
+        evidence,
+        at,
+        suppressed,
     );
     if outcome.changed {
         let state = tracking.observations.get_mut(id).unwrap();
         state.source = Some(source.label());
-        if has_unread && !was_unread {
+        if has_unread == Some(true) && !was_unread && !suppressed {
             state.last_arrival = state.last_update;
         }
     }
@@ -636,7 +713,7 @@ pub fn publish_for(
         if cleared {
             notification(app, id, Event::UnreadCleared, reason, generation);
         }
-    } else if outcome.changed && has_unread {
+    } else if outcome.changed && has_unread == Some(true) && !suppressed {
         notification(
             app,
             id,
@@ -649,6 +726,136 @@ pub fn publish_for(
     if outcome.changed {
         refresh(app);
     }
+}
+
+fn evidence_fingerprint(
+    tracking: &Tracking,
+    count: Option<u32>,
+    has_unread: Option<bool>,
+    evidence: &ProviderEvidence,
+) -> u64 {
+    let mut hash = tracking.evidence_hasher.build_hasher();
+    // Selecting another conversation is presentation, never evidence of a new arrival.
+    (count, has_unread, evidence.certainty).hash(&mut hash);
+    // DOM reordering cannot resurrect a locally acknowledged badge.
+    let mut conversations = evidence.conversations.iter().collect::<Vec<_>>();
+    conversations.sort_by(|a, b| a.id.cmp(&b.id));
+    conversations.hash(&mut hash);
+    hash.finish()
+}
+
+fn same_local_acknowledgement(
+    tracking: &Tracking,
+    id: &str,
+    count: Option<u32>,
+    has_unread: Option<bool>,
+    evidence: &ProviderEvidence,
+) -> bool {
+    tracking
+        .local_acknowledgements
+        .get(id)
+        .is_some_and(|baseline| {
+            // Swiph3l: Missing/replaced provider DOM is not new unread evidence. Retain
+            // the last known baseline through navigation/loading transitions.
+            evidence.certainty == Certainty::Unknown
+                || has_unread.is_none()
+                || baseline.is_none_or(|baseline| {
+                    baseline == evidence_fingerprint(tracking, count, has_unread, evidence)
+                })
+        })
+}
+
+fn record_provider_evidence(
+    tracking: &mut Tracking,
+    id: &str,
+    count: Option<u32>,
+    has_unread: Option<bool>,
+    evidence: &ProviderEvidence,
+    at: u64,
+    suppressed: bool,
+) -> bool {
+    let fingerprint = evidence_fingerprint(tracking, count, has_unread, evidence);
+    let known = evidence.certainty != Certainty::Unknown && has_unread.is_some();
+    if known {
+        tracking
+            .provider_fingerprints
+            .insert(id.into(), fingerprint);
+    }
+    if !suppressed {
+        tracking.local_acknowledgements.remove(id);
+    } else if known && tracking.local_acknowledgements.get(id) == Some(&None) {
+        tracking
+            .local_acknowledgements
+            .insert(id.into(), Some(fingerprint));
+    }
+    let opaque = |value: &str| format!("{:016x}", tracking.evidence_hasher.hash_one((id, value)));
+    let current = evidence.current_conversation.as_deref().map(opaque);
+    let mut conversations = evidence
+        .conversations
+        .iter()
+        .map(|entry| ConversationEvidence {
+            id: opaque(&entry.id),
+            has_unread: entry.has_unread,
+            count: entry.count,
+        })
+        .collect::<Vec<_>>();
+    conversations.sort_by(|a, b| a.id.cmp(&b.id));
+    let initial = !tracking.observations.contains_key(id);
+    let state = tracking.observations.entry(id.into()).or_default();
+    let previous = state.clone();
+    state.certainty = if suppressed {
+        Certainty::Unknown
+    } else {
+        evidence.certainty
+    };
+    state.last_provider_revision = evidence.revision;
+    state.current_conversation = current;
+    state.conversations = conversations;
+    state.locally_acknowledged = suppressed;
+    state.total_unread_count = if suppressed {
+        None
+    } else if has_unread == Some(false) && !state.has_unread {
+        Some(0)
+    } else {
+        count.filter(|_| has_unread == Some(true))
+    };
+    if initial || *state != previous {
+        state.last_update = Some(at);
+        tracking.revision += 1;
+        return true;
+    }
+    false
+}
+
+fn acknowledge_all(tracking: &mut Tracking, id: &str, at: u64) -> (u64, Vec<u64>) {
+    let through = tracking.incoming_generations.get(id).copied().unwrap_or(0);
+    let arrivals = tracking
+        .observed_unread_arrivals
+        .remove(id)
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
+    tracking.observed_unread_overflow.remove(id);
+    tracking.read_generations.insert(
+        id.into(),
+        ReadProof {
+            through,
+            excluded: HashSet::new(),
+        },
+    );
+    tracking
+        .local_acknowledgements
+        .insert(id.into(), tracking.provider_fingerprints.get(id).copied());
+    let state = tracking.observations.entry(id.into()).or_default();
+    state.has_unread = false;
+    state.total_unread_count = None;
+    state.certainty = Certainty::Unknown;
+    state.locally_acknowledged = true;
+    state.last_read_evidence = Some(at);
+    state.last_update = Some(at);
+    state.generation += 1;
+    tracking.revision += 1;
+    (through, arrivals)
 }
 
 struct ProviderObservation {
@@ -805,6 +1012,249 @@ fn refresh_presentation(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn explicit_all_local_is_service_scoped_and_late_queries_cannot_resurrect_it() {
+        let mut tracking = Tracking::default();
+        let first = begin_event(&mut tracking, "discord-work", true, None);
+        latch_arrival(&mut tracking, "discord-work", first, 1);
+        let other = begin_event(&mut tracking, "discord-personal", true, None);
+        latch_arrival(&mut tracking, "discord-personal", other, 2);
+        let (through, accepted) = acknowledge_all(&mut tracking, "discord-work", 3);
+        assert_eq!(through, first);
+        assert_eq!(accepted, vec![first]);
+        assert!(!tracking.observations["discord-work"].has_unread);
+        assert_eq!(
+            tracking.observations["discord-work"].certainty,
+            Certainty::Unknown
+        );
+        assert!(tracking.observations["discord-work"].locally_acknowledged);
+        assert!(tracking.observations["discord-personal"].has_unread);
+        assert!(!observe_browser_event(
+            &mut tracking,
+            "discord-work",
+            false,
+            4,
+            true,
+            first
+        ));
+        let next = begin_event(&mut tracking, "discord-work", true, None);
+        assert!(latch_arrival(&mut tracking, "discord-work", next, 5));
+        assert!(tracking.observations["discord-work"].has_unread);
+        assert!(!tracking.observations["discord-work"].locally_acknowledged);
+    }
+
+    #[test]
+    fn explicit_all_local_resolves_saturation_without_consuming_another_service() {
+        let mut tracking = Tracking::default();
+        for _ in 0..=READ_ARRIVAL_LIMIT {
+            let arrival = begin_event(&mut tracking, "discord", true, None);
+            latch_arrival(&mut tracking, "discord", arrival, 1);
+        }
+        let before = tracking.incoming_generations["discord"];
+        assert!(tracking.observed_unread_overflow.contains("discord"));
+        let other = begin_event(&mut tracking, "other-discord", true, None);
+        latch_arrival(&mut tracking, "other-discord", other, 2);
+        let (through, accepted) = acknowledge_all(&mut tracking, "discord", 3);
+        assert_eq!(through, before);
+        assert_eq!(accepted.len(), READ_ARRIVAL_LIMIT);
+        assert!(!tracking.observed_unread_overflow.contains("discord"));
+        assert!(tracking.read_generations["discord"].includes(before));
+        assert!(!tracking.read_generations["discord"].includes(other));
+        for arrival in 1..=before {
+            assert!(!observe_browser_event(
+                &mut tracking,
+                "discord",
+                false,
+                4,
+                true,
+                arrival
+            ));
+        }
+        assert!(tracking.observations["other-discord"].has_unread);
+        assert!(!tracking.observations["discord"].has_unread);
+    }
+
+    #[test]
+    fn local_all_acknowledgement_suppresses_identical_provider_badges_but_not_changed_evidence() {
+        let mut tracking = Tracking::default();
+        let evidence = ProviderEvidence {
+            revision: Some(1),
+            certainty: Certainty::KnownUnread,
+            current_conversation: Some("channel-a".into()),
+            conversations: vec![ConversationObservation {
+                id: "channel-b".into(),
+                has_unread: Some(true),
+                count: Some(2),
+            }],
+        };
+        observe(&mut tracking.observations, "discord", true, false, 1);
+        record_provider_evidence(
+            &mut tracking,
+            "discord",
+            Some(2),
+            Some(true),
+            &evidence,
+            1,
+            false,
+        );
+        acknowledge_all(&mut tracking, "discord", 2);
+        assert!(same_local_acknowledgement(
+            &tracking,
+            "discord",
+            Some(2),
+            Some(true),
+            &evidence
+        ));
+        let advanced = ProviderEvidence {
+            revision: Some(2),
+            ..evidence
+        };
+        assert!(
+            same_local_acknowledgement(&tracking, "discord", Some(2), Some(true), &advanced),
+            "observer revisions alone do not invent new unread"
+        );
+        assert!(!same_local_acknowledgement(
+            &tracking,
+            "discord",
+            Some(3),
+            Some(true),
+            &advanced
+        ));
+    }
+
+    #[test]
+    fn local_all_baseline_survives_unknown_dom_and_repeated_acknowledgement() {
+        let mut tracking = Tracking::default();
+        let evidence = ProviderEvidence {
+            revision: Some(1),
+            certainty: Certainty::KnownUnread,
+            current_conversation: Some("channel-a".into()),
+            ..Default::default()
+        };
+        observe(&mut tracking.observations, "discord", true, false, 1);
+        record_provider_evidence(
+            &mut tracking,
+            "discord",
+            None,
+            Some(true),
+            &evidence,
+            1,
+            false,
+        );
+        acknowledge_all(&mut tracking, "discord", 2);
+        let baseline = tracking.local_acknowledgements["discord"];
+        let unknown = ProviderEvidence {
+            revision: Some(2),
+            ..Default::default()
+        };
+        let suppressed = same_local_acknowledgement(&tracking, "discord", None, None, &unknown);
+        assert!(
+            suppressed,
+            "root replacement cannot manufacture new unread evidence"
+        );
+        record_provider_evidence(
+            &mut tracking,
+            "discord",
+            None,
+            None,
+            &unknown,
+            3,
+            suppressed,
+        );
+        assert_eq!(tracking.local_acknowledgements["discord"], baseline);
+        assert!(!tracking.observations["discord"].has_unread);
+        assert!(tracking.observations["discord"].locally_acknowledged);
+        acknowledge_all(&mut tracking, "discord", 4);
+        assert_eq!(tracking.local_acknowledgements["discord"], baseline);
+        assert!(same_local_acknowledgement(
+            &tracking,
+            "discord",
+            None,
+            Some(true),
+            &evidence
+        ));
+        let next = begin_event(&mut tracking, "discord", true, None);
+        assert!(latch_arrival(&mut tracking, "discord", next, 5));
+        assert!(!tracking.local_acknowledgements.contains_key("discord"));
+        assert!(tracking.observations["discord"].has_unread);
+    }
+
+    #[test]
+    fn unknown_dom_cannot_establish_a_wildcard_local_all_baseline() {
+        let mut tracking = Tracking::default();
+        acknowledge_all(&mut tracking, "discord", 1);
+        let unknown = ProviderEvidence::default();
+        record_provider_evidence(&mut tracking, "discord", None, None, &unknown, 2, true);
+        assert_eq!(tracking.local_acknowledgements["discord"], None);
+        assert!(!tracking.provider_fingerprints.contains_key("discord"));
+        let known = ProviderEvidence {
+            certainty: Certainty::KnownUnread,
+            ..Default::default()
+        };
+        assert!(same_local_acknowledgement(
+            &tracking,
+            "discord",
+            None,
+            Some(true),
+            &known
+        ));
+        record_provider_evidence(&mut tracking, "discord", None, Some(true), &known, 3, true);
+        assert!(tracking.local_acknowledgements["discord"].is_some());
+    }
+
+    #[test]
+    fn provider_evidence_preserves_unknown_state_and_hides_conversation_identifiers() {
+        let mut tracking = Tracking::default();
+        observe(&mut tracking.observations, "first", true, false, 1);
+        let evidence = ProviderEvidence {
+            revision: Some(9),
+            certainty: Certainty::Unknown,
+            current_conversation: Some("private-conversation-technical-key".into()),
+            conversations: vec![ConversationObservation {
+                id: "other-technical-key".into(),
+                has_unread: Some(true),
+                count: Some(4),
+            }],
+        };
+        assert!(record_provider_evidence(
+            &mut tracking,
+            "first",
+            None,
+            None,
+            &evidence,
+            2,
+            false
+        ));
+        assert!(tracking.observations["first"].has_unread);
+        assert_eq!(tracking.observations["first"].certainty, Certainty::Unknown);
+        assert_eq!(
+            tracking.observations["first"].last_provider_revision,
+            Some(9)
+        );
+        assert_eq!(tracking.observations["first"].total_unread_count, None);
+        let serialized = serde_json::to_string(&tracking.observations["first"]).unwrap();
+        assert!(!serialized.contains("technical-key"));
+        record_provider_evidence(&mut tracking, "second", None, None, &evidence, 2, false);
+        assert_ne!(
+            tracking.observations["first"].current_conversation,
+            tracking.observations["second"].current_conversation
+        );
+        let known = ProviderEvidence {
+            certainty: Certainty::KnownUnread,
+            revision: Some(10),
+            ..evidence
+        };
+        record_provider_evidence(
+            &mut tracking,
+            "first",
+            Some(4),
+            Some(true),
+            &known,
+            3,
+            false,
+        );
+        assert_eq!(tracking.observations["first"].total_unread_count, Some(4));
+    }
     #[test]
     fn immediate_arrival_stays_latched_while_a_trusted_zero_waits_for_query_completion() {
         let mut tracking = Tracking {
@@ -1681,12 +2131,16 @@ mod tests {
             (Source::ChatPlusDom, ProviderId::SynologyChatplus),
             (Source::SynologyChatDom, ProviderId::SynologyChat),
             (Source::DiscordDom, ProviderId::Discord),
+            (Source::WhatsappDom, ProviderId::Whatsapp),
+            (Source::MessengerDom, ProviderId::Messenger),
         ] {
             assert!(source.accepts(provider));
             for other in [
                 ProviderId::SynologyChatplus,
                 ProviderId::SynologyChat,
                 ProviderId::Discord,
+                ProviderId::Whatsapp,
+                ProviderId::Messenger,
             ] {
                 assert_eq!(source.accepts(other), provider == other);
             }

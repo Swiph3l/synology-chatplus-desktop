@@ -5,6 +5,15 @@ export interface ServiceUnreadState {
   source?: string | null;
   lastArrival?: number | null;
   lastReadEvidence?: number | null;
+  certainty?: "known-unread" | "known-read" | "unknown";
+  lastProviderRevision?: number | null;
+  currentConversation?: string | null;
+  conversations?: Array<{
+    id: string;
+    hasUnread: boolean | null;
+    count: number | null;
+  }>;
+  locallyAcknowledged?: boolean;
 }
 
 export interface UnreadSnapshot {

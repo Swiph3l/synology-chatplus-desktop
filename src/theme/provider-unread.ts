@@ -36,6 +36,9 @@ export function installUnreadAdapter(
   let lastUnread: boolean | null = null;
   let interactionSawUnread = false;
   let incomingSequence = 0;
+  let providerRevision = 0;
+  let evidenceKey: string | undefined;
+  let observedState: ProviderUnreadSnapshot = { hasUnread: null, count: null };
   let pendingRead: {
     context: string;
     content: string;
@@ -84,7 +87,7 @@ export function installUnreadAdapter(
         : state.hasUnread === false
           ? false
           : null,
-    // Current providers expose dots/overlapping mentions, not reliable message
+    // Swiph3l: Current providers expose dots/overlapping mentions, not reliable message
     // totals. Preserve unknown and reject malformed counts rather than inventing zero.
     count:
       state.hasUnread === true &&
@@ -93,7 +96,18 @@ export function installUnreadAdapter(
       state.count! <= 0xffffffff
         ? state.count
         : null,
+    conversations: state.conversations,
+    currentConversation: state.currentConversation ?? adapter.readContext(),
   });
+  const observeState = () => {
+    observedState = normalize(adapter.snapshot());
+    const next = JSON.stringify(observedState);
+    if (next !== evidenceKey) {
+      providerRevision += 1;
+      evidenceKey = next;
+    }
+    return observedState;
+  };
   const retain = (
     arrival: number,
     notification: ProviderNotification | null,
@@ -110,7 +124,7 @@ export function installUnreadAdapter(
   const visible = () =>
     foreground && document.visibilityState === "visible" && document.hasFocus();
   const publish = (
-    hasUnread: boolean,
+    hasUnread: boolean | null,
     count: number | null,
     reason: string,
     acknowledgement: number | null = null,
@@ -124,17 +138,17 @@ export function installUnreadAdapter(
         : [...new Set(readArrivals)].filter(
             (arrival) => Number.isSafeInteger(arrival) && arrival > 0,
           );
-    // State equality is separate from exact read-token equality. A new arrival
+    // Swiph3l: State equality is separate from exact read-token equality. A new arrival
     // proof cannot disappear merely because its provider badge is unchanged.
     const proofKey = [...arrivals].sort((a, b) => a - b).join(",");
-    const key = `${hasUnread ? 1 : 0}:${count ?? "dot"}:${proofOnly ? "proof" : "state"}:${readScope ?? "exact"}:${acknowledgement === null ? "observation" : `${acknowledgement}:${interactionSequence}:${proofKey}`}`;
+    const key = `${providerRevision}:${hasUnread === null ? "unknown" : Number(hasUnread)}:${count ?? "dot"}:${proofOnly ? "proof" : "state"}:${readScope ?? "exact"}:${acknowledgement === null ? "observation" : `${acknowledgement}:${interactionSequence}:${proofKey}`}`;
     if (lastKey === key) {
       if (
         duplicateDiagnosticKey !== key &&
         diagnostic("duplicate-suppressed", "unchanged-state")
       )
         duplicateDiagnosticKey = key;
-      return;
+      return true;
     }
     if (
       post({
@@ -147,16 +161,27 @@ export function installUnreadAdapter(
         readArrivals: arrivals,
         proofOnly: proofOnly || undefined,
         readScope,
+        providerRevision,
+        certainty:
+          observedState.hasUnread === null
+            ? "unknown"
+            : observedState.hasUnread
+              ? "known-unread"
+              : "known-read",
+        currentConversation: observedState.currentConversation,
+        conversations: observedState.conversations,
       })
     ) {
       lastKey = key;
       duplicateDiagnosticKey = undefined;
+      return true;
     }
+    return false;
   };
   const report = () => {
     scheduled = false;
     if (disposed) return;
-    const state = normalize(adapter.snapshot());
+    const state = observeState();
     const diagnosticKey = `${state.hasUnread === null ? "unknown" : Number(state.hasUnread)}:${state.count ?? "dot"}`;
     if (lastDiagnosticKey !== diagnosticKey) {
       diagnostic("detected", "provider-observation");
@@ -213,7 +238,7 @@ export function installUnreadAdapter(
         );
         interaction = null;
         interactionSawUnread = false;
-      }
+      } else publish(null, null, "provider-unknown");
       return;
     }
     if (state.hasUnread) {
@@ -368,7 +393,7 @@ export function installUnreadAdapter(
   document.addEventListener("input", interact, true);
   document.addEventListener("wheel", interact, true);
   const presentationChanged = (event: Event) => {
-    // A child document can lose focus while its native frame stays foreground.
+    // Swiph3l: A child document can lose focus while its native frame stays foreground.
     // Restoring it is presentation, never continuation of an earlier read gesture.
     if (event.type === "blur" || event.type === "focus" || !visible())
       revokeRead();

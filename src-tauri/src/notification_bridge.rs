@@ -602,13 +602,14 @@ pub fn attach(
                             &unread_app,
                             &unread_service.id,
                             unread.count,
-                            unread.has_unread,
+                            unread.known.then_some(unread.has_unread),
                             unread.source,
                             &unread.reason,
                             unread.acknowledgement,
                             &unread.read_arrivals,
                             unread.proof_only,
                             unread.provider_zero,
+                            &unread.evidence,
                         );
                     }
                 }
@@ -787,6 +788,7 @@ pub fn attach(
 
 struct UnreadObservation {
     has_unread: bool,
+    known: bool,
     count: Option<u32>,
     source: crate::unread::Source,
     reason: String,
@@ -794,6 +796,7 @@ struct UnreadObservation {
     read_arrivals: Vec<u64>,
     proof_only: bool,
     provider_zero: bool,
+    evidence: crate::unread::ProviderEvidence,
 }
 
 struct RendererDiagnostic {
@@ -824,8 +827,8 @@ fn parse_diagnostic(json: &str) -> Option<RendererDiagnostic> {
         "chatplus-dom" => crate::unread::Source::ChatPlusDom,
         "synology-chat-dom" => crate::unread::Source::SynologyChatDom,
         "discord-dom" => crate::unread::Source::DiscordDom,
-        "messenger-dom" => crate::unread::Source::MessengerDom,
         "whatsapp-dom" => crate::unread::Source::WhatsappDom,
+        "messenger-dom" => crate::unread::Source::MessengerDom,
         _ => return None,
     };
     use crate::diagnostics::{NotificationEvent as Event, NotificationReason as Reason};
@@ -853,6 +856,12 @@ fn parse_unread(json: &str) -> Option<UnreadObservation> {
         chatplus_unread: u8,
         unread: Option<bool>,
         has_unread: Option<bool>,
+        count: Option<u32>,
+        certainty: Option<crate::unread::Certainty>,
+        provider_revision: Option<u64>,
+        current_conversation: Option<String>,
+        #[serde(default)]
+        conversations: Vec<crate::unread::ConversationObservation>,
         source: Option<String>,
         reason: Option<String>,
         acknowledgement: Option<u64>,
@@ -874,23 +883,68 @@ fn parse_unread(json: &str) -> Option<UnreadObservation> {
     }
     let mut proofs = std::collections::HashSet::new();
     if value.read_arrivals.len() > crate::unread::READ_ARRIVAL_LIMIT
-        || !value
-            .read_arrivals
-            .iter()
-            .all(|arrival| *arrival > 0 && proofs.insert(*arrival))
+        || !value.read_arrivals.iter().all(|arrival| {
+            *arrival > 0 && *arrival <= 9_007_199_254_740_991 && proofs.insert(*arrival)
+        })
     {
         return None;
     }
     if value.proof_only && (value.acknowledgement.is_none() || value.read_arrivals.is_empty()) {
         return None;
     }
-    let has_unread = value.has_unread.or(value.unread)?;
+    let observed = value.has_unread.or(value.unread);
+    if observed.is_none() && value.certainty != Some(crate::unread::Certainty::Unknown) {
+        return None;
+    }
+    let has_unread = observed.unwrap_or(false);
+    let certainty = value.certainty.unwrap_or(if has_unread {
+        crate::unread::Certainty::KnownUnread
+    } else {
+        crate::unread::Certainty::KnownRead
+    });
+    // Swiph3l: Unknown aggregate state may carry a false placeholder alongside exact
+    // proofOnly arrivals. The placeholder must never become provider-wide zero.
+    let known = observed.is_some() && certainty != crate::unread::Certainty::Unknown;
+    if matches!(
+        (certainty, observed),
+        (crate::unread::Certainty::KnownUnread, Some(false) | None)
+            | (crate::unread::Certainty::KnownRead, Some(true) | None)
+    ) {
+        return None;
+    }
+    let valid_id =
+        |id: &str| !id.is_empty() && id.len() <= 256 && !id.chars().any(char::is_control);
+    let mut conversations = std::collections::HashSet::new();
+    if value
+        .provider_revision
+        .is_some_and(|revision| revision > 9_007_199_254_740_991)
+        || value
+            .acknowledgement
+            .is_some_and(|revision| revision > 9_007_199_254_740_991)
+        || value
+            .current_conversation
+            .as_deref()
+            .is_some_and(|id| !valid_id(id))
+        || value.conversations.len() > 64
+        || value.conversations.iter().any(|conversation| {
+            !valid_id(&conversation.id)
+                || !conversations.insert(&conversation.id)
+                || conversation
+                    .count
+                    .is_some_and(|count| count == 0 || conversation.has_unread != Some(true))
+        })
+    {
+        return None;
+    }
     // Swiph3l: Provider-wide zero is a distinct read scope, never inferred from
     // an ordinary empty DOM observation or allowed to override partial unread.
     let provider_zero = match value.read_scope.as_deref() {
         None => false,
         Some("provider-zero")
-            if !has_unread && !value.proof_only && value.acknowledgement.is_some() =>
+            if observed == Some(false)
+                && certainty == crate::unread::Certainty::KnownRead
+                && !value.proof_only
+                && value.acknowledgement.is_some() =>
         {
             true
         }
@@ -900,6 +954,8 @@ fn parse_unread(json: &str) -> Option<UnreadObservation> {
         Some("chatplus-dom") | None => crate::unread::Source::ChatPlusDom,
         Some("synology-chat-dom") => crate::unread::Source::SynologyChatDom,
         Some("discord-dom") => crate::unread::Source::DiscordDom,
+        Some("whatsapp-dom") => crate::unread::Source::WhatsappDom,
+        Some("messenger-dom") => crate::unread::Source::MessengerDom,
         Some("title-fallback") => return None,
         _ => return None,
     };
@@ -909,13 +965,25 @@ fn parse_unread(json: &str) -> Option<UnreadObservation> {
     }
     Some(UnreadObservation {
         has_unread,
-        count: None,
+        known,
+        // Legacy dot-only observations must not acquire invented totals.
+        count: value.count.filter(|count| {
+            *count > 0
+                && observed == Some(true)
+                && value.certainty == Some(crate::unread::Certainty::KnownUnread)
+        }),
         source,
         reason,
         acknowledgement: value.acknowledgement,
         read_arrivals: value.read_arrivals,
         proof_only: value.proof_only,
         provider_zero,
+        evidence: crate::unread::ProviderEvidence {
+            revision: value.provider_revision,
+            certainty,
+            current_conversation: value.current_conversation,
+            conversations: value.conversations,
+        },
     })
 }
 #[cfg(not(windows))]
@@ -930,6 +998,36 @@ pub fn attach(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn scoped_provider_evidence_preserves_unknown_and_explicit_reliable_counts() {
+        let unknown = parse_unread(r#"{"chatplusUnread":1,"hasUnread":null,"certainty":"unknown","source":"whatsapp-dom","providerRevision":4,"currentConversation":"runtime-chat-1"}"#).unwrap();
+        assert!(!unknown.known);
+        assert_eq!(
+            unknown.evidence.certainty,
+            crate::unread::Certainty::Unknown
+        );
+        assert_eq!(unknown.evidence.revision, Some(4));
+        let unknown_proof = parse_unread(r#"{"chatplusUnread":1,"hasUnread":false,"certainty":"unknown","proofOnly":true,"acknowledgement":7,"readArrivals":[1]}"#).unwrap();
+        assert!(!unknown_proof.known);
+        assert!(unknown_proof.proof_only);
+        let known = parse_unread(r#"{"chatplusUnread":1,"hasUnread":true,"certainty":"known-unread","source":"whatsapp-dom","count":3,"conversations":[{"id":"runtime-chat-1","hasUnread":true,"count":3}]}"#).unwrap();
+        assert!(known.known);
+        assert_eq!(known.count, Some(3));
+        assert_eq!(known.source, crate::unread::Source::WhatsappDom);
+        assert_eq!(known.evidence.conversations.len(), 1);
+        for invalid in [
+            r#"{"chatplusUnread":1,"hasUnread":null}"#,
+            r#"{"chatplusUnread":1,"hasUnread":null,"certainty":"known-read"}"#,
+            r#"{"chatplusUnread":1,"hasUnread":false,"certainty":"known-unread"}"#,
+            r#"{"chatplusUnread":1,"hasUnread":true,"certainty":"known-read"}"#,
+            r#"{"chatplusUnread":1,"hasUnread":true,"conversations":[{"id":"same"},{"id":"same"}]}"#,
+            r#"{"chatplusUnread":1,"hasUnread":true,"conversations":[{"id":"chat","hasUnread":false,"count":2}]}"#,
+            r#"{"chatplusUnread":1,"hasUnread":true,"providerRevision":9007199254740992}"#,
+            r#"{"chatplusUnread":1,"hasUnread":false,"certainty":"unknown","acknowledgement":7,"readScope":"provider-zero"}"#,
+        ] {
+            assert!(parse_unread(invalid).is_none(), "{invalid}");
+        }
+    }
     #[test]
     fn provider_zero_scope_requires_current_acknowledged_boolean_zero() {
         assert!(parse_unread(r#"{"chatplusUnread":1,"hasUnread":false,"acknowledgement":7,"readScope":"provider-zero"}"#).unwrap().provider_zero);
@@ -1081,8 +1179,8 @@ mod tests {
             ("chatplus-dom", crate::unread::Source::ChatPlusDom),
             ("synology-chat-dom", crate::unread::Source::SynologyChatDom),
             ("discord-dom", crate::unread::Source::DiscordDom),
-            ("messenger-dom", crate::unread::Source::MessengerDom),
             ("whatsapp-dom", crate::unread::Source::WhatsappDom),
+            ("messenger-dom", crate::unread::Source::MessengerDom),
         ] {
             let json = serde_json::json!({"chatplusUnread":1,"hasUnread":false,"source":source})
                 .to_string();

@@ -423,6 +423,9 @@ test("initial sidebar unread is observed and unchanged/missing provider state ca
       reason: "badge-present",
       acknowledgement: null,
       readArrivals: [],
+      providerRevision: 1,
+      certainty: "known-unread",
+      currentConversation: "conversation-a",
     },
   ]);
   f.badges(true);
@@ -431,11 +434,14 @@ test("initial sidebar unread is observed and unchanged/missing provider state ca
   assert.equal(f.messages.length, 1, "unchanged observations are coalesced");
   f.tabs(false);
   f.flush();
+  assert.equal(f.messages.length, 2);
   assert.equal(
-    f.messages.length,
-    1,
+    f.messages.at(-1).hasUnread,
+    null,
     "missing sidebar is unknown, even with a flashing unread title",
   );
+  assert.equal(f.messages.at(-1).certainty, "unknown");
+  assert.equal(f.messages.at(-1).acknowledgement, null);
 });
 
 test("selected provider removing badges while minimized/backgrounded has no read acknowledgement", () => {
@@ -589,7 +595,10 @@ test("provider document focus or visibility alone cannot authorize a read acknow
 test("flashing document title cannot create unread when sidebar is unavailable", () => {
   const f = fixture({ present: false });
   f.flush();
-  assert.equal(f.messages.length, 0);
+  assert.equal(f.messages.length, 1);
+  assert.equal(f.messages[0].hasUnread, null);
+  assert.equal(f.messages[0].certainty, "unknown");
+  assert.equal(f.messages[0].acknowledgement, null);
 });
 
 for (const source of ["chatplus-dom", "synology-chat-dom", "discord-dom"]) {

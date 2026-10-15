@@ -70,18 +70,13 @@ for (const [provider, source] of [
 ]) {
   test(`${provider}: complete native bootstrap chooses its own adapter without injecting ChatPlus CSS`, () => {
     const f = fixture(provider);
-    if (provider === "messenger") {
-      assert.deepEqual(
-        f.messages,
-        [],
-        "unknown DOM does not manufacture a read state",
-      );
-    } else {
-      assert.equal(f.messages.length, 1);
-      assert.equal(f.messages[0].source, source);
-      assert.equal(f.messages[0].hasUnread, true);
-      assert.equal(f.messages[0].acknowledgement, null);
-    }
+    assert.equal(f.messages.length, 1);
+    assert.equal(f.messages[0].source, source);
+    assert.equal(
+      f.messages[0].hasUnread,
+      provider === "messenger" ? null : true,
+    );
+    assert.equal(f.messages[0].acknowledgement, null);
     assert.equal(typeof f.host.__chatplusSetForeground, "function");
     assert.equal(typeof f.host.__chatplusIsViewingNotification, "function");
     assert.equal(f.document.querySelector("#chatplus-desktop-theme"), null);
