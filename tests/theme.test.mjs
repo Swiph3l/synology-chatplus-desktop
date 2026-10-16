@@ -2,13 +2,17 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { runInNewContext } from "node:vm";
+import { parseHTML } from "linkedom";
 import "../scripts/build-theme.mjs";
 const script = await readFile("src-tauri/theme-bootstrap.js", "utf8");
 const css = await readFile("src/theme/dark.css", "utf8");
+const cssRules = [
+  ...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g),
+];
 
 test("reaction surfaces cover idle, hover, selected and keyboard focus only in dark ChatPlus", () => {
-  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(
-    ([, selector]) => selector.includes('[data-testid="reaction-button"]'),
+  const rules = cssRules.filter(([, selector]) =>
+    selector.includes('[data-testid="reaction-button"]'),
   );
   assert.equal(rules.length, 4);
   for (const [, selector] of rules) {
@@ -35,8 +39,7 @@ test("reaction surfaces cover idle, hover, selected and keyboard focus only in d
 });
 
 test("form surface overrides stay inside dark EOS and scope native textarea fallback", () => {
-  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)];
-  const formRules = rules.filter(([, selectors]) =>
+  const formRules = cssRules.filter(([, selectors]) =>
     /body\.eos-scope\s+:is\(/.test(selectors),
   );
   assert.ok(
@@ -71,34 +74,68 @@ test("form surface overrides stay inside dark EOS and scope native textarea fall
   assert.match(css, /\.v-checkbox-wrapper[^{}]*\.v-checkbox-icon\s*\{/);
   assert.match(css, /\.v-checkbox-wrapper\.disabled/);
 });
-test("bundled bootstrap injects actual CSS before page content and follows system theme", () => {
-  const root = {
-    dataset: {},
-    appendChild(style) {
-      style.isConnected = true;
-      this.style = style;
-    },
-  };
+function fixture(preference = "system", dark = true, beforeRoot = false) {
+  const { window: dom, document } = parseHTML(
+    '<html><head></head><body class="eos-scope"></body></html>',
+  );
+  const detachedRoot = beforeRoot ? document.documentElement : null;
+  detachedRoot?.remove();
+  const counters = { mediaListeners: 0, observers: 0, observerCalls: 0 };
   const media = {
-    matches: true,
+    matches: dark,
     addEventListener(_, callback) {
       this.change = callback;
+      counters.mediaListeners++;
     },
   };
-  const window = { __chatplusTheme: "system" };
-  runInNewContext(script, {
+  const navigations = [];
+  const location = {
+    href: "https://provider.example.test/chat/",
+    assign: (url) => navigations.push(url),
+  };
+  const window = { __chatplusTheme: preference, location };
+  const context = {
     window,
-    document: {
-      documentElement: root,
-      createElement: () => ({}),
-      addEventListener() {},
-    },
+    document,
+    location,
+    URL,
+    HTMLAnchorElement: dom.HTMLAnchorElement,
     matchMedia: () => media,
-    MutationObserver: class {
-      observe() {}
+    MutationObserver: class extends dom.MutationObserver {
+      constructor(callback) {
+        super((...args) => {
+          counters.observerCalls++;
+          callback(...args);
+        });
+        counters.observers++;
+      }
     },
-  });
-  assert.match(root.style.textContent, /--eos-bg-surface-z0/);
+  };
+  const run = () => runInNewContext(script, context);
+  run();
+  return {
+    window,
+    document,
+    media,
+    counters,
+    run,
+    detachedRoot,
+    navigations,
+    dom,
+  };
+}
+
+const settle = () => new Promise(setImmediate);
+const themeStyle = (document) =>
+  document.querySelector("style#chatplus-desktop-theme");
+
+test("bundled bootstrap injects actual CSS before page content and follows system theme", () => {
+  const { window, document, media } = fixture();
+  const root = document.documentElement;
+  const style = themeStyle(document);
+  assert.equal(style.parentNode, root);
+  assert.match(style.textContent, /--eos-bg-surface-z0/);
+  assert.equal(document.body.childNodes.length, 0, "provider has not rendered");
   assert.equal(root.dataset.chatplusTheme, "dark");
   media.matches = false;
   media.change();
@@ -107,4 +144,101 @@ test("bundled bootstrap injects actual CSS before page content and follows syste
   assert.equal(root.dataset.chatplusTheme, "dark");
   window.__chatplusSetTheme("light");
   assert.equal(root.dataset.chatplusTheme, "light");
+  media.matches = true;
+  media.change();
+  assert.equal(root.dataset.chatplusTheme, "light", "explicit Light wins");
+  window.__chatplusSetTheme("system");
+  assert.equal(root.dataset.chatplusTheme, "dark");
+  assert.equal(themeStyle(document), style, "theme changes retain the style");
+});
+
+test("document-start bootstrap waits for the root and installs the dark fallback before provider content", async () => {
+  const { document, detachedRoot } = fixture("dark", false, true);
+  assert.equal(document.documentElement, null);
+  document.appendChild(detachedRoot);
+  await settle();
+  assert.equal(document.documentElement.dataset.chatplusTheme, "dark");
+  assert.equal(themeStyle(document).parentNode, detachedRoot);
+  assert.equal(document.body.childNodes.length, 0);
+  assert.match(
+    themeStyle(document).textContent,
+    /background: #0f1115 !important/,
+  );
+});
+
+test("incoming messages and recreated conversation surfaces retain the installed stylesheet without observer churn", async () => {
+  const { document, counters } = fixture("dark");
+  const style = themeStyle(document);
+  document.body.innerHTML = '<main id="chat-main-app"></main>';
+  await settle();
+  const observerCalls = counters.observerCalls;
+  const main = document.querySelector("main");
+  for (const content of [
+    '<section class="message-viewer-scrollbar"><article>Incoming</article></section>',
+    '<section class="message-viewer-scrollbar"><article>Another conversation</article></section>',
+    '<section data-testid="thread-viewer-comments-section"><div aria-busy="true"></div></section>',
+    '<section class="message-viewer-scrollbar"><div role="progressbar"></div></section>',
+    '<div data-testid="message-create-box-paste-zone"><div contenteditable="true"></div></div>',
+    '<section class="message-viewer-scrollbar"><div contenteditable="true">Edit</div></section>',
+    '<div role="menu"><button data-testid="reaction-button">Reaction</button></div>',
+  ]) {
+    main.innerHTML = content;
+    assert.equal(
+      themeStyle(document),
+      style,
+      "CSS exists before observer work",
+    );
+    assert.equal(document.documentElement.dataset.chatplusTheme, "dark");
+    await settle();
+    assert.equal(themeStyle(document), style);
+    assert.equal(
+      document.querySelectorAll("#chatplus-desktop-theme").length,
+      1,
+    );
+  }
+  assert.equal(counters.observerCalls, observerCalls);
+});
+
+test("root/head replacement, stylesheet removal and provider tampering repair the same style", async () => {
+  const { document } = fixture("dark");
+  const style = themeStyle(document);
+  const original = style.textContent;
+  document.head.replaceWith(document.createElement("head"));
+  await settle();
+  assert.equal(themeStyle(document), style);
+  style.remove();
+  await settle();
+  assert.equal(themeStyle(document), style);
+  style.textContent = "body { background: white; }";
+  style.setAttribute("media", "not all");
+  document.documentElement.dataset.chatplusTheme = "light";
+  await settle();
+  assert.equal(style.textContent, original);
+  assert.equal(style.hasAttribute("media"), false);
+  assert.equal(document.documentElement.dataset.chatplusTheme, "dark");
+  const root = document.createElement("html");
+  root.innerHTML = '<head></head><body class="eos-scope"></body>';
+  document.replaceChild(root, document.documentElement);
+  await settle();
+  assert.equal(style.parentNode, root);
+  assert.equal(themeStyle(document), style);
+  assert.equal(root.dataset.chatplusTheme, "dark");
+});
+
+test("re-evaluating native bootstrap reuses styles, media listeners and observers", async () => {
+  const f = fixture("dark");
+  const style = themeStyle(f.document);
+  await settle();
+  const { observers, mediaListeners } = f.counters;
+  f.window.__chatplusSetTheme("light");
+  f.run();
+  await settle();
+  assert.equal(f.document.documentElement.dataset.chatplusTheme, "light");
+  assert.equal(f.counters.observers, observers);
+  assert.equal(f.counters.mediaListeners, mediaListeners);
+  assert.equal(themeStyle(f.document), style);
+  assert.equal(
+    f.document.querySelectorAll("#chatplus-desktop-theme").length,
+    1,
+  );
 });
