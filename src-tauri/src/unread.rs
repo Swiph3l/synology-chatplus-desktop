@@ -827,6 +827,40 @@ fn record_provider_evidence(
     false
 }
 
+/// A deliberate shell action acknowledges only local state for this stable ID.
+/// It never claims that the provider's server state was changed.
+pub fn acknowledge_all_local(app: &AppHandle, id: &str) -> Result<(), String> {
+    let settings = crate::state::current(app);
+    let service = settings
+        .services
+        .iter()
+        .find(|service| service.id == id && service.enabled && service.supports_unread())
+        .ok_or("Unread acknowledgement unavailable for this service.")?;
+    if !crate::provider_read::capabilities(service).all_local {
+        return Err("Mark all as read is unavailable for this provider.".into());
+    }
+    let (through, arrivals) = {
+        let service = app.state::<Service>();
+        let mut tracking = service.0.lock().unwrap_or_else(|e| e.into_inner());
+        acknowledge_all(&mut tracking, id, now())
+    };
+    accept_read_for(app, id, &arrivals);
+    if let Some(view) = app.get_webview(&crate::services::label(id)) {
+        let _ = view.eval(&format!(
+            "window.__chatplusAcknowledgeAllLocal?.({through})"
+        ));
+    }
+    crate::diagnostics::notification(
+        app,
+        id,
+        crate::diagnostics::NotificationEvent::UnreadCleared,
+        crate::diagnostics::NotificationReason::ExplicitLocalAcknowledgement,
+        through,
+    );
+    refresh(app);
+    Ok(())
+}
+
 fn acknowledge_all(tracking: &mut Tracking, id: &str, at: u64) -> (u64, Vec<u64>) {
     let through = tracking.incoming_generations.get(id).copied().unwrap_or(0);
     let arrivals = tracking

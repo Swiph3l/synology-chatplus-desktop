@@ -3,6 +3,7 @@ import type {
   ProviderUnreadAdapter,
   ProviderUnreadSnapshot,
 } from "./providers/types";
+import { currentReadArrivals, readCapabilities } from "./providers/read";
 
 export interface ProviderHostWindow {
   __chatplusSetForeground?: (
@@ -15,6 +16,8 @@ export interface ProviderHostWindow {
   ) => boolean;
   __chatplusAcceptRead?: (arrivals: number[]) => void;
   __chatplusCompleteArrival?: (arrival: number) => void;
+  __chatplusMarkCurrentRead?: () => boolean;
+  __chatplusAcknowledgeAllLocal?: (through: number) => void;
   chrome?: { webview?: { postMessage: (value: unknown) => void } };
 }
 
@@ -36,6 +39,7 @@ export function installUnreadAdapter(
   let lastUnread: boolean | null = null;
   let interactionSawUnread = false;
   let incomingSequence = 0;
+  let localAcknowledgedThrough = 0;
   let providerRevision = 0;
   let evidenceKey: string | undefined;
   let observedState: ProviderUnreadSnapshot = { hasUnread: null, count: null };
@@ -112,7 +116,8 @@ export function installUnreadAdapter(
     arrival: number,
     notification: ProviderNotification | null,
   ) => {
-    if (acceptedArrivals.has(arrival)) return;
+    if (arrival <= localAcknowledgedThrough || acceptedArrivals.has(arrival))
+      return;
     // Swiph3l: Never evict an unproven arrival to manufacture a read zero.
     // Saturated history requires a proven provider-wide zero to recover.
     if (!unseenArrivals.has(arrival) && unseenArrivals.size >= 256) {
@@ -307,6 +312,41 @@ export function installUnreadAdapter(
     adapter.onHostForegroundChanged?.(value);
     schedule();
   };
+  host.__chatplusMarkCurrentRead = () => {
+    // Swiph3l: The native menu owns keyboard focus. Its explicit action still
+    // requires the selected foreground service and a provider-mapped latest pane.
+    if (
+      disposed ||
+      !foreground ||
+      document.visibilityState !== "visible" ||
+      readCapabilities(adapter.source).current !== "local"
+    )
+      return false;
+    const state = observeState();
+    const arrivals = currentReadArrivals(adapter, unseenArrivals);
+    if (arrivals.length === 0) return false;
+    revokeRead();
+    interactionSequence += 1;
+    return publish(
+      state.hasUnread ?? false,
+      state.count,
+      "explicit-current-local",
+      generation,
+      arrivals,
+      state.hasUnread === null,
+    );
+  };
+  host.__chatplusAcknowledgeAllLocal = (through) => {
+    if (disposed || !Number.isSafeInteger(through) || through < 0) return;
+    // Swiph3l: Keep the explicit action's boundary so late queries cannot restore
+    // acknowledged tokens, while newer arrivals remain eligible to become unread.
+    localAcknowledgedThrough = Math.max(localAcknowledgedThrough, through);
+    revokeRead();
+    for (const arrival of unseenArrivals.keys())
+      if (arrival <= through) unseenArrivals.delete(arrival);
+    if (incomingSequence <= through) arrivalOverflow = false;
+    lastKey = undefined;
+  };
   host.__chatplusIsViewingNotification = (notification) => {
     if (disposed) return false;
     const arrival = notification.arrival;
@@ -429,5 +469,7 @@ export function installUnreadAdapter(
     delete host.__chatplusIsViewingNotification;
     delete host.__chatplusAcceptRead;
     delete host.__chatplusCompleteArrival;
+    delete host.__chatplusMarkCurrentRead;
+    delete host.__chatplusAcknowledgeAllLocal;
   };
 }

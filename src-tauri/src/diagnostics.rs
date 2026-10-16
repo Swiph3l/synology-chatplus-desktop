@@ -51,6 +51,7 @@ pub enum NotificationReason {
     ProviderActivation,
     ActivationUnavailable,
     ActivationFailed,
+    ExplicitLocalAcknowledgement,
     NativePermissionEnabled,
     NativePermissionBlocked,
     NativePermissionUnavailable,

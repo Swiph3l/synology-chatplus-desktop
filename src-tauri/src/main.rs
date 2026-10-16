@@ -13,6 +13,7 @@ mod notification_bridge;
 mod notification_presentation;
 mod platform;
 mod project;
+mod provider_read;
 mod providers;
 mod services;
 mod shell;

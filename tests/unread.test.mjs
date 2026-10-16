@@ -601,6 +601,124 @@ test("flashing document title cannot create unread when sidebar is unavailable",
   assert.equal(f.messages[0].acknowledgement, null);
 });
 
+test("explicit Discord current acknowledgement retires only the visible channel's exact arrivals", () => {
+  const f = fixture({
+    source: "discord-dom",
+    providerZero: true,
+    marker: false,
+  });
+  f.foreground(true, 4, 2);
+  f.window.__chatplusIsViewingNotification({
+    tag: "conversation-a",
+    arrival: 1,
+  });
+  f.window.__chatplusIsViewingNotification({
+    tag: "conversation-b",
+    arrival: 2,
+  });
+  f.flush();
+  // A native rail menu owns keyboard focus; selected native foreground remains.
+  f.focus(false);
+  assert.equal(f.window.__chatplusMarkCurrentRead(), true);
+  assert.deepEqual(f.messages.at(-1).readArrivals, [1]);
+  assert.equal(
+    f.messages.at(-1).readScope,
+    undefined,
+    "explicit current never expands to provider-zero",
+  );
+  assert.equal(f.messages.at(-1).reason, "explicit-current-local");
+  f.window.__chatplusAcceptRead([1]);
+  assert.equal(
+    f.window.__chatplusMarkCurrentRead(),
+    false,
+    "unrelated channel is retained",
+  );
+  f.conversation("conversation-b");
+  assert.equal(f.window.__chatplusMarkCurrentRead(), true);
+  assert.deepEqual(f.messages.at(-1).readArrivals, [2]);
+});
+
+test("explicit current cannot acknowledge an inactive/hidden/history/unsupported service", () => {
+  for (const source of [
+    "discord-dom",
+    "whatsapp-dom",
+    "chatplus-dom",
+    "synology-chat-dom",
+  ]) {
+    const f = fixture({ source });
+    f.foreground(false, 2, 1);
+    f.window.__chatplusIsViewingNotification({
+      tag: "conversation-a",
+      arrival: 1,
+    });
+    assert.equal(f.window.__chatplusMarkCurrentRead(), false);
+    f.foreground(true, 3, 1);
+    f.conversation("conversation-a", false);
+    assert.equal(f.window.__chatplusMarkCurrentRead(), false);
+    f.conversation("conversation-a", true);
+    f.document.visibilityState = "hidden";
+    assert.equal(f.window.__chatplusMarkCurrentRead(), false);
+    f.document.visibilityState = "visible";
+    assert.equal(
+      f.window.__chatplusMarkCurrentRead(),
+      source === "discord-dom",
+    );
+  }
+});
+
+test("explicit current reports a failed bridge send and retains exact arrivals for retry", () => {
+  const f = fixture({ source: "discord-dom" });
+  f.foreground(true, 3, 1);
+  f.window.__chatplusIsViewingNotification({
+    tag: "conversation-a",
+    arrival: 1,
+  });
+  f.flush();
+  const send = f.window.chrome.webview.postMessage;
+  f.window.chrome.webview.postMessage = () => {
+    throw new Error("revoked native bridge");
+  };
+  assert.equal(f.window.__chatplusMarkCurrentRead(), false);
+  f.window.chrome.webview.postMessage = send;
+  assert.equal(f.window.__chatplusMarkCurrentRead(), true);
+  assert.deepEqual(f.messages.at(-1).readArrivals, [1]);
+});
+
+test("explicit local all retires only arrivals through its native boundary and does not mix instances", () => {
+  const first = fixture({ source: "discord-dom", marker: false });
+  const second = fixture({ source: "discord-dom", marker: false });
+  for (const f of [first, second]) {
+    f.foreground(true, 3, 2);
+    for (const arrival of [1, 2])
+      f.window.__chatplusIsViewingNotification({
+        tag: "conversation-a",
+        arrival,
+      });
+  }
+  first.window.__chatplusAcknowledgeAllLocal(1);
+  assert.equal(first.window.__chatplusMarkCurrentRead(), true);
+  assert.deepEqual(first.messages.at(-1).readArrivals, [2]);
+  assert.equal(second.window.__chatplusMarkCurrentRead(), true);
+  assert.deepEqual([...second.messages.at(-1).readArrivals].sort(), [1, 2]);
+  first.window.__chatplusAcknowledgeAllLocal(2);
+  first.window.__chatplusIsViewingNotification({
+    tag: "conversation-a",
+    arrival: 1,
+  });
+  first.window.__chatplusIsViewingNotification({
+    tag: "conversation-a",
+    arrival: 2,
+  });
+  assert.equal(first.window.__chatplusMarkCurrentRead(), false);
+  first.window.__chatplusSetForeground(true, 4, 3);
+  first.window.__chatplusIsViewingNotification({
+    tag: "conversation-a",
+    arrival: 3,
+  });
+  assert.equal(first.window.__chatplusMarkCurrentRead(), true);
+  assert.deepEqual(first.messages.at(-1).readArrivals, [3]);
+});
+
 for (const source of ["chatplus-dom", "synology-chat-dom", "discord-dom"]) {
   test(`${source}: logically focused selected provider cannot acknowledge while host is minimized or backgrounded`, () => {
     const f = fixture({ source });

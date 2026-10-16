@@ -116,6 +116,8 @@ pub struct MenuState {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ServiceAction {
     Open,
+    MarkCurrentRead,
+    MarkAllRead,
     AllowProviderNotifications,
     Mute,
     Unmute,
@@ -128,6 +130,8 @@ impl ServiceAction {
     fn key(self) -> &'static str {
         match self {
             Self::Open => "open",
+            Self::MarkCurrentRead => "mark-read",
+            Self::MarkAllRead => "mark-all-read",
             Self::AllowProviderNotifications => "allow-notifications",
             Self::Mute => "mute",
             Self::Unmute => "unmute",
@@ -140,6 +144,8 @@ impl ServiceAction {
     fn title(self) -> &'static str {
         match self {
             Self::Open => "Open",
+            Self::MarkCurrentRead => "Mark as read (local)",
+            Self::MarkAllRead => "Mark all as read (local)",
             Self::AllowProviderNotifications => "Allow provider notifications",
             Self::Mute => "Mute desktop notifications",
             Self::Unmute => "Unmute desktop notifications",
@@ -163,6 +169,8 @@ impl ServiceAction {
         }
         let action = match action {
             "open" => Self::Open,
+            "mark-read" => Self::MarkCurrentRead,
+            "mark-all-read" => Self::MarkAllRead,
             "allow-notifications" => Self::AllowProviderNotifications,
             "mute" => Self::Mute,
             "unmute" => Self::Unmute,
@@ -181,6 +189,8 @@ impl ServiceAction {
                 Self::AllowProviderNotifications => {
                     cfg!(windows) && service.supports_notifications()
                 }
+                Self::MarkCurrentRead => crate::provider_read::capabilities(service).current_local,
+                Self::MarkAllRead => crate::provider_read::capabilities(service).all_local,
                 _ => true,
             }
     }
@@ -199,6 +209,9 @@ fn service_actions(service: &ServiceConfig) -> Vec<ServiceAction> {
         return Vec::new();
     }
     let mut actions = vec![ServiceAction::Open];
+    if service.supports_unread() {
+        actions.extend([ServiceAction::MarkCurrentRead, ServiceAction::MarkAllRead]);
+    }
     if service.supports_notifications() {
         if cfg!(windows) {
             actions.push(ServiceAction::AllowProviderNotifications);
@@ -247,6 +260,8 @@ pub fn dispatch_service(app: &AppHandle, action: ServiceAction, id: &str) -> Res
     }
     match action {
         ServiceAction::Open => crate::services::activate(app, id),
+        ServiceAction::MarkCurrentRead => crate::provider_read::mark_current_local(app, id),
+        ServiceAction::MarkAllRead => crate::provider_read::mark_all_local(app, id),
         ServiceAction::AllowProviderNotifications => {
             let permission_app = app.clone();
             let permission_id = id.to_owned();
@@ -347,12 +362,18 @@ pub fn service_popup(app: &AppHandle, id: &str, x: f64, y: f64) -> Result<(), St
                 app,
                 action.id(id),
                 match action {
+                    ServiceAction::MarkCurrentRead => {
+                        crate::i18n::t(app, "rail.markCurrentReadLocal")
+                    }
+                    ServiceAction::MarkAllRead => crate::i18n::t(app, "rail.markAllReadLocal"),
                     ServiceAction::AllowProviderNotifications => {
                         crate::i18n::t(app, "rail.allowProviderNotifications")
                     }
                     _ => crate::i18n::localize(&state::current(app).language, action.title()),
                 },
-                action.allowed(&service),
+                action.allowed(&service)
+                    && (action != ServiceAction::MarkCurrentRead
+                        || state::current(app).active_service.as_deref() == Some(id)),
                 None::<&str>,
             )
             .map_err(|_| "Could not create service menu item.")?,
@@ -711,6 +732,8 @@ mod tests {
         assert_eq!(service_actions(&service), {
             let mut actions = vec![
                 ServiceAction::Open,
+                ServiceAction::MarkCurrentRead,
+                ServiceAction::MarkAllRead,
                 ServiceAction::Mute,
                 ServiceAction::Notifications,
                 ServiceAction::Rename,
@@ -718,7 +741,7 @@ mod tests {
                 ServiceAction::Remove,
             ];
             if cfg!(windows) {
-                actions.insert(1, ServiceAction::AllowProviderNotifications);
+                actions.insert(3, ServiceAction::AllowProviderNotifications);
             }
             actions
         });
@@ -765,7 +788,6 @@ mod tests {
             assert!(Action::parse(&id).is_none());
         }
         for id in [
-            "service-context.mark-read.second-123",
             "service-context.leave.second-123",
             "service-context.delete.second-123",
             "service-context.members.second-123",
@@ -794,6 +816,10 @@ mod tests {
             let second = configured("account-b", provider);
             for service in [&first, &second] {
                 let actions = service_actions(service);
+                assert!(actions.contains(&ServiceAction::MarkCurrentRead));
+                assert!(actions.contains(&ServiceAction::MarkAllRead));
+                assert!(!ServiceAction::MarkCurrentRead.allowed(service));
+                assert!(!ServiceAction::MarkAllRead.allowed(service));
                 assert_eq!(
                     actions.contains(&ServiceAction::AllowProviderNotifications),
                     cfg!(windows)
