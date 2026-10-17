@@ -566,6 +566,18 @@ fn create(app: &AppHandle, service: &ServiceConfig) -> Result<(), String> {
         builder = builder.data_directory(profile);
     }
     if service.provider.definition().theme {
+        let dark = match settings.theme {
+            state::Theme::Dark => true,
+            state::Theme::Light => false,
+            state::Theme::System => window.theme().ok() == Some(tauri::Theme::Dark),
+        };
+        // Swiph3l: Document-start CSS cannot color the child WebView's native
+        // pre-document/navigation frame. Match the opt-in provider's theme early.
+        builder = builder.background_color(if dark {
+            tauri::window::Color(15, 17, 21, 255)
+        } else {
+            tauri::window::Color(255, 255, 255, 255)
+        });
         builder = builder.initialization_script(format!(
             "window.__chatplusTheme = {};\n{}",
             serde_json::to_string(&settings.theme).unwrap(),

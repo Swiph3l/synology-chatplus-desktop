@@ -165,6 +165,15 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
                 tauri::window::Color(255, 255, 255, 255)
             };
             let _ = event_window.set_background_color(Some(color));
+            for service in state::current(&handle)
+                .services
+                .iter()
+                .filter(|s| s.provider.definition().theme)
+            {
+                if let Some(view) = handle.get_webview(&crate::services::label(&service.id)) {
+                    let _ = view.set_background_color(Some(color));
+                }
+            }
         }
         _ => {}
     });
@@ -268,6 +277,12 @@ pub fn apply_theme(app: &AppHandle) -> Result<(), String> {
             let Some(view) = app.get_webview(&crate::services::label(&service.id)) else {
                 continue;
             };
+            view.set_background_color(Some(if dark {
+                tauri::window::Color(15, 17, 21, 255)
+            } else {
+                tauri::window::Color(255, 255, 255, 255)
+            }))
+            .map_err(|_| "Could not apply provider background.")?;
             view.eval(&format!(
                 "window.__chatplusSetTheme?.({})",
                 serde_json::to_string(&settings.theme).unwrap()

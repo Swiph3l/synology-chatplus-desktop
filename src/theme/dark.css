@@ -60,6 +60,78 @@
   border-color: #282f39 !important;
   caret-color: #edf1f7;
 }
+/* Recreated history/thread loaders and inline message editors must already have
+   a dark surface when inserted. Keep this on verified provider containers and
+   semantic loading/editing nodes, rather than recoloring arbitrary content. */
+:root[data-chatplus-theme="dark"]
+  body.eos-scope
+  :is(
+    #chat-main-app,
+    .layout-content,
+    .message-viewer-scrollbar,
+    [data-testid="thread-viewer-comments-section"]
+  )
+  :is([aria-busy="true"], [role="progressbar"]) {
+  background-color: #15181d !important;
+  color: #edf1f7;
+}
+:root[data-chatplus-theme="dark"]
+  body.eos-scope
+  :is(
+    .message-viewer-scrollbar,
+    [data-testid="thread-viewer-comments-section"],
+    [data-testid="message-create-box-paste-zone"]
+  )
+  [contenteditable="true"] {
+  background-color: #191d23 !important;
+  color: #edf1f7 !important;
+  caret-color: #edf1f7;
+}
+/* Transitions outrank even !important background colors while running. Exclude
+   background transitions on the controlled surfaces, preserving movement,
+   opacity and foreground feedback. Children retain provider animations. */
+:root[data-chatplus-theme="dark"],
+:root[data-chatplus-theme="dark"]
+  :is(
+    body,
+    #chat-main-app,
+    #sds-desktop,
+    .layout-body-wrapper,
+    .layout-content,
+    .message-viewer-scrollbar,
+    .layout-panel-body,
+    [data-testid="sidebar-layout"],
+    [data-testid="sidebar-layout-header"],
+    [data-testid="sidebar-layout-content"],
+    [data-testid="thread-viewer-comments-section"],
+    [data-testid="message-create-box-paste-zone"],
+    [data-testid="message-create-box-text-area"],
+    [data-testid="post-toolbar"],
+    #chat-search-input,
+    .v-select2-wrapper,
+    .v-multiselect-wrapper,
+    .v-multiselect-input,
+    .v-select2-dropdown,
+    .v-multiselect-dropdown,
+    [role="dialog"],
+    [role="menu"],
+    [role="listbox"],
+    [role="tooltip"]
+  ) {
+  transition-property:
+    color, border-color, box-shadow, opacity, transform !important;
+}
+:root[data-chatplus-theme="dark"]
+  body.eos-scope
+  :is(
+    .message-viewer-scrollbar,
+    [data-testid="thread-viewer-comments-section"],
+    [data-testid="message-create-box-paste-zone"]
+  )
+  :is([aria-busy="true"], [role="progressbar"], [contenteditable="true"]) {
+  transition-property:
+    color, border-color, box-shadow, opacity, transform !important;
+}
 /* EOS form controls: keep the surface on the wrapper, including native inputs
    without a Vue class. Limit native textarea fallback to forms and dialogs. */
 :root[data-chatplus-theme="dark"] body.eos-scope {
@@ -83,6 +155,8 @@
   background: var(--chatplus-form-surface) !important;
   color: var(--eos-fg-primary) !important;
   border-color: var(--chatplus-form-border) !important;
+  transition-property:
+    color, border-color, box-shadow, opacity, transform !important;
 }
 :root[data-chatplus-theme="dark"]
   body.eos-scope
@@ -102,6 +176,8 @@
   color: var(--eos-fg-primary) !important;
   border-color: var(--chatplus-form-border) !important;
   caret-color: var(--chatplus-form-caret);
+  transition-property:
+    color, border-color, box-shadow, opacity, transform !important;
 }
 :root[data-chatplus-theme="dark"]
   body.eos-scope
@@ -266,6 +342,8 @@
   background-color: #191d23 !important;
   border: 1px solid #343c48 !important;
   color: #edf1f7 !important;
+  transition-property:
+    color, border-color, box-shadow, opacity, transform !important;
 }
 :root[data-chatplus-theme="dark"]
   body.eos-scope

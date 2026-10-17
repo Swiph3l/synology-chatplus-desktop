@@ -242,3 +242,65 @@ test("re-evaluating native bootstrap reuses styles, media listeners and observer
     1,
   );
 });
+
+test("transient loading, composer, edit and menu surfaces have immediate scoped dark backgrounds with no background transition", () => {
+  const { document } = fixture("dark");
+  document.body.innerHTML = `<main id="chat-main-app">
+    <section class="message-viewer-scrollbar">
+      <div aria-busy="true" id="history"></div>
+      <div role="progressbar" id="loader"></div>
+      <div contenteditable="true" id="editor"></div>
+      <img id="attachment" src="about:blank" />
+    </section>
+    <section data-testid="thread-viewer-comments-section">
+      <div aria-busy="true" id="thread-loader"></div>
+      <div contenteditable="true" id="thread-editor"></div>
+    </section>
+    <div data-testid="message-create-box-paste-zone">
+      <div contenteditable="true" id="composer"></div>
+    </div>
+    <div role="menu" id="menu"></div>
+  </main>`;
+  // Match selectors against real replaced DOM. Computed colors and painting
+  // still require Windows/WebView2 visual acceptance.
+  const applicable = (node) =>
+    cssRules.filter(
+      ([, selector]) =>
+        !/::|:(?:focus|hover)/.test(selector) && node.matches(selector.trim()),
+    );
+  for (const id of [
+    "history",
+    "loader",
+    "editor",
+    "thread-loader",
+    "thread-editor",
+    "composer",
+    "menu",
+  ]) {
+    const node = document.getElementById(id);
+    const matches = applicable(node);
+    assert.ok(
+      matches.some(([, , body]) =>
+        /background(?:-color)?:[^;]+!important/.test(body),
+      ),
+      `${id} dark fallback`,
+    );
+    const transition = matches.find(([, , body]) =>
+      body.includes("transition-property:"),
+    );
+    assert.ok(transition, `${id} transition guard`);
+    assert.doesNotMatch(transition[2], /(?:background|\ball\b)/);
+    document.documentElement.dataset.chatplusTheme = "light";
+    assert.equal(
+      applicable(node).length,
+      0,
+      `${id} provider Light styles remain free`,
+    );
+    document.documentElement.dataset.chatplusTheme = "dark";
+  }
+  assert.ok(
+    !applicable(document.getElementById("attachment")).some(([, , body]) =>
+      /background(?:-color)?:/.test(body),
+    ),
+  );
+});
