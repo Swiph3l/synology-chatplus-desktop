@@ -12,6 +12,13 @@
   --eos-bg-fill-secondary: #191d23;
   --eos-bg-fill-tertiary: #15181d;
   --eos-bg-fill-quaternary: #0f1115;
+  /* Provider jumphighlight holds theme-light for 75% of its animation. Override
+     the actual EOS tokens so incoming/jump highlights stay blue in Dark and
+     keep their native fade, including recreated rows and hover/active states. */
+  --eos-bg-fill-theme-light: #20344f;
+  --eos-bg-fill-theme-light-hover: #243b57;
+  --eos-bg-fill-theme-light-active: #294260;
+  --eos-fg-on-fill-theme-light: #a8cdff;
   --eos-fg-primary: #edf1f7;
   --eos-fg-secondary: #aab2bd;
   --eos-fg-tertiary: #7f8997;

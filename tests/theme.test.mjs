@@ -304,3 +304,100 @@ test("transient loading, composer, edit and menu surfaces have immediate scoped 
     ),
   );
 });
+
+test("provider new-message highlight tokens stay dark blue with readable sender, body and timestamp and preserve the native fade", () => {
+  const { window, document, media } = fixture("system", true);
+  document.body.innerHTML = `<main class="message-viewer-scrollbar">
+    <article class="jump-highlight" id="new-message"><span>Sender</span><time>12:00</time><p>New message</p></article>
+    <article id="ordinary-message">Earlier message</article>
+  </main>`;
+  const tokens = () => {
+    const result = {};
+    // Read the inherited tokens from selectors that actually match the provider
+    // root/body; the public provider animation consumes theme-light and then
+    // fades to transparent. No message-row color inversion or hard-coded row
+    // background should replace that animation.
+    for (const node of [document.documentElement, document.body]) {
+      for (const [, selector, body] of cssRules) {
+        if (
+          /::|:(?:focus|hover)/.test(selector) ||
+          !node.matches(selector.trim())
+        )
+          continue;
+        for (const [, name, value] of body.matchAll(/(--[\w-]+):\s*([^;]+);/g))
+          result[name] = value.trim();
+      }
+    }
+    return result;
+  };
+  const luminance = (hex) => {
+    const channels = hex.match(/[a-f\d]{2}/gi).map((value) => {
+      const channel = parseInt(value, 16) / 255;
+      return channel <= 0.04045
+        ? channel / 12.92
+        : ((channel + 0.055) / 1.055) ** 2.4;
+    });
+    return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+  };
+  const contrast = (a, b) => {
+    const first = luminance(a);
+    const second = luminance(b);
+    return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
+  };
+  const dark = tokens();
+  for (const name of [
+    "--eos-bg-fill-theme-light",
+    "--eos-bg-fill-theme-light-hover",
+    "--eos-bg-fill-theme-light-active",
+  ]) {
+    const background = dark[name];
+    assert.match(background, /^#[a-f\d]{6}$/i);
+    assert.notEqual(
+      background,
+      dark["--eos-bg-surface-z0"],
+      "highlight remains distinct from the conversation",
+    );
+    assert.ok(
+      luminance(background) < 0.1,
+      `${name} never uses the provider's pale-blue light fill`,
+    );
+    for (const foreground of [
+      "--eos-fg-primary",
+      "--eos-fg-secondary",
+      "--eos-fg-on-fill-theme-light",
+    ])
+      assert.ok(
+        contrast(background, dark[foreground]) >= 4.5,
+        `${foreground} is readable on ${name}`,
+      );
+  }
+  assert.doesNotMatch(
+    css,
+    /(?:animation(?:-name)?\s*:.*jumphighlight|@keyframes\s+jumphighlight|\.jump-highlight[^{}]*\{[^}]*background)/s,
+  );
+  assert.equal(
+    dark["--eos-bg-fill-transparent"],
+    undefined,
+    "the provider's transparent fade target is preserved",
+  );
+  document
+    .getElementById("new-message")
+    .replaceWith(document.createElement("article"));
+  assert.equal(
+    tokens()["--eos-bg-fill-theme-light"],
+    dark["--eos-bg-fill-theme-light"],
+    "recreated incoming rows inherit the token immediately",
+  );
+  window.__chatplusSetTheme("light");
+  assert.equal(tokens()["--eos-bg-fill-theme-light"], undefined);
+  window.__chatplusSetTheme("system");
+  media.matches = false;
+  media.change();
+  assert.equal(tokens()["--eos-bg-fill-theme-light"], undefined);
+  media.matches = true;
+  media.change();
+  assert.equal(
+    tokens()["--eos-bg-fill-theme-light"],
+    dark["--eos-bg-fill-theme-light"],
+  );
+});
