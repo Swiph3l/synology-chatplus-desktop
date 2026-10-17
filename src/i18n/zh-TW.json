@@ -328,7 +328,7 @@
   "services.colorChannel.b": "藍（0–255）",
   "services.colorInvalidRgb": "請輸入 0 到 255 的整數。",
   "services.colorInvalidHex": "請以 #RRGGBB 格式輸入顏色。",
-  "rail.reorderHint": "按住 2 秒後向上或向下拖曳。也可用 Alt + ↑/↓ 移動服務。",
+  "rail.reorderHint": "按住 1 秒後向上或向下拖曳。也可用 Alt + ↑/↓ 移動服務。",
   "rail.reorderError": "無法儲存服務順序。",
   "services.color.auto": "自動",
   "services.color.blue": "藍色",

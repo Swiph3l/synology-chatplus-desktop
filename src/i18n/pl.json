@@ -328,7 +328,7 @@
   "services.colorChannel.b": "Niebieski (0–255)",
   "services.colorInvalidRgb": "Wpisz liczbę całkowitą od 0 do 255.",
   "services.colorInvalidHex": "Wpisz kolor w formacie #RRGGBB.",
-  "rail.reorderHint": "Przytrzymaj przez 2 sekundy, następnie przeciągnij w górę lub w dół. Alt + strzałka w górę/dół przesuwa usługę.",
+  "rail.reorderHint": "Przytrzymaj przez 1 sekundę, następnie przeciągnij w górę lub w dół. Alt + strzałka w górę/dół przesuwa usługę.",
   "rail.reorderError": "Nie udało się zapisać kolejności usług.",
   "services.color.auto": "Auto",
   "services.color.blue": "Niebieski",

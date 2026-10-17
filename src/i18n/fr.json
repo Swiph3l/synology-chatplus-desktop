@@ -328,7 +328,7 @@
   "services.colorChannel.b": "Bleu (0–255)",
   "services.colorInvalidRgb": "Saisissez un entier de 0 à 255.",
   "services.colorInvalidHex": "Saisissez une couleur au format #RRGGBB.",
-  "rail.reorderHint": "Maintenez pendant 2 secondes, puis faites glisser vers le haut ou le bas. Alt + Haut/Bas déplace le service.",
+  "rail.reorderHint": "Maintenez pendant 1 seconde, puis faites glisser vers le haut ou le bas. Alt + Haut/Bas déplace le service.",
   "rail.reorderError": "Impossible d’enregistrer l’ordre des services.",
   "services.color.auto": "Automatique",
   "services.color.blue": "Bleu",

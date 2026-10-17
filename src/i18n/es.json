@@ -328,7 +328,7 @@
   "services.colorChannel.b": "Azul (0–255)",
   "services.colorInvalidRgb": "Introduce un número entero de 0 a 255.",
   "services.colorInvalidHex": "Introduce un color con el formato #RRGGBB.",
-  "rail.reorderHint": "Mantén pulsado durante 2 segundos y arrastra hacia arriba o abajo. Alt + Arriba/Abajo mueve el servicio.",
+  "rail.reorderHint": "Mantén pulsado durante 1 segundo y arrastra hacia arriba o abajo. Alt + Arriba/Abajo mueve el servicio.",
   "rail.reorderError": "No se pudo guardar el orden de los servicios.",
   "services.color.auto": "Auto",
   "services.color.blue": "Azul",

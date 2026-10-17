@@ -328,7 +328,7 @@
   "services.colorChannel.b": "Blau (0–255)",
   "services.colorInvalidRgb": "Ganze Zahl von 0 bis 255 eingeben.",
   "services.colorInvalidHex": "Farbe als #RRGGBB eingeben.",
-  "rail.reorderHint": "2 Sekunden gedrückt halten, dann nach oben oder unten ziehen. Alt + Pfeil hoch/runter verschiebt den Dienst.",
+  "rail.reorderHint": "1 Sekunde gedrückt halten, dann nach oben oder unten ziehen. Alt + Pfeil hoch/runter verschiebt den Dienst.",
   "rail.reorderError": "Dienstreihenfolge konnte nicht gespeichert werden.",
   "services.color.auto": "Automatisch",
   "services.color.blue": "Blau",

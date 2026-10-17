@@ -328,7 +328,7 @@
   "services.colorChannel.b": "青（0～255）",
   "services.colorInvalidRgb": "0～255 の整数を入力してください。",
   "services.colorInvalidHex": "#RRGGBB 形式で色を入力してください。",
-  "rail.reorderHint": "2 秒間長押ししてから上下にドラッグします。Alt + ↑/↓ でもサービスを移動できます。",
+  "rail.reorderHint": "1 秒間長押ししてから上下にドラッグします。Alt + ↑/↓ でもサービスを移動できます。",
   "rail.reorderError": "サービスの順序を保存できませんでした。",
   "services.color.auto": "自動",
   "services.color.blue": "青",

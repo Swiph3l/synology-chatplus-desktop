@@ -814,20 +814,23 @@ test("rail quick clicks activate while hold/drop reorders enabled slots without 
   const f = await reorderFixture();
   const first = f.button("first");
   f.dispatch(first, "pointerdown");
-  f.advance(1999);
+  f.advance(999);
   assert.ok(!first.classList.contains("rail-dragging"));
   assert.equal(f.document.querySelector(".rail-drop-marker").hidden, true);
   f.dispatch(f.window, "pointerup");
   f.dispatch(first, "click");
   assert.equal(f.activationCalls().length, 1);
   f.dispatch(first, "pointerdown");
-  f.advance(1999);
+  f.advance(999);
   assert.ok(
     !first.classList.contains("rail-dragging"),
-    "holding less than two seconds does not arm a drag",
+    "holding less than one second does not arm a drag",
   );
   f.advance(1);
-  assert.ok(first.classList.contains("rail-dragging"));
+  assert.ok(
+    first.classList.contains("rail-dragging"),
+    "reordering is ready at exactly 1000 ms",
+  );
   const marker = f.document.querySelector(".rail-drop-marker");
   assert.equal(marker.getAttribute("aria-hidden"), "true");
   assert.equal(marker.hidden, false);
@@ -894,7 +897,7 @@ test("a primary mouse hold tolerates icon drift, previews its movement and reord
   assert.equal(third.hasPointerCapture(1), true);
   f.advance(80);
   f.dispatch(f.window, "pointermove", { clientX: 28, clientY: 167 });
-  f.advance(1919);
+  f.advance(919);
   assert.equal(third.classList.contains("rail-dragging"), false);
   f.advance(1);
   assert.equal(third.classList.contains("rail-dragging"), true);
@@ -947,7 +950,7 @@ test("unread and nonstructural settings refreshes retain held rail nodes and app
   const f = await reorderFixture();
   const first = f.button("first");
   f.dispatch(first, "pointerdown");
-  f.advance(2000);
+  f.advance(1000);
   f.events.get("service-unread")({
     payload: {
       revision: 1,
@@ -985,7 +988,7 @@ test("rail failures preserve original order and expose a status error", async ()
   f.fail();
   const first = f.button("first");
   f.dispatch(first, "pointerdown");
-  f.advance(2000);
+  f.advance(1000);
   f.dispatch(f.window, "pointermove", { clientY: 190 });
   f.dispatch(f.window, "pointerup", { clientY: 190 });
   f.dispatch(first, "click");
@@ -1011,7 +1014,7 @@ test("rail cancels held gestures on Escape, pointer cancellation, blur, structur
     const f = await reorderFixture();
     const first = f.button("first");
     f.dispatch(first, "pointerdown");
-    f.advance(2000);
+    f.advance(1000);
     if (reason === "escape") f.dispatch(first, "keydown", { key: "Escape" });
     if (reason === "pointercancel") f.dispatch(f.window, "pointercancel");
     if (reason === "blur") f.dispatch(f.window, "blur");
@@ -1043,7 +1046,7 @@ test("rail autoscroll continues at held edges and stays bounded", async () => {
   const f = await reorderFixture();
   const list = f.document.querySelector(".rail-services");
   f.dispatch(f.button("first"), "pointerdown");
-  f.advance(2000);
+  f.advance(1000);
   f.dispatch(f.window, "pointermove", { clientY: 195 });
   f.advance(2000);
   assert.equal(list.scrollTop, 462);
@@ -1063,7 +1066,7 @@ test("drag preview overflow cannot grow the natural rail autoscroll limit", asyn
   const f = await reorderFixture({ previewOverflow: 900 });
   const list = f.document.querySelector(".rail-services");
   f.dispatch(f.button("first"), "pointerdown");
-  f.advance(2000);
+  f.advance(1000);
   f.dispatch(f.window, "pointermove", { clientY: 195 });
   f.advance(10000);
   assert.equal(list.scrollTop, 462);
@@ -1076,7 +1079,7 @@ test("keyboard activation remains available after a cancelled hold without a syn
   const f = await reorderFixture();
   const first = f.button("first");
   f.dispatch(first, "pointerdown");
-  f.advance(2000);
+  f.advance(1000);
   f.dispatch(f.window, "pointercancel");
   f.dispatch(first, "click", { detail: 0 });
   await f.flush();

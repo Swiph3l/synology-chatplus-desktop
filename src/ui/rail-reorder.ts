@@ -1,7 +1,7 @@
-const HOLD_MS = 2000;
+const HOLD_MS = 1000;
 const RAIL_WIDTH = 56;
 
-// The native provider views begin at x=56; keep the entire gesture in the rail.
+// Swiph3l: Native provider views begin at x=56; keep the entire gesture in the rail.
 export function bindRailReorder(
   list: HTMLElement,
   options: {
@@ -88,7 +88,7 @@ export function bindRailReorder(
     const edge = Math.min(28, (rect.bottom - rect.top) / 3);
     const direction =
       gesture.y < rect.top + edge ? -1 : gesture.y > rect.bottom - edge ? 1 : 0;
-    // Transformed drag previews and the insertion marker can increase visual
+    // Swiph3l: Transformed drag previews and the insertion marker can increase visual
     // overflow. The saved natural limit keeps edge scrolling bounded.
     list.scrollTop = Math.min(
       gesture.maxScroll,
@@ -100,6 +100,8 @@ export function bindRailReorder(
   const finish = (commit: boolean, suppress = false) => {
     if (!gesture) return;
     const ended = gesture;
+    // Swiph3l: Clear the gesture before releasing capture; a synchronous
+    // lostpointercapture callback must not finish or commit the same drag twice.
     gesture = undefined;
     window.clearTimeout(hold);
     window.clearTimeout(scroll);
@@ -219,7 +221,7 @@ export function bindRailReorder(
   return {
     interacting: () => !!gesture,
     consumeClick: (id: string, event: MouseEvent) => {
-      // Keyboard Enter/Space activation has detail=0 and can follow a cancelled drag.
+      // Swiph3l: Keyboard Enter/Space activation has detail=0 and can follow a cancelled drag.
       if (event.detail === 0) return false;
       if (suppressed !== id) return false;
       suppressed = undefined;

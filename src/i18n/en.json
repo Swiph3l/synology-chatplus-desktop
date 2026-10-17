@@ -328,7 +328,7 @@
   "services.colorChannel.b": "Blue (0–255)",
   "services.colorInvalidRgb": "Enter a whole number from 0 to 255.",
   "services.colorInvalidHex": "Enter a color as #RRGGBB.",
-  "rail.reorderHint": "Hold for 2 seconds, then drag up or down. Alt + Up/Down moves the service.",
+  "rail.reorderHint": "Hold for 1 second, then drag up or down. Alt + Up/Down moves the service.",
   "rail.reorderError": "Could not save the service order.",
   "services.color.auto": "Auto",
   "services.color.blue": "Blue",
