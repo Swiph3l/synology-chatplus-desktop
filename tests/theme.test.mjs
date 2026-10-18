@@ -243,6 +243,89 @@ test("re-evaluating native bootstrap reuses styles, media listeners and observer
   );
 });
 
+test("theme bootstrap preserves provider link clicks and browser popup/download semantics", () => {
+  for (const scenario of [
+    { name: "normal target blank" },
+    { name: "Ctrl click", ctrlKey: true },
+    { name: "Meta click", metaKey: true },
+    { name: "Shift click", shiftKey: true },
+    { name: "Alt click", altKey: true },
+    { name: "provider-prevented click", providerPrevents: true },
+    { name: "download link", download: "report.pdf" },
+    { name: "relative same-service link", href: "../conversation/123" },
+    { name: "provider popup", href: "about:blank" },
+  ]) {
+    const { window, document, navigations, dom } = fixture("dark");
+    const anchor = document.createElement("a");
+    const href = scenario.href ?? "https://outside.example.test/article";
+    anchor.setAttribute("href", href);
+    anchor.target = "_blank";
+    if (scenario.download) anchor.setAttribute("download", scenario.download);
+    const label = document.createElement("span");
+    label.textContent = "Provider link";
+    anchor.append(label);
+    document.body.append(anchor);
+    let providerCalls = 0;
+    let providerSawPrevented;
+    let propagationPath;
+    let finalPrevented;
+    anchor.addEventListener("click", (event) => {
+      providerCalls++;
+      providerSawPrevented = event.defaultPrevented;
+      if (scenario.providerPrevents) event.preventDefault();
+    });
+    document.addEventListener("click", (event) => {
+      propagationPath = event.composedPath();
+      finalPrevented = event.defaultPrevented;
+    });
+    const event = new dom.Event("click", {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+    });
+    Object.assign(event, {
+      button: 0,
+      ctrlKey: scenario.ctrlKey ?? false,
+      metaKey: scenario.metaKey ?? false,
+      shiftKey: scenario.shiftKey ?? false,
+      altKey: scenario.altKey ?? false,
+    });
+    const allowDefault = label.dispatchEvent(event);
+    assert.equal(providerCalls, 1, scenario.name);
+    assert.equal(
+      providerSawPrevented,
+      false,
+      `${scenario.name}: theme must not preempt provider handlers`,
+    );
+    assert.equal(
+      finalPrevented,
+      scenario.providerPrevents ?? false,
+      scenario.name,
+    );
+    assert.equal(allowDefault, !scenario.providerPrevents, scenario.name);
+    assert.equal(propagationPath[0], label, scenario.name);
+    assert.ok(propagationPath.includes(anchor), scenario.name);
+    assert.ok(propagationPath.includes(document), scenario.name);
+    assert.deepEqual(
+      navigations,
+      [],
+      `${scenario.name}: provider/native policy owns navigation`,
+    );
+    assert.equal(
+      window.location.href,
+      "https://provider.example.test/chat/",
+      scenario.name,
+    );
+    assert.equal(anchor.getAttribute("href"), href, scenario.name);
+    assert.equal(anchor.target, "_blank", scenario.name);
+    assert.equal(
+      anchor.getAttribute("download"),
+      scenario.download ?? null,
+      scenario.name,
+    );
+  }
+});
+
 test("transient loading, composer, edit and menu surfaces have immediate scoped dark backgrounds with no background transition", () => {
   const { document } = fixture("dark");
   document.body.innerHTML = `<main id="chat-main-app">

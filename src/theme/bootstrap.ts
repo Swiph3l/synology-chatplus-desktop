@@ -68,25 +68,6 @@ declare global {
     attributeFilter: ["media", "disabled"],
   });
   apply();
-  // Keep target=_blank links within the native navigation policy, including WebView2
-  // versions that do not emit new-window events for anchor elements.
-  document.addEventListener(
-    "click",
-    (event) => {
-      const anchor = event
-        .composedPath()
-        .find((node) => node instanceof HTMLAnchorElement) as
-        HTMLAnchorElement | undefined;
-      if (
-        anchor &&
-        !anchor.hasAttribute("download") &&
-        anchor.target === "_blank" &&
-        /^https?:$/.test(new URL(anchor.href).protocol)
-      ) {
-        event.preventDefault();
-        location.assign(anchor.href);
-      }
-    },
-    true,
-  );
+  // Swiph3l: Provider/native handlers own navigation; theme click shims would
+  // break popup, authentication and attachment-download semantics.
 })();

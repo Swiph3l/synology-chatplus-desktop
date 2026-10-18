@@ -181,9 +181,13 @@ impl Drop for Reservation {
 
 pub fn attachment_popup(service: &ServiceConfig, target: &url::Url) -> bool {
     if target.scheme() == "blob" {
-        return url::Url::parse(&service.url).is_ok_and(|configured| {
-            target.origin() == configured.origin()
-                && !matches!(target.origin(), url::Origin::Opaque(_))
+        return url::Url::parse(target.path()).is_ok_and(|inner| {
+            inner.username().is_empty()
+                && inner.password().is_none()
+                && url::Url::parse(&service.url).is_ok_and(|configured| {
+                    target.origin() == configured.origin()
+                        && !matches!(target.origin(), url::Origin::Opaque(_))
+                })
         });
     }
     service.provider == ProviderId::Discord
@@ -202,6 +206,97 @@ pub fn attachment_popup(service: &ServiceConfig, target: &url::Url) -> bool {
                 && parts.next().is_some_and(|id| !id.is_empty())
                 && parts.next().is_some_and(|name| !name.is_empty())
         })
+}
+
+pub fn popup_allowed(service: &ServiceConfig, target: &url::Url) -> bool {
+    target.as_str() == "about:blank"
+        || service.provider.allows(&service.url, target)
+        || attachment_popup(service, target)
+}
+
+fn attachment_popup_script(service: &ServiceConfig, target: &url::Url) -> Option<String> {
+    if target.scheme() != "https" || !attachment_popup(service, target) {
+        return None;
+    }
+    let target = serde_json::to_string(target.as_str()).ok()?;
+    Some(format!(
+        "(()=>{{try{{return window.open({target}, '_blank') !== null}}catch{{return false}}}})()"
+    ))
+}
+
+fn popup_failed(app: &AppHandle, service_id: &str) {
+    #[cfg(windows)]
+    event(app, service_id, "failed");
+    #[cfg(not(windows))]
+    let _ = (app, service_id);
+}
+
+/// Re-route a recognized attachment navigation through its originating public
+/// popup path, preserving the related WebView environment and provider profile.
+pub fn open_attachment_popup(
+    app: &AppHandle,
+    service: &ServiceConfig,
+    target: &url::Url,
+) -> Result<(), String> {
+    use tauri::Manager;
+    let Some(script) = attachment_popup_script(service, target) else {
+        popup_failed(app, &service.id);
+        return Err("Unsupported attachment target.".into());
+    };
+    if !crate::services::configured(app, service) {
+        popup_failed(app, &service.id);
+        return Err("The originating service changed. Try the attachment again.".into());
+    }
+    let app = app.clone();
+    let service = service.clone();
+    let dispatch_failure_app = app.clone();
+    let dispatch_failure_id = service.id.clone();
+    // No COM references leave the UI thread. Off-thread dispatch also prevents
+    // Tauri's main-thread fast path from reentering NavigationStarting.
+    let scheduled = std::thread::Builder::new()
+        .name("attachment-popup".into())
+        .spawn(move || {
+            let failure_app = app.clone();
+            let failure_id = service.id.clone();
+            let handle = app.clone();
+            if app
+                .run_on_main_thread(move || {
+                    let Some(view) = handle.get_webview(&crate::services::label(&service.id))
+                    else {
+                        popup_failed(&handle, &service.id);
+                        return;
+                    };
+                    if !crate::services::configured(&handle, &service)
+                        || !view.url().is_ok_and(|source| {
+                            crate::navigation::provider_document(&service, &source)
+                        })
+                    {
+                        popup_failed(&handle, &service.id);
+                        return;
+                    }
+                    let callback_app = handle.clone();
+                    let callback_id = service.id.clone();
+                    if view
+                        .eval_with_callback(&script, move |result| {
+                            if !matches!(serde_json::from_str::<bool>(&result), Ok(true)) {
+                                popup_failed(&callback_app, &callback_id);
+                            }
+                        })
+                        .is_err()
+                    {
+                        popup_failed(&handle, &service.id);
+                    }
+                })
+                .is_err()
+            {
+                popup_failed(&failure_app, &failure_id);
+            }
+        });
+    if scheduled.is_err() {
+        popup_failed(&dispatch_failure_app, &dispatch_failure_id);
+        return Err("Could not open the attachment. Try again.".into());
+    }
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -355,11 +450,14 @@ pub fn popup(
     features: tauri::webview::NewWindowFeatures,
 ) -> tauri::Result<tauri::WebviewWindow> {
     use std::sync::atomic::{AtomicU64, Ordering};
-    use tauri::{WebviewUrl, WebviewWindowBuilder};
+    use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let configured = service.clone();
+    let popup_service = service.clone();
     let nav_app = app.clone();
+    let popup_app = app.clone();
     let label = format!("attachment-{}", NEXT.fetch_add(1, Ordering::Relaxed));
+    let popup_label = label.clone();
     let nav_label = label.clone();
     let window = WebviewWindowBuilder::new(
         app,
@@ -372,14 +470,32 @@ pub fn popup(
     .title("ChatPlus Desktop - Attachment")
     .inner_size(900., 650.)
     .on_navigation(move |target| {
-        if target.as_str() == "about:blank" || attachment_popup(&configured, target) {
+        if !crate::services::configured(&nav_app, &configured) {
+            return false;
+        }
+        if popup_allowed(&configured, target) {
             true
         } else {
             crate::services::external(&nav_app, &configured, target, &nav_label);
             false
         }
     })
-    .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
+    .on_new_window(move |target, _| {
+        if crate::services::configured(&popup_app, &popup_service) {
+            if popup_allowed(&popup_service, &target) {
+                // Reuse this attachment view instead of recursively opening
+                // unbounded blank windows; the original provider stays intact.
+                if target.as_str() != "about:blank" {
+                    if let Some(view) = popup_app.get_webview(&popup_label) {
+                        let _ = view.navigate(target);
+                    }
+                }
+            } else {
+                crate::services::external(&popup_app, &popup_service, &target, &popup_label);
+            }
+        }
+        tauri::webview::NewWindowResponse::Deny
+    })
     .build()?;
     attach(app, window.as_ref(), &service.id)?;
     Ok(window)
@@ -594,5 +710,68 @@ mod tests {
         assert!(!reservation_finished("failed", true));
         assert!(!reservation_finished("paused", false));
         assert!(!reservation_finished("in-progress", false));
+    }
+    #[test]
+    fn self_attachment_popup_script_accepts_only_recognized_targets_and_json_escapes_exact_url() {
+        let discord = service(ProviderId::Discord);
+        let target = url::Url::parse(
+            "https://cdn.discordapp.com/attachments/1/2/report.pdf?token=a'\"\\)&name=%E7%8C%AB",
+        )
+        .unwrap();
+        let script = attachment_popup_script(&discord, &target).unwrap();
+        let encoded = script
+            .split_once("window.open(")
+            .unwrap()
+            .1
+            .split_once(", '_blank')")
+            .unwrap()
+            .0;
+        assert_eq!(
+            serde_json::from_str::<String>(encoded).unwrap(),
+            target.as_str()
+        );
+        assert!(script.ends_with("catch{return false}})()"));
+        for rejected in [
+            "https://discord.com/channels/1/2",
+            "https://evil.example/report.pdf",
+            "https://cdn.discordapp.com/assets/file.pdf",
+            "http://cdn.discordapp.com/attachments/1/2/file.pdf",
+            "blob:https://chat.example.com/id",
+            "https://user:secret@cdn.discordapp.com/attachments/1/2/file.pdf",
+        ] {
+            assert!(
+                attachment_popup_script(&discord, &rejected.parse().unwrap()).is_none(),
+                "{rejected}"
+            );
+        }
+        assert!(attachment_popup_script(&service(ProviderId::Whatsapp), &target).is_none());
+    }
+    #[test]
+    fn provider_popup_keeps_same_origin_authentication_without_allowing_external_or_opaque_targets()
+    {
+        let service = service(ProviderId::SynologyChatplus);
+        for allowed in [
+            "about:blank",
+            "https://chat.example.com/attachment?id=opaque",
+            "blob:https://chat.example.com/opaque",
+        ] {
+            assert!(
+                popup_allowed(&service, &allowed.parse().unwrap()),
+                "{allowed}"
+            );
+        }
+        for denied in [
+            "https://other.example.com/file.pdf",
+            "https://chat.example.com.evil.example/file.pdf",
+            "blob:null/opaque",
+            "blob:https://other.example.com/opaque",
+            "file:///file.pdf",
+            "data:text/html,hello",
+        ] {
+            assert!(
+                !popup_allowed(&service, &denied.parse().unwrap()),
+                "{denied}"
+            );
+        }
     }
 }

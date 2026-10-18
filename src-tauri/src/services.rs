@@ -511,15 +511,25 @@ fn create(app: &AppHandle, service: &ServiceConfig) -> Result<(), String> {
     let mut builder = WebviewBuilder::new(&session.webview_label, WebviewUrl::External(url))
         .disable_drag_drop_handler()
         .on_navigation(move |target| {
-            if nav_service.provider.allows(&nav_service.url, target) {
+            if !configured(&nav_app, &nav_service) {
+                return false;
+            }
+            if crate::navigation::provider_document(&nav_service, target) {
                 true
             } else {
-                external(&nav_app, &nav_service, target, "main");
+                if crate::downloads::attachment_popup(&nav_service, target) {
+                    let _ = crate::downloads::open_attachment_popup(&nav_app, &nav_service, target);
+                } else {
+                    external(&nav_app, &nav_service, target, "main");
+                }
                 false
             }
         })
         .on_new_window(move |target, features| {
-            if crate::downloads::attachment_popup(&popup_service, &target) {
+            if !configured(&popup_app, &popup_service) {
+                return tauri::webview::NewWindowResponse::Deny;
+            }
+            if crate::downloads::popup_allowed(&popup_service, &target) {
                 return match crate::downloads::popup(&popup_app, &popup_service, features) {
                     Ok(window) => tauri::webview::NewWindowResponse::Create { window },
                     Err(_) => {
@@ -531,13 +541,7 @@ fn create(app: &AppHandle, service: &ServiceConfig) -> Result<(), String> {
                     }
                 };
             }
-            if popup_service.provider.allows(&popup_service.url, &target) {
-                if let Some(view) = popup_app.get_webview(&label(&popup_service.id)) {
-                    let _ = view.navigate(target);
-                }
-            } else {
-                external(&popup_app, &popup_service, &target, "main");
-            }
+            external(&popup_app, &popup_service, &target, "main");
             tauri::webview::NewWindowResponse::Deny
         })
         .on_page_load(move |_, payload| {
