@@ -1,7 +1,6 @@
 //! Native service sessions live behind a local rail; provider pages have no Tauri capability.
 use crate::{providers::ServiceConfig, state};
 use tauri::{AppHandle, Emitter, Manager, Webview, WebviewBuilder, WebviewUrl};
-use tauri_plugin_opener::OpenerExt;
 
 #[derive(Default)]
 pub struct Lifecycle(std::sync::Mutex<()>);
@@ -43,14 +42,8 @@ pub fn configured(app: &AppHandle, service: &ServiceConfig) -> bool {
         s.id == service.id && s.provider == service.provider && s.url == service.url && s.enabled
     })
 }
-pub fn external(app: &AppHandle, url: &url::Url) {
-    if state::current(app).external_links
-        && matches!(url.scheme(), "https" | "http")
-        && url.username().is_empty()
-        && url.password().is_none()
-    {
-        let _ = app.opener().open_url(url.as_str(), None::<&str>);
-    }
+pub fn external(app: &AppHandle, service: &ServiceConfig, url: &url::Url, source_window: &str) {
+    crate::external_links::request(app, service, url, source_window);
 }
 pub fn layout(app: &AppHandle) {
     let Some(window) = app.get_window("main") else {
@@ -521,7 +514,7 @@ fn create(app: &AppHandle, service: &ServiceConfig) -> Result<(), String> {
             if nav_service.provider.allows(&nav_service.url, target) {
                 true
             } else {
-                external(&nav_app, target);
+                external(&nav_app, &nav_service, target, "main");
                 false
             }
         })
@@ -543,7 +536,7 @@ fn create(app: &AppHandle, service: &ServiceConfig) -> Result<(), String> {
                     let _ = view.navigate(target);
                 }
             } else {
-                external(&popup_app, &target);
+                external(&popup_app, &popup_service, &target, "main");
             }
             tauri::webview::NewWindowResponse::Deny
         })

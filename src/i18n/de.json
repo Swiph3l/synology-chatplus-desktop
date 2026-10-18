@@ -1,4 +1,9 @@
 {
+  "externalLink.httpWarning": "Dieser Link verwendet eine unverschlüsselte HTTP-Verbindung.",
+  "externalLink.failed": "Der Link konnte nicht geöffnet werden. Prüfe deinen Standardbrowser und versuche es erneut.",
+  "externalLink.title": "Externen Link öffnen?",
+  "externalLink.body": "Dieser Link wird außerhalb von ChatPlus in deinem Standardbrowser geöffnet. Öffne ihn nur, wenn du dem Ziel vertraust.\n\n{url}",
+  "externalLink.open": "Link öffnen",
   "onboarding.welcome": "Willkommen bei ChatPlus",
   "onboarding.chooseFirst": "Wählen Sie den Dienst aus, den Sie zuerst hinzufügen möchten.",
   "onboarding.addService": "Dienst hinzufügen",

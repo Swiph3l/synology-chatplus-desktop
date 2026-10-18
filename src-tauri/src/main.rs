@@ -5,6 +5,7 @@ mod connection;
 mod desktop_notifications;
 mod diagnostics;
 mod downloads;
+mod external_links;
 mod i18n;
 mod menu;
 mod native_shortcuts;
@@ -120,6 +121,7 @@ fn main() {
             app.manage(unread::Service::default());
             app.manage(diagnostics::NotificationHistory::default());
             app.manage(services::Lifecycle::default());
+            app.manage(external_links::Service::default());
             app.manage(desktop_notifications::Service::default());
             desktop_notifications::icons(app.handle());
             menu::create(app.handle())?;

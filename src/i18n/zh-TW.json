@@ -1,4 +1,9 @@
 {
+  "externalLink.httpWarning": "此連結使用未加密的 HTTP 連線。",
+  "externalLink.failed": "無法開啟連結。請檢查預設瀏覽器後再試一次。",
+  "externalLink.title": "開啟外部連結？",
+  "externalLink.body": "此連結會在 ChatPlus 外部的預設瀏覽器中開啟。請確認您信任此網站後再開啟。\n\n{url}",
+  "externalLink.open": "開啟連結",
   "onboarding.welcome": "歡迎使用 ChatPlus",
   "onboarding.chooseFirst": "選擇您要先新增的服務。",
   "onboarding.addService": "新增服務",

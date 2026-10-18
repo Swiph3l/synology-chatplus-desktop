@@ -1,4 +1,9 @@
 {
+  "externalLink.httpWarning": "このリンクは暗号化されていない HTTP 接続を使用します。",
+  "externalLink.failed": "リンクを開けませんでした。既定のブラウザーを確認して、もう一度お試しください。",
+  "externalLink.title": "外部リンクを開きますか？",
+  "externalLink.body": "このリンクは ChatPlus の外部の既定のブラウザーで開かれます。リンク先が信頼できる場合にのみ開いてください。\n\n{url}",
+  "externalLink.open": "リンクを開く",
   "onboarding.welcome": "ChatPlus へようこそ",
   "onboarding.chooseFirst": "最初に追加するサービスを選択してください。",
   "onboarding.addService": "サービスを追加",

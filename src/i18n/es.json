@@ -1,4 +1,9 @@
 {
+  "externalLink.httpWarning": "Este enlace utiliza una conexión HTTP sin cifrar.",
+  "externalLink.failed": "No se pudo abrir el enlace. Comprueba tu navegador predeterminado e inténtalo de nuevo.",
+  "externalLink.title": "¿Abrir enlace externo?",
+  "externalLink.body": "Este enlace se abrirá en tu navegador predeterminado fuera de ChatPlus. Ábrelo solo si confías en el destino.\n\n{url}",
+  "externalLink.open": "Abrir enlace",
   "onboarding.welcome": "Bienvenido a ChatPlus",
   "onboarding.chooseFirst": "Elige el servicio que quieres añadir primero.",
   "onboarding.addService": "Añadir servicio",

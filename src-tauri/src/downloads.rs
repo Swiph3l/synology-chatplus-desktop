@@ -359,9 +359,11 @@ pub fn popup(
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let configured = service.clone();
     let nav_app = app.clone();
+    let label = format!("attachment-{}", NEXT.fetch_add(1, Ordering::Relaxed));
+    let nav_label = label.clone();
     let window = WebviewWindowBuilder::new(
         app,
-        format!("attachment-{}", NEXT.fetch_add(1, Ordering::Relaxed)),
+        label,
         WebviewUrl::External("about:blank".parse().unwrap()),
     )
     // Swiph3l: The popup must use the opener's WebView2 environment/profile;
@@ -373,7 +375,7 @@ pub fn popup(
         if target.as_str() == "about:blank" || attachment_popup(&configured, target) {
             true
         } else {
-            crate::services::external(&nav_app, target);
+            crate::services::external(&nav_app, &configured, target, &nav_label);
             false
         }
     })

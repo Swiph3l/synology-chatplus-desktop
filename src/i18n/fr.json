@@ -1,4 +1,9 @@
 {
+  "externalLink.httpWarning": "Ce lien utilise une connexion HTTP non chiffrée.",
+  "externalLink.failed": "Impossible d’ouvrir le lien. Vérifiez votre navigateur par défaut et réessayez.",
+  "externalLink.title": "Ouvrir le lien externe ?",
+  "externalLink.body": "Ce lien s’ouvrira dans votre navigateur par défaut, en dehors de ChatPlus. Ouvrez-le uniquement si vous faites confiance à sa destination.\n\n{url}",
+  "externalLink.open": "Ouvrir le lien",
   "onboarding.welcome": "Bienvenue dans ChatPlus",
   "onboarding.chooseFirst": "Choisissez le premier service à ajouter.",
   "onboarding.addService": "Ajouter un service",
