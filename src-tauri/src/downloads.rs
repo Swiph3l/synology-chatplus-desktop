@@ -6,7 +6,7 @@ use tauri::{AppHandle, Webview};
 use std::sync::{Mutex, OnceLock};
 #[cfg(any(windows, test))]
 use std::{
-    collections::HashSet,
+    collections::{HashSet, VecDeque},
     path::{Path, PathBuf},
 };
 
@@ -123,6 +123,17 @@ fn path_key(path: &Path) -> String {
 
 #[cfg(any(windows, test))]
 impl Names {
+    fn reserve_selected(&mut self, destination: &Path) -> Result<PathBuf, &'static str> {
+        if !destination.is_absolute() || destination.file_name().is_none() {
+            return Err("destination-unavailable");
+        }
+        // Swiph3l: The native picker owns overwrite confirmation. Preserve its exact
+        // selected name; decoding/renaming now would save somewhere unapproved.
+        if !self.0.insert(path_key(destination)) {
+            return Err("destination-in-use");
+        }
+        Ok(destination.to_owned())
+    }
     fn reserve(
         &mut self,
         destination: &Path,
@@ -226,7 +237,7 @@ fn attachment_popup_script(service: &ServiceConfig, target: &url::Url) -> Option
 
 fn popup_failed(app: &AppHandle, service_id: &str) {
     #[cfg(windows)]
-    event(app, service_id, "failed");
+    event(app, service_id, "failed", None);
     #[cfg(not(windows))]
     let _ = (app, service_id);
 }
@@ -300,27 +311,254 @@ pub fn open_attachment_popup(
 }
 
 #[cfg(windows)]
-fn event(app: &AppHandle, service: &str, state: &'static str) {
+fn event(app: &AppHandle, service: &str, state: &'static str, path: Option<&Path>) {
     use tauri::Emitter;
-    // Swiph3l: Attachment names and signed provider URLs can contain private data;
-    // the shell only receives the service identity and a fixed lifecycle code.
+    // Only the user-selected local path enters the ephemeral shell UI. Signed
+    // provider URLs, cookies and message content never enter events or logs.
     let _ = app.emit_to(
         "main",
         "attachment-download",
-        serde_json::json!({"serviceId": service, "state": state}),
+        serde_json::json!({"serviceId": service, "state": state, "path": path.map(|path| path.to_string_lossy())}),
     );
 }
 
+#[cfg(any(windows, test))]
+struct DialogQueue<T> {
+    pending: VecDeque<T>,
+    active: bool,
+    scheduled: bool,
+}
+#[cfg(any(windows, test))]
+impl<T> Default for DialogQueue<T> {
+    fn default() -> Self {
+        Self {
+            pending: VecDeque::new(),
+            active: false,
+            scheduled: false,
+        }
+    }
+}
+#[cfg(any(windows, test))]
+impl<T> DialogQueue<T> {
+    fn push(&mut self, item: T) -> Result<bool, T> {
+        if self.pending.len() >= 32 {
+            return Err(item);
+        }
+        self.pending.push_back(item);
+        let schedule = !self.active && !self.scheduled;
+        self.scheduled |= schedule;
+        Ok(schedule)
+    }
+    fn take(&mut self) -> Option<T> {
+        self.scheduled = false;
+        if self.active {
+            return None;
+        }
+        let item = self.pending.pop_front()?;
+        self.active = true;
+        Some(item)
+    }
+    fn finished(&mut self) -> bool {
+        self.active = false;
+        let schedule = !self.pending.is_empty() && !self.scheduled;
+        self.scheduled |= schedule;
+        schedule
+    }
+}
+
 #[cfg(windows)]
-fn report(app: &AppHandle) {
-    let handle = app.clone();
-    let _ = app.run_on_main_thread(move || {
-        crate::shell::report(
-            &handle,
-            "Could not start the attachment download. Check the download folder and try again."
-                .into(),
-        )
+struct PendingDownload {
+    args: webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2DownloadStartingEventArgs,
+    deferral: webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Deferral,
+    service: String,
+    session: ServiceConfig,
+    owner: isize,
+    selected: std::cell::RefCell<Option<PathBuf>>,
+}
+#[cfg(windows)]
+impl Drop for PendingDownload {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = self.deferral.Complete();
+        }
+    }
+}
+#[cfg(windows)]
+thread_local! {
+    // COM references never cross their originating WebView UI apartment.
+    static DIALOGS: std::cell::RefCell<DialogQueue<PendingDownload>> = std::cell::RefCell::new(DialogQueue::default());
+}
+
+#[cfg(windows)]
+fn schedule_dialog(app: &AppHandle) {
+    let app = app.clone();
+    // Swiph3l: Tauri may run UI dispatch inline on the UI thread. Dispatch from a worker
+    // so the modal picker always starts after DownloadStarting has returned.
+    std::thread::spawn(move || {
+        let handle = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            if let Some(pending) = DIALOGS.with(|queue| queue.borrow_mut().take()) {
+                if prepare_download(&handle, &pending).is_err() {
+                    unsafe {
+                        let _ = pending.args.SetCancel(true);
+                    }
+                    event(
+                        &handle,
+                        &pending.service,
+                        "failed",
+                        pending.selected.borrow().as_deref(),
+                    );
+                }
+                drop(pending); // Complete the deferral on its owning UI apartment.
+                if DIALOGS.with(|queue| queue.borrow_mut().finished()) {
+                    schedule_dialog(&handle);
+                }
+            }
+        });
     });
+}
+
+#[cfg(windows)]
+fn save_as(
+    app: &AppHandle,
+    owner: isize,
+    suggested: &Path,
+) -> windows::core::Result<Option<PathBuf>> {
+    use windows::{
+        core::HSTRING,
+        Win32::{
+            Foundation::HWND,
+            System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER},
+            UI::Shell::*,
+        },
+    };
+    unsafe {
+        let dialog: IFileSaveDialog =
+            CoCreateInstance(&FileSaveDialog, None, CLSCTX_INPROC_SERVER)?;
+        dialog.SetOptions(
+            dialog.GetOptions()?
+                | FOS_FORCEFILESYSTEM
+                | FOS_PATHMUSTEXIST
+                | FOS_OVERWRITEPROMPT
+                | FOS_NOCHANGEDIR,
+        )?;
+        dialog.SetTitle(&HSTRING::from(crate::i18n::t(app, "downloads.saveAsTitle")))?;
+        if let Some(name) = suggested.file_name() {
+            dialog.SetFileName(&HSTRING::from(name))?;
+        }
+        if let Some(extension) = suggested.extension() {
+            dialog.SetDefaultExtension(&HSTRING::from(extension))?;
+        }
+        if let Some(parent) = suggested.parent() {
+            if let Ok(folder) = SHCreateItemFromParsingName::<_, _, IShellItem>(
+                &HSTRING::from(parent.as_os_str()),
+                None,
+            ) {
+                dialog.SetFolder(&folder)?;
+            }
+        }
+        match dialog.Show(Some(HWND(owner as *mut _))) {
+            Ok(()) => {
+                let path = dialog.GetResult()?.GetDisplayName(SIGDN_FILESYSPATH)?;
+                Ok(Some(PathBuf::from(webview2_com::take_pwstr(path))))
+            }
+            Err(error) if error.code().0 == 0x800704c7u32 as i32 => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+}
+
+#[cfg(windows)]
+fn download_error() -> windows::core::Error {
+    windows::core::Error::from_hresult(windows::core::HRESULT(0x80004005u32 as i32))
+}
+
+#[cfg(windows)]
+fn prepare_download(app: &AppHandle, pending: &PendingDownload) -> windows::core::Result<()> {
+    use webview2_com::{Microsoft::Web::WebView2::Win32::*, StateChangedEventHandler};
+    use windows::core::{HSTRING, PWSTR};
+    unsafe {
+        if !crate::services::configured(app, &pending.session) {
+            pending.args.SetCancel(true)?;
+            event(app, &pending.service, "cancelled", None);
+            return Ok(());
+        }
+        let mut suggested = PWSTR::null();
+        pending.args.ResultFilePath(&mut suggested)?;
+        let suggested = PathBuf::from(webview2_com::take_pwstr(suggested));
+        let proposed = names()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .reserve(&suggested, Path::try_exists)
+            .map_err(|_| download_error())?;
+        let proposed = Reservation(proposed);
+        let Some(selected) = save_as(app, pending.owner, &proposed.0)? else {
+            pending.args.SetCancel(true)?;
+            event(app, &pending.service, "cancelled", None);
+            return Ok(());
+        };
+        *pending.selected.borrow_mut() = Some(selected.clone());
+        if !crate::services::configured(app, &pending.session) {
+            pending.args.SetCancel(true)?;
+            event(app, &pending.service, "cancelled", Some(&selected));
+            return Ok(());
+        }
+        let reservation = if path_key(&selected) == path_key(&proposed.0) {
+            proposed
+        } else {
+            Reservation(
+                names()
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .reserve_selected(&selected)
+                    .map_err(|_| download_error())?,
+            )
+        };
+        let destination = reservation.0.clone();
+        pending
+            .args
+            .SetResultFilePath(&HSTRING::from(destination.as_os_str()))?;
+        let operation = pending.args.DownloadOperation()?;
+        let state_app = app.clone();
+        let state_service = pending.service.clone();
+        let state_path = destination.clone();
+        let reservation = std::cell::RefCell::new(Some(reservation));
+        operation.add_StateChanged(
+            &StateChangedEventHandler::create(Box::new(move |operation, _| {
+                let Some(operation) = operation else {
+                    return Ok(());
+                };
+                let mut state = COREWEBVIEW2_DOWNLOAD_STATE::default();
+                let mut reason = COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON::default();
+                if operation.State(&mut state).is_err() {
+                    event(&state_app, &state_service, "failed", Some(&state_path));
+                    return Ok(());
+                }
+                if state == COREWEBVIEW2_DOWNLOAD_STATE_INTERRUPTED {
+                    if operation.InterruptReason(&mut reason).is_err() {
+                        event(&state_app, &state_service, "failed", Some(&state_path));
+                        return Ok(());
+                    }
+                }
+                let state = download_state(state, reason);
+                let mut can_resume = Default::default();
+                let resumable = state != "failed"
+                    || operation.CanResume(&mut can_resume).is_err()
+                    || can_resume.as_bool();
+                if reservation_finished(state, resumable) {
+                    reservation.borrow_mut().take();
+                }
+                event(&state_app, &state_service, state, Some(&state_path));
+                Ok(())
+            })),
+            &mut 0,
+        )?;
+        // Keep the browser's transfer controls and Windows security protection;
+        // only destination selection is owned by ChatPlus.
+        pending.args.SetHandled(false)?;
+        event(app, &pending.service, "requested", Some(&destination));
+        Ok(())
+    }
 }
 
 #[cfg(windows)]
@@ -349,10 +587,17 @@ fn reservation_finished(state: &str, resumable: bool) -> bool {
 
 #[cfg(windows)]
 pub fn attach(app: &AppHandle, view: &Webview, service_id: &str) -> tauri::Result<()> {
-    use webview2_com::{
-        DownloadStartingEventHandler, Microsoft::Web::WebView2::Win32::*, StateChangedEventHandler,
+    use webview2_com::{DownloadStartingEventHandler, Microsoft::Web::WebView2::Win32::*};
+    use windows::core::Interface;
+    let owner = view.window().hwnd()?.0 as isize;
+    let Some(session) = crate::state::current(app)
+        .services
+        .into_iter()
+        .find(|service| service.id == service_id && service.enabled)
+    else {
+        event(app, service_id, "unavailable", None);
+        return Ok(());
     };
-    use windows::core::{Interface, HSTRING, PWSTR};
     let app = app.clone();
     let service = service_id.to_owned();
     view.with_webview(move |view| unsafe {
@@ -368,64 +613,27 @@ pub fn attach(app: &AppHandle, view: &Webview, service_id: &str) -> tauri::Resul
                     let Some(args) = args else {
                         return Ok(());
                     };
-                    let prepared = (|| -> windows::core::Result<()> {
-                        let mut suggested = PWSTR::null();
-                        args.ResultFilePath(&mut suggested)?;
-                        // WebView2 already resolves Content-Disposition (including filename*)
-                        // and its profile's download directory; do not copy cookies into an HTTP client.
-                        let suggested = PathBuf::from(webview2_com::take_pwstr(suggested));
-                        let destination = names()
-                            .lock()
-                            .unwrap_or_else(|error| error.into_inner())
-                            .reserve(&suggested, Path::try_exists)
-                            .map_err(|_| {
-                                windows::core::Error::from_hresult(windows::core::HRESULT(
-                                    0x80004005u32 as i32,
-                                ))
-                            })?;
-                        let reservation = Reservation(destination);
-                        args.SetResultFilePath(&HSTRING::from(reservation.0.as_os_str()))?;
-                        let operation = args.DownloadOperation()?;
-                        let state_app = handler_app.clone();
-                        let state_service = handler_service.clone();
-                        let reservation = std::cell::RefCell::new(Some(reservation));
-                        operation.add_StateChanged(
-                            &StateChangedEventHandler::create(Box::new(move |operation, _| {
-                                let Some(operation) = operation else {
-                                    return Ok(());
-                                };
-                                let mut state = COREWEBVIEW2_DOWNLOAD_STATE::default();
-                                let mut reason = COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON::default();
-                                operation.State(&mut state)?;
-                                if state == COREWEBVIEW2_DOWNLOAD_STATE_INTERRUPTED {
-                                    operation.InterruptReason(&mut reason)?;
-                                }
-                                let state = download_state(state, reason);
-                                let mut can_resume = Default::default();
-                                let resumable = state != "failed"
-                                    || operation.CanResume(&mut can_resume).is_err()
-                                    || can_resume.as_bool();
-                                if reservation_finished(state, resumable) {
-                                    reservation.borrow_mut().take();
-                                }
-                                // Swiph3l: The browser can retain failed downloads in its UI history;
-                                // only resumable operations still own an in-flight filename.
-                                event(&state_app, &state_service, state);
-                                Ok(())
-                            })),
-                            &mut 0,
-                        )?;
-                        // Swiph3l: Tauri/Wry's on_download hook sets Handled=true and hides
-                        // the native UI; direct WebView2 observation preserves Save As,
-                        // cancel/retry controls and Windows security warnings without auto-opening files.
-                        args.SetHandled(false)?;
-                        event(&handler_app, &handler_service, "requested");
-                        Ok(())
-                    })();
-                    if prepared.is_err() {
+                    let Ok(deferral) = args.GetDeferral() else {
                         let _ = args.SetCancel(true);
-                        event(&handler_app, &handler_service, "failed");
-                        report(&handler_app);
+                        event(&handler_app, &handler_service, "failed", None);
+                        return Ok(());
+                    };
+                    let pending = PendingDownload {
+                        args: args.clone(),
+                        deferral,
+                        service: handler_service.clone(),
+                        session: session.clone(),
+                        owner,
+                        selected: Default::default(),
+                    };
+                    match DIALOGS.with(|queue| queue.borrow_mut().push(pending)) {
+                        Ok(true) => schedule_dialog(&handler_app),
+                        Ok(false) => {}
+                        Err(pending) => {
+                            let _ = pending.args.SetCancel(true);
+                            event(&handler_app, &handler_service, "failed", None);
+                            // Dropping completes the rejected deferral on this UI thread.
+                        }
                     }
                     Ok(())
                 })),
@@ -433,8 +641,7 @@ pub fn attach(app: &AppHandle, view: &Webview, service_id: &str) -> tauri::Resul
             )
         })();
         if result.is_err() {
-            event(&app, &service, "unavailable");
-            report(&app);
+            event(&app, &service, "unavailable", None);
         }
     })
 }
@@ -504,6 +711,122 @@ pub fn popup(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn self_attachment_popup_script_accepts_only_recognized_targets_and_json_escapes_exact_url() {
+        let discord = service(ProviderId::Discord);
+        let target = url::Url::parse(
+            "https://cdn.discordapp.com/attachments/1/2/report.pdf?token=a'\"\\)&name=%E7%8C%AB",
+        )
+        .unwrap();
+        let script = attachment_popup_script(&discord, &target).unwrap();
+        let encoded = script
+            .split_once("window.open(")
+            .unwrap()
+            .1
+            .split_once(", '_blank')")
+            .unwrap()
+            .0;
+        assert_eq!(
+            serde_json::from_str::<String>(encoded).unwrap(),
+            target.as_str()
+        );
+        assert!(script.ends_with("catch{return false}})()"));
+        for rejected in [
+            "https://discord.com/channels/1/2",
+            "https://evil.example/report.pdf",
+            "https://cdn.discordapp.com/assets/file.pdf",
+            "http://cdn.discordapp.com/attachments/1/2/file.pdf",
+            "blob:https://chat.example.com/id",
+            "https://user:secret@cdn.discordapp.com/attachments/1/2/file.pdf",
+        ] {
+            assert!(
+                attachment_popup_script(&discord, &rejected.parse().unwrap()).is_none(),
+                "{rejected}"
+            );
+        }
+        assert!(attachment_popup_script(&service(ProviderId::Whatsapp), &target).is_none());
+    }
+    #[test]
+    fn save_dialog_queue_serializes_reentrant_downloads_and_bounds_pending_deferrals() {
+        let mut queue = DialogQueue::default();
+        assert_eq!(queue.push("first"), Ok(true));
+        assert_eq!(queue.push("second"), Ok(false));
+        assert_eq!(queue.take(), Some("first"));
+        assert_eq!(queue.push("arrived-during-modal"), Ok(false));
+        assert_eq!(
+            queue.take(),
+            None,
+            "a native picker message loop cannot start a nested picker"
+        );
+        assert!(queue.finished());
+        assert_eq!(queue.take(), Some("second"));
+        assert!(queue.finished());
+        assert_eq!(queue.take(), Some("arrived-during-modal"));
+        assert!(!queue.finished());
+        assert_eq!(queue.take(), None);
+        let mut bounded = DialogQueue::default();
+        for token in 0..32 {
+            assert!(bounded.push(token).is_ok());
+        }
+        assert_eq!(
+            bounded.push(32),
+            Err(32),
+            "caller retains rejected deferral to cancel/complete it"
+        );
+    }
+
+    #[test]
+    fn explicit_save_selection_preserves_exact_destination_and_prevents_parallel_overwrite() {
+        let mut names = Names::default();
+        let chosen = std::env::temp_dir()
+            .join("chosen folder")
+            .join("Final%20report 🐈.pdf");
+        assert_eq!(
+            names.reserve_selected(&chosen),
+            Ok(chosen.clone()),
+            "never decode or rename the path after native Save As confirmation"
+        );
+        assert_eq!(names.reserve_selected(&chosen), Err("destination-in-use"));
+        let same_case_insensitive = chosen.with_file_name("FINAL%20REPORT 🐈.PDF");
+        assert_eq!(
+            names.reserve_selected(&same_case_insensitive),
+            Err("destination-in-use")
+        );
+        assert!(names
+            .reserve_selected(Path::new("unapproved-relative.pdf"))
+            .is_err());
+        names.release(&chosen);
+        assert_eq!(names.reserve_selected(&chosen), Ok(chosen));
+    }
+
+    #[test]
+    fn provider_popup_keeps_same_origin_authentication_without_allowing_external_or_opaque_targets()
+    {
+        let service = service(ProviderId::SynologyChatplus);
+        for allowed in [
+            "about:blank",
+            "https://chat.example.com/attachment?id=opaque",
+            "blob:https://chat.example.com/opaque",
+        ] {
+            assert!(
+                popup_allowed(&service, &allowed.parse().unwrap()),
+                "{allowed}"
+            );
+        }
+        for denied in [
+            "https://other.example.com/file.pdf",
+            "https://chat.example.com.evil.example/file.pdf",
+            "blob:null/opaque",
+            "blob:https://other.example.com/opaque",
+            "file:///file.pdf",
+            "data:text/html,hello",
+        ] {
+            assert!(
+                !popup_allowed(&service, &denied.parse().unwrap()),
+                "{denied}"
+            );
+        }
+    }
     #[test]
     fn attachment_names_preserve_spaces_unicode_and_all_extensions() {
         for name in [
@@ -651,6 +974,7 @@ mod tests {
             "https://cdn.discordapp.com/assets/a.js",
             "https://cdn.discordapp.com/attachments/1/2/",
             "blob:https://other.example.com/id",
+            "blob:https://user:secret@chat.example.com/id",
             "blob:null/id",
             "file:///report.pdf",
         ] {
@@ -710,68 +1034,5 @@ mod tests {
         assert!(!reservation_finished("failed", true));
         assert!(!reservation_finished("paused", false));
         assert!(!reservation_finished("in-progress", false));
-    }
-    #[test]
-    fn self_attachment_popup_script_accepts_only_recognized_targets_and_json_escapes_exact_url() {
-        let discord = service(ProviderId::Discord);
-        let target = url::Url::parse(
-            "https://cdn.discordapp.com/attachments/1/2/report.pdf?token=a'\"\\)&name=%E7%8C%AB",
-        )
-        .unwrap();
-        let script = attachment_popup_script(&discord, &target).unwrap();
-        let encoded = script
-            .split_once("window.open(")
-            .unwrap()
-            .1
-            .split_once(", '_blank')")
-            .unwrap()
-            .0;
-        assert_eq!(
-            serde_json::from_str::<String>(encoded).unwrap(),
-            target.as_str()
-        );
-        assert!(script.ends_with("catch{return false}})()"));
-        for rejected in [
-            "https://discord.com/channels/1/2",
-            "https://evil.example/report.pdf",
-            "https://cdn.discordapp.com/assets/file.pdf",
-            "http://cdn.discordapp.com/attachments/1/2/file.pdf",
-            "blob:https://chat.example.com/id",
-            "https://user:secret@cdn.discordapp.com/attachments/1/2/file.pdf",
-        ] {
-            assert!(
-                attachment_popup_script(&discord, &rejected.parse().unwrap()).is_none(),
-                "{rejected}"
-            );
-        }
-        assert!(attachment_popup_script(&service(ProviderId::Whatsapp), &target).is_none());
-    }
-    #[test]
-    fn provider_popup_keeps_same_origin_authentication_without_allowing_external_or_opaque_targets()
-    {
-        let service = service(ProviderId::SynologyChatplus);
-        for allowed in [
-            "about:blank",
-            "https://chat.example.com/attachment?id=opaque",
-            "blob:https://chat.example.com/opaque",
-        ] {
-            assert!(
-                popup_allowed(&service, &allowed.parse().unwrap()),
-                "{allowed}"
-            );
-        }
-        for denied in [
-            "https://other.example.com/file.pdf",
-            "https://chat.example.com.evil.example/file.pdf",
-            "blob:null/opaque",
-            "blob:https://other.example.com/opaque",
-            "file:///file.pdf",
-            "data:text/html,hello",
-        ] {
-            assert!(
-                !popup_allowed(&service, &denied.parse().unwrap()),
-                "{denied}"
-            );
-        }
     }
 }

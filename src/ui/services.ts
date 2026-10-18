@@ -9,6 +9,10 @@ import { updates, type UpdateSnapshot } from "../app/updates";
 import { createFooter } from "./footer";
 import { acceptUnreadSnapshot, type UnreadSnapshot } from "../app/unread";
 import { applyNotificationColor } from "../app/notification-colors";
+import {
+  attachmentDownloadStatus,
+  type AttachmentDownload,
+} from "../app/downloads";
 import { bindRailReorder } from "./rail-reorder";
 export async function renderServices() {
   document.body.classList.add("services-page");
@@ -37,7 +41,7 @@ export async function renderServices() {
     const revision = settingsRevision;
     try {
       const saved = await invoke<Settings>("reorder_services", { ids });
-      // Settings broadcasts can contain newer mute/active/preferences changes.
+      // Swiph3l: Settings broadcasts can contain newer mute/active/preferences changes.
       if (settingsRevision === revision) {
         settings = saved;
         settingsObserved = true;
@@ -191,7 +195,7 @@ export async function renderServices() {
       busy: () => reorderSaving,
       commit: (ids) => void persistOrder(ids),
       end: () => {
-        // Keep the original click target alive until its pointerup/click sequence ends.
+        // Swiph3l: Keep the original click target alive until its pointerup/click sequence ends.
         if (deferredRender) window.setTimeout(render, 0);
       },
     });
@@ -289,6 +293,19 @@ export async function renderServices() {
   });
   await listen("notification-issue", () => {
     footer.report(t("footer.status.notification"));
+  });
+  await listen<AttachmentDownload>("attachment-download", ({ payload }) => {
+    // Swiph3l: A background download may finish after removal or a service switch;
+    // validate its stable ID before showing the path as plain footer text.
+    if (
+      !payload ||
+      !settings.services.some(
+        (service) => service.id === payload.serviceId && service.enabled,
+      )
+    )
+      return;
+    const message = attachmentDownloadStatus(payload);
+    if (message !== null) footer.report(message);
   });
   render();
   // Swiph3l: Subscribe before reading snapshots so startup checks and transport
