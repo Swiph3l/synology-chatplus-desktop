@@ -22,6 +22,15 @@ struct Fixture {
 }
 impl Fixture {
     fn new(version: &str, bad_json: bool, bad_signature: bool, slow: bool) -> Self {
+        Self::with_trusted_comment(version, bad_json, bad_signature, slow, "local updater test")
+    }
+    fn with_trusted_comment(
+        version: &str,
+        bad_json: bool,
+        bad_signature: bool,
+        slow: bool,
+        trusted_comment: &str,
+    ) -> Self {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let rcgen::CertifiedKey { cert, signing_key } =
             rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
@@ -44,7 +53,7 @@ impl Fixture {
             Some(&key.pk),
             &key.sk,
             std::io::Cursor::new(&payload),
-            Some("local updater test"),
+            Some(trusted_comment),
             Some("test only"),
         )
         .unwrap();
@@ -215,7 +224,8 @@ async fn beta_one_downloads_and_verifies_beta_two_only_with_beta_opt_in() {
         .unwrap();
     assert_eq!(update.version, "0.5.0-beta.2");
     assert!(!update.download(|_, _| {}, || {}).await.unwrap().is_empty());
-    // A real installation/restart remains a separate owner smoke test.
+    // Swiph3l: Fixture bytes cannot exercise installer/UAC behavior; a real
+    // installation/restart remains a separate owner smoke test.
 }
 #[tokio::test]
 async fn actual_updater_verifies_signed_https_download() {
@@ -234,7 +244,86 @@ async fn actual_updater_verifies_signed_https_download() {
         .unwrap();
     assert_eq!(count, bytes.len());
     assert!(bytes.starts_with(b"Signed updater"));
+    // Swiph3l: Legacy signatures may lack a trusted version; the dependency upgrade
+    // must preserve compatibility until a separate release-signature migration.
+    let signature = String::from_utf8(STANDARD.decode(&update.signature).unwrap()).unwrap();
+    assert!(signature.contains("trusted comment: local updater test"));
+    assert!(!signature.contains("\tversion:"));
+    update.verify(&bytes).unwrap();
+    let mut tampered = bytes.clone();
+    tampered[0] ^= 1;
+    assert!(update.verify(&tampered).is_err());
     // No call to install: fixture is deliberately not an executable.
+}
+#[tokio::test]
+async fn updater_rejects_a_signed_version_that_disagrees_with_the_manifest() {
+    let app = app();
+    let fixture = Fixture::with_trusted_comment(
+        "0.2.0",
+        false,
+        false,
+        false,
+        "timestamp:1\tfile:fixture.exe\tversion:0.1.0",
+    );
+    let update = fixture
+        .updater(app.handle(), false)
+        .check()
+        .await
+        .unwrap()
+        .unwrap();
+    let error = update.download(|_, _| {}, || {}).await.unwrap_err();
+    assert!(matches!(
+        error,
+        tauri_plugin_updater::Error::SignedVersionMismatch { signed, announced }
+            if signed == "0.1.0" && announced == "0.2.0"
+    ));
+}
+#[tokio::test]
+async fn selected_windows_update_accepts_raw_nsis_and_rejects_archive_manifests() {
+    let app = app();
+    let fixture = Fixture::new("0.2.0", false, false, false);
+    let update = fixture
+        .updater(app.handle(), false)
+        .check()
+        .await
+        .unwrap()
+        .unwrap();
+    let base = "https://github.com/Swiph3l/synology-chatplus-desktop/releases/download/v0.2.0";
+    for extension in ["", ".zip", ".tar.gz"] {
+        let name = format!("windows-x86_64--ChatPlus-Desktop_0.2.0_x64-setup.exe{extension}");
+        let url: url::Url = format!("{base}/{name}").parse().unwrap();
+        let mut candidate = update.clone();
+        candidate.download_url = url.clone();
+        candidate.raw_json["platforms"]["windows-x86_64"]["url"] = serde_json::json!(url.as_str());
+        let selected = super::SelectedRelease {
+            manifest: format!("{base}/latest.json").parse().unwrap(),
+            version: Version::parse("0.2.0").unwrap(),
+            release: super::Release {
+                tag_name: "v0.2.0".into(),
+                draft: false,
+                assets: vec![
+                    super::Asset {
+                        name: name.clone(),
+                        browser_download_url: url,
+                    },
+                    super::Asset {
+                        name: format!("{name}.sig"),
+                        browser_download_url: format!("{base}/{name}.sig").parse().unwrap(),
+                    },
+                ],
+            },
+        };
+        let result =
+            super::validate_selected_update(&candidate, &selected, &super::configuration());
+        if extension.is_empty() {
+            assert!(
+                result.is_ok(),
+                "the current raw NSIS release format remains supported"
+            );
+        } else {
+            assert_eq!(result.unwrap_err().code, "release-incomplete");
+        }
+    }
 }
 #[tokio::test]
 async fn updater_rejects_bad_signature_and_invalid_metadata() {

@@ -791,7 +791,7 @@ pub async fn download(app: &AppHandle) -> Result<(), String> {
             return Err("Check for an update before downloading.".into());
         }
         let mut update = inner.update.clone().ok_or("No update available.")?;
-        // Pinned updater 2.11 does not copy the builder timeout into Update.
+        // Swiph3l: The updater does not copy the builder timeout into Update.
         // Bound the actual installer transfer as well as the manifest request.
         update.timeout = Some(Duration::from_secs(120));
         let include_beta_updates = state::current(app).include_beta_updates;

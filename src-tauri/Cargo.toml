@@ -28,7 +28,8 @@ semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 url = "2"
-tauri-plugin-updater = "2"
+# Swiph3l: Published updates are signed raw installers; legacy ZIP extraction is unnecessary.
+tauri-plugin-updater = { version = "~2.14.0", default-features = false, features = ["rustls-tls", "system-proxy"] }
 tauri-plugin-notification = "2"
 tokio = { version = "1.53.1", features = ["sync", "time", "macros", "rt"] }
 reqwest = { version = "0.13", default-features = false, features = ["json"] }
