@@ -17,7 +17,7 @@ semver = "1"
 time = { version = "0.3", features = ["formatting"] }
 
 [dependencies]
-tauri = { version = "~2.11.6", features = ["tray-icon", "image-png", "unstable"] }
+tauri = { version = "~2.12.5", features = ["tray-icon", "image-png", "unstable"] }
 tauri-plugin-store = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-opener = "2"
@@ -36,12 +36,12 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 
 [target.'cfg(windows)'.dependencies]
 tauri-winrt-notification = "0.8.1"
-webview2-com = "0.38"
-windows = { version = "0.61", features = ["UI_Notifications", "Win32_Foundation", "Win32_Security", "Win32_System_Com", "Win32_System_Threading", "Win32_UI_Controls", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
-winreg = "0.55"
+webview2-com = "0.39"
+windows = { version = "0.62", features = ["UI_Notifications", "Win32_Foundation", "Win32_Security", "Win32_System_Com", "Win32_System_Threading", "Win32_UI_Controls", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+winreg = "0.56"
 
 [dev-dependencies]
 base64 = "0.23.1"
-minisign = "0.9.1"
+minisign = "0.10.0"
 rcgen = "0.14.10"
-tauri = { version = "~2.11.6", features = ["test"] }
+tauri = { version = "~2.12.5", features = ["test"] }

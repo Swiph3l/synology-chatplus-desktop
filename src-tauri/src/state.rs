@@ -476,7 +476,7 @@ fn reconcile_windows_autostart(_app: &AppHandle, enforce_enabled: bool) -> Resul
             AUTOSTART_ENTRY_NAME,
             &RegValue {
                 vtype: REG_SZ,
-                bytes: to_utf16le(&command),
+                bytes: to_utf16le(&command).into(),
             },
         )
         .map_err(|_| "Could not repair autostart command.")?;
@@ -493,7 +493,7 @@ fn reconcile_windows_autostart(_app: &AppHandle, enforce_enabled: bool) -> Resul
                 AUTOSTART_ENTRY_NAME,
                 &RegValue {
                     vtype: REG_BINARY,
-                    bytes: STARTUP_ENABLED_BYTES.to_vec(),
+                    bytes: STARTUP_ENABLED_BYTES.to_vec().into(),
                 },
             )
             .map_err(|_| "Could not repair startup visibility state.")?;
