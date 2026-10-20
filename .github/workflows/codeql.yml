@@ -10,7 +10,7 @@ permissions:
   contents: read
 jobs:
   analyze:
-    # Public GPL-3.0-only project; do not assume paid private-repository access.
+    # Swiph3l: Public GPL-3.0-only project; do not assume paid private-repository access.
     if: github.event.repository.private == false
     runs-on: ubuntu-latest
     permissions:
@@ -21,19 +21,21 @@ jobs:
       matrix:
         language: [javascript-typescript, rust, actions]
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5 (Node 24)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (Node 24)
         with:
           persist-credentials: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6 (Node 24)
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0 (Node 24)
         with:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run check:dependencies
       - run: npm run build
-      - uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+      # Swiph3l: Init/analyze exchange saved configuration; keep both on the same commit.
+      - uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0 (Node 24)
         with:
           languages: ${{ matrix.language }}
           build-mode: none
-      - uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+      - uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0 (Node 24)
         with:
           category: /language:${{ matrix.language }}

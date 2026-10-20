@@ -6,15 +6,48 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    groups:
+      # Swiph3l: Groups cannot span ecosystems; check:dependencies guards API/native alignment.
+      tauri-javascript:
+        patterns: ["@tauri-apps/api", "@tauri-apps/cli"]
+      npm-compatible:
+        patterns: ["*"]
+        exclude-patterns: ["@tauri-apps/api", "@tauri-apps/cli"]
+        update-types: [minor, patch]
   - package-ecosystem: cargo
     directory: /src-tauri
     schedule:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    groups:
+      # Swiph3l: COM values cross Tauri/Wry/WebView2 boundaries; update this family together.
+      tauri-windows-runtime:
+        patterns:
+          - tauri
+          - tauri-build
+          - tauri-codegen
+          - tauri-macros
+          - tauri-runtime
+          - tauri-runtime-wry
+          - tauri-utils
+          - tao
+          - wry
+          - webview2-com
+          - webview2-com-*
+          - windows
+          - windows-*
+      cargo-compatible:
+        patterns: ["*"]
+        exclude-patterns: ["tauri*", tao, wry, "webview2-com*", "windows*"]
+        update-types: [minor, patch]
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    groups:
+      # Swiph3l: CodeQL init/analyze share saved state and must move to the same release.
+      github-actions:
+        patterns: ["*"]

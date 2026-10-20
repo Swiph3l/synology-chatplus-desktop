@@ -12,11 +12,11 @@ jobs:
     name: validate (windows-latest, dev)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5 (Node 24)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (Node 24)
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6 (Node 24)
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0 (Node 24)
         with:
           node-version: 22
           cache: npm
@@ -25,10 +25,31 @@ jobs:
           toolchain: stable
           components: rustfmt
       - run: npm ci
+      - run: npm run check:dependencies
       - run: npm run format:check
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - run: npm run check:release
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
       - run: cargo check --locked --manifest-path src-tauri/Cargo.toml
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+  frontend-node24:
+    # Swiph3l: Cover Node 24 without duplicating Rust builds or renaming the Windows release gate.
+    name: frontend (ubuntu-latest, Node 24)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (Node 24)
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0 (Node 24)
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check:dependencies
+      - run: npm run format:check
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm run check:release

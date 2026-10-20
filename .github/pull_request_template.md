@@ -14,5 +14,7 @@ Native Windows/provider scenarios actually tested (or explicitly pending):
 - Keep provider selectors/proofs independent and preserve native unread ownership.
 - No credentials, tokens, test accounts, private URLs/content, profiles or signing keys.
 - Update relevant guides and concise user-facing notes when behavior changes.
+- For dependency changes, include resolved versions, migration requirements and
+  `npm run check:dependencies` results. Keep unrelated branch history out of the PR.
 
 See [contribution guidance](../CONTRIBUTING.md) and [testing](../docs/TESTING.md).
