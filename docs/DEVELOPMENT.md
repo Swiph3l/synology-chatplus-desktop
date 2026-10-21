@@ -11,11 +11,12 @@ Windows SDK), the Rust MSVC toolchain and Microsoft Edge WebView2 Runtime. The N
 installer can bootstrap WebView2; developers still need an installed runtime.
 See [Tauri's prerequisites](https://v2.tauri.app/start/prerequisites/).
 
-CI uses Node.js 22; use Node 22.12 or newer on that line, or a compatible supported
-Node 24 installation. Vite 7 requires Node 20.19+ or 22.12+. Install Rust stable
-through rustup; the current locked test graph includes rcgen requiring Rust 1.88.
-The 2026-10-07 validation toolchain is Rust 1.98.1. A newer native Tauri migration
-must explicitly review its MSRV and Windows binding requirements.
+CI covers Node.js 22 and 24; use Node 22.12 or newer on that line, or Node 24.
+The frontend uses Vite 8 and the TypeScript 7 command-line compiler. Install Rust
+stable through rustup; the Tauri 2.12 migration requires Rust 1.90 or newer.
+The 2026-10-23 validation toolchain is Rust 1.98.1. Keep the JavaScript Tauri API
+and native Tauri minor versions synchronized, along with the Windows/WebView2
+interface family; `npm run check:dependencies` verifies these relationships.
 
 From the repository root:
 
@@ -39,6 +40,7 @@ Never commit test accounts, private server URLs, tokens or local profile content
 | npm test                                                 | Node test runner, provider DOM fixtures and shell/release regressions    |
 | npm run build                                            | Typecheck, production Vite assets and generated provider/theme bootstrap |
 | npm run check:release                                    | Check that debug fixture markers stay out of production assets           |
+| npm run check:dependencies                               | Verify Tauri API/native and WebView interface version alignment          |
 | cargo test --locked --manifest-path src-tauri/Cargo.toml | Rust debug tests                                                         |
 | npm run tauri -- build --debug --no-bundle               | Runnable development binary with production frontend; no installer       |
 | npm run tauri build                                      | Local package, without updater signing secrets                           |

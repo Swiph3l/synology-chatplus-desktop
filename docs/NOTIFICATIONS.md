@@ -1,7 +1,11 @@
 # Notifications and unread
 
 Synology ChatPlus, Synology Chat and Discord have supported Windows unread and
-native browser-notification integration. Slack and Mattermost capabilities remain
+native browser-notification integration. WhatsApp adds an Experimental dedicated
+positive-evidence unread adapter and the shared native notification path; authenticated
+Windows acceptance remains pending. Messenger adds Experimental browser-event
+unread/native notifications on Facebook's messages page, while its dedicated DOM
+adapter remains unknown pending authenticated audit. Slack and Mattermost capabilities remain
 disabled. Automated fixture results and live Windows acceptance are separate.
 
 ## Authoritative unread model
@@ -83,17 +87,35 @@ changes. [TESTING.md](TESTING.md#notification-transition-matrix) maps cases A-K.
 
 ## Provider adapters
 
-| Provider          | Unread inputs                                                                                      | Read context                                                                                                       | Exact toast suppression                                                    |
-| ----------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
-| Synology ChatPlus | Independently audited aggregate sidebar tab indicators                                             | Unique main latest native scroller and mapped message-create textarea                                              | No audited event-tag mapping; actual browser events conservatively deliver |
-| Synology Chat     | Ordinary-unread channel highlights plus complete group metadata; mention-only zero is insufficient | #channels route, visible message panel, transformed FleXcroll content end/newest control and sibling main composer | No audited event-tag mapping; titles/senders are insufficient              |
-| Discord           | Guild/folder/Favorites and DM semantics; complete aggregate metadata before zero                   | Matching route, unobscured latest viewport and mapped editor; history/error bars block proof                       | Exact visible message row matching notification snowflake                  |
+| Provider                 | Unread inputs                                                                                                                                 | Read context                                                                                                       | Exact toast suppression                                                     |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| Synology ChatPlus        | Independently audited aggregate sidebar tab indicators                                                                                        | Unique main latest native scroller and mapped message-create textarea                                              | No audited event-tag mapping; actual browser events conservatively deliver  |
+| Synology Chat            | Ordinary-unread channel highlights plus complete group metadata; mention-only zero is insufficient                                            | #channels route, visible message panel, transformed FleXcroll content end/newest control and sibling main composer | No audited event-tag mapping; titles/senders are insufficient               |
+| Discord                  | Guild/folder/Favorites and DM semantics; complete aggregate metadata before zero                                                              | Matching route, unobscured latest viewport and mapped editor; history/error bars block proof                       | Exact visible message row matching notification snowflake                   |
+| WhatsApp (Experimental)  | Explicit positive unread badges/accessibility labels in visible chat-list rows; missing/partial DOM stays unknown and counts stay unavailable | No authenticated privacy-safe chat/message mapping yet; current/all read actions disabled                          | No guessed tag/title matching; actual browser events conservatively deliver |
+| Messenger (Experimental) | Native browser-notification arrivals only; unaudited DOM, Facebook navigation badges and title counts remain unknown                          | No current-chat mapping; current/all read actions disabled                                                         | No guessed tag/title matching; actual browser events conservatively deliver |
 
 Discord Home promotions and guild hover/selection pills are not reliable unread.
 Mention-only DM groups, selected/muted rows, missing private-sidebar metadata and
 message-request/spam scope can be unknown. Synology server versions may change markup.
 Keep these constraints explicit. [PROVIDERS.md](PROVIDERS.md) retains audited source
 references and capability differences. DOM unread mutations never synthesize toasts.
+
+WhatsApp uses the official `web.whatsapp.com` session with a separate profile per
+stable service ID. It never scrapes contacts/phone numbers or uses private APIs.
+Unread badge absence never establishes account-wide zero, including filtered,
+archived, collapsed and virtualized lists. Toast activation selects the correct
+instance without acknowledging unread or guessing a chat; authenticated originating
+chat routing and remote read UI semantics remain unverified. See the
+[WhatsApp audit](WHATSAPP_2026-10-22.md) for evidence and remaining QA.
+
+Messenger uses the exact `www.facebook.com` origin for official login and messages,
+with an isolated profile per stable service ID. It is a whole Facebook-origin
+session, so same-origin navigation or browser events can include non-Messenger
+Facebook content/notifications. The adapter never scans contact labels or treats
+Facebook navigation badges as message unread. Configure Facebook's own notification
+categories as needed. [Messenger audit](MESSENGER_2026-10-22.md) lists the current
+browser-event-only support and pending authenticated acceptance.
 
 ## Native toast policy
 
@@ -102,6 +124,14 @@ preference. The rail mute/unmute controls this desktop preference independently 
 provider-side mute. Existing false preferences remain false after upgrade. Provider
 notification settings, Discord DND and Windows permissions can prevent delivery;
 ChatPlus cannot intercept an event the provider never emits.
+
+The service context menu offers `Allow provider notifications` for the exact
+clicked service instance. It grants browser permission to that instance's validated
+live origin/profile; reload the service if the provider retains old permission
+guidance. Saved desktop notification and mute preferences still apply, along with
+Windows permission. The action does not acknowledge unread. Automatic browser
+permission handling must not persist a denial merely because desktop delivery is
+disabled or muted; these are separate states.
 
 On supported WebView2 versions, NotificationReceived is intercepted, its source
 validated and duplicate browser display suppressed before native submission. Selected
@@ -138,6 +168,24 @@ preview. Named colors and Auto remain supported; Auto follows the app accent.
 The local `notification-icons` cache stores provider/color PNG artwork only, with
 no message text, service names, URLs or credentials. The explicit test notification
 uses the active service's icon/color and fixed sample text without changing unread.
+
+## Explicit service read actions
+
+Right-clicking a service icon opens its native context menu using the clicked
+stable service ID, without activating it. `Mark as read (local)` is available for
+Discord only when the currently rendered conversation has fresh exact message
+viewing evidence; it acknowledges only those proven arrivals in that service.
+Synology current-conversation actions stay disabled because no audited exact
+message mapping is available. `Mark all as read (local)` deliberately acknowledges
+known local state for the clicked Synology or Discord instance. These actions do
+not claim a remote/server mark-read operation. The local all-read baseline prevents
+unchanged provider unread markup from immediately restoring the same dot; a new
+native arrival or changed provider evidence can restore unread.
+
+WhatsApp current/all actions are disabled until a safe Web UI interaction is
+verified. No provider mass-click loop or hidden internal API is used. Activating a
+service, focusing the app, clicking a toast or dismissing a toast is never an
+implicit `Mark all as read` action.
 
 ## Toast activation
 

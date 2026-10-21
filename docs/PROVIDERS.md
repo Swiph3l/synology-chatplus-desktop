@@ -3,7 +3,7 @@
 `ProviderDefinition` declares presentation, URL/origin rules and capabilities.
 `ServiceConfig` stores provider, stable ID, name, URL, enabled state and notification
 preference. `ServiceSession` binds a configuration to a native child-WebView label.
-The registry accepts only ChatPlus, Synology Chat, Slack, Discord and Mattermost;
+The registry accepts only ChatPlus, Synology Chat, Slack, Discord, WhatsApp, Messenger and Mattermost;
 it is not a plugin framework or general browser.
 
 ## Desktop boundaries
@@ -93,7 +93,9 @@ branding asset remains separate.
 **Primary / Supported** provider and the default for migrated single-server settings.
 HTTP(S) URLs reject credentials, queries and fragments.
 Navigation/popups require the exact configured origin; external HTTP(S) links can
-use the default browser. ChatPlus alone receives the project-authored theme.
+use the default browser after an explicit destination confirmation. Same-origin
+popups preserve the opener's profile and leave its main provider view intact.
+ChatPlus alone receives the project-authored theme.
 Its separate unread adapter observes tab indicators from existing authenticated-layout evidence
 (`sidebar-tab-item-*` / `tab-item-indicator`). A real visible conversation scroller
 at bottom and trusted interaction in that pane or its uniquely mapped main composer
@@ -167,8 +169,9 @@ general provider UI still carries an Experimental badge pending authenticated
 Windows acceptance. Web sessions start at `https://discord.com/app/`. Top-level navigation
 and same-origin popups permit only `https://discord.com` on port 443, with no URL
 credentials. Configurations also reject query parameters and fragments. Off-origin
-HTTP(S) links use the existing external-browser preference; no popup WebViews are
-created. There are no authentication-origin exceptions: arbitrary subdomains,
+HTTP(S) links use the existing external-browser preference and a fresh destination
+confirmation. Same-origin and recognized attachment popups use restricted,
+profile-sharing WebViews. There are no authentication-origin exceptions: arbitrary subdomains,
 `discordapp.com`, invitation domains and external identity providers are not
 embedded. External identity-provider cookie handoff is unavailable.
 
@@ -325,3 +328,69 @@ blob attachments or exact Discord CDN /attachments/ URLs without navigating away
 from the originating view. Inline PDF/image previews use their native download
 button. Other external-document handling remains governed by navigation policy.
 Provider-specific live attachment acceptance remains pending. See the [download checklist](WINDOWS_ACCEPTANCE.md#current-reliability-pass-2026-10-07).
+
+## WhatsApp (Experimental)
+
+WhatsApp opens the official `https://web.whatsapp.com/` in a normal WebView2
+environment. Only HTTPS `web.whatsapp.com` on port 443, without URL credentials,
+is allowed as a top-level origin; sibling domains and lookalike hosts are excluded.
+No user-agent override, unofficial API, bulk messaging or security bypass is used.
+The normal service-ID profile keeps each instance's cookies/storage separate;
+ChatPlus does not store credentials or intercept QR/pairing/session secrets.
+
+The official Web page exposes QR pairing and phone-number pairing. A public
+Chromium page inspection on 2026-10-22 reached those controls without spoofing;
+authenticated WebView2 pairing, persistence, restart and logout still require
+Windows acceptance. This is not evidence that linked-device login has succeeded.
+
+The dedicated `whatsapp-dom` adapter reads only explicit positive unread badge
+or unread accessibility metadata inside visible chat-list rows. Visible row counts
+are not promoted to account totals: lists may be virtualized, archived, collapsed
+or filtered. Missing/changed DOM and absence of badges remain `unknown`, never a
+provider-wide zero. No contact names, phone numbers, previews, messages or profile
+information are exported. The authenticated chat markup selectors are conservative
+fixture coverage and still need live validation.
+
+Browser `Notification` calls use the existing central native coordinator, including
+service mute, exact service-ID routing and deduplication. The notification itself
+is the event source; a positive DOM unread snapshot is not turned into a fabricated
+message toast. No safe current-chat/message identity is verified yet, so toast
+activation restores the correct instance without guessing a conversation or
+acknowledging unread. The retained native browser notification may run the
+provider's own click callback to route its originating chat; ChatPlus adds no
+guessed chat URL. WhatsApp `Mark as read` and `Mark all as read` are explicitly
+unsupported/disabled pending a safe verified Web UI interaction. No mass clicking
+or hidden internal API is used.
+
+The bundled green glyph is the unmodified official 2026 brand resource; see
+[NOTICE](../NOTICE). ChatPlus is independent of WhatsApp and Meta. The exact UI
+note is translated into all seven locales: “WhatsApp Web integration is experimental.”
+See [the audit and QA limitations](WHATSAPP_2026-10-22.md).
+
+## Messenger (Experimental)
+
+Messenger opens `https://www.facebook.com/messages/`, the official Facebook Web
+messaging surface, and uses its normal Facebook login/security-checkpoint UI.
+Do not depend on the legacy standalone messenger.com endpoint. Configuration and
+top-level navigation allow only HTTPS `www.facebook.com:443`, without credentials;
+no wildcard subdomains, mobile/legacy hosts or lookalikes are admitted. Same-origin
+authentication/checkpoint routes remain available. The normal WebView2 user agent
+and isolated stable-service-ID profiles are retained; no passwords or session
+secrets are managed by ChatPlus.
+
+The dedicated `messenger-dom` adapter reports unknown until current authenticated
+markup is independently audited. It never treats Facebook navigation/title badges,
+contact labels, filtered/virtualized list absence or selection as unread/read proof.
+Real browser `Notification` events supply unread arrivals through the shared native
+coordinator, with instance routing, mute preferences and deduplication. Counts,
+conversation correlation and current/all read actions are unsupported. Retained
+provider-owned notification click callbacks may route a conversation; ChatPlus
+constructs no guessed chat URL.
+
+This is a whole-origin Facebook session: Facebook can expose non-messaging pages
+and emit other Facebook notifications under the same origin. ChatPlus cannot safely
+classify all such notifications as Messenger messages without verified provider
+semantics. Configure Facebook's own notification preferences accordingly. No contacts,
+message history, profile data or hidden/internal API is scraped. Native ChatPlus
+theme CSS is not injected. The current official blue Messenger icon is bundled with
+provenance in [NOTICE](../NOTICE). [Audit and pending QA](MESSENGER_2026-10-22.md).

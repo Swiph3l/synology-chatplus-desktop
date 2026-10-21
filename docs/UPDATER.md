@@ -67,6 +67,19 @@ The installer transfer has an explicit timeout as well as the metadata requests.
 Cancellation is rechecked after signature verification, before bytes become ready.
 Never bypass TLS, signature verification or version/preference rechecks.
 
+Updater 2.14 retains Rustls TLS and system proxy support with its legacy ZIP
+extraction feature disabled. Windows manifests must name the published raw signed
+NSIS setup; ZIP or tar-wrapped installer manifests are rejected. Existing release
+collection and package names follow this format.
+
+Legacy signatures without a version in their trusted comment remain compatible.
+`requireSignedVersion` retains its default `false`; enforcing its presence requires
+a separate compatibility plan for any supported update targets with legacy
+signatures. New release signing must keep its trusted version and manifest aligned.
+When a signature already carries a trusted version, updater 2.14 rejects a mismatch
+with the manifest even with this option off. Selected release, manifest and package
+identity checks remain required for every update.
+
 The private signing key and password belong outside source and reach only the
 explicit signed release build. Updater signatures are separate from Windows
 Authenticode; unsigned installers may still trigger SmartScreen. A compromised key
@@ -88,7 +101,7 @@ Both jobs pin their checkout to the workflow event commit and validate the peele
 tag against it. Collected target metadata carries version/source-commit provenance,
 which the manifest job checks before generating updater metadata. The release job
 also schedules the existing production signature verifier against the collected
-setup before uploading it; this audit has not run that verifier or any workflow.
+setup before uploading it.
 Branch development must stay lightweight and never creates release artifacts.
 Do not create a tag or publish as part of a reliability pass.
 

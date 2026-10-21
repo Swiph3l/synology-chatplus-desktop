@@ -653,8 +653,10 @@ it into a report. Keep authentication in the provider profile.
    existing bytes remain untouched; a unique `(n)` filename is used.
 5. Download an attachment requiring the already-authenticated session; it must work
    without re-entering credentials or moving cookies into a desktop HTTP request.
-6. Confirm default folder and Save As location follow native WebView2 policy. Cancel
-   before/during transfer: cancellation is graceful and another download can start.
+6. Confirm every native download first shows Save As with the suggested filename
+   and folder. Choose another directory and verify the full selected path appears
+   in the shell status/title during transfer and after completion. Cancel before/
+   during transfer: cancellation is graceful and another download can start.
 7. Test failed/expired links, network interruption and retry; native UI exposes the
    error, shell startup failure is generic and no private URL/filename is logged.
 8. Verify inline PDF/image popup preview and use its native download button. The
@@ -662,9 +664,24 @@ it into a report. Keep authentication in the provider profile.
 9. Confirm files are never opened/executed automatically, Windows security warnings
    remain available, and no automatic-download/security protection is bypassed.
 
-The implementation uses DownloadStarting with native handling retained, not a custom
-HTTP downloader. Native dialogs, authenticated transfer and actual Content-Disposition
-resolution have not been manually verified for this revision.
+The implementation defers DownloadStarting, queues an explicit native Save As,
+then retains the browser transfer/download controls. Native dialogs, authenticated
+transfer and actual Content-Disposition resolution have not been manually verified
+for this revision. See [link/download changes](LINKS_DOWNLOADS_2026-10-22.md).
+
+### External-link confirmation
+
+1. Click a normal external HTTP(S) link and a `target=_blank` link. Verify the
+   warning shows the exact URL and destination origin; HTTP has an extra warning.
+2. Cancel, press Escape and close the warning: no browser launch. Open explicitly:
+   the default browser receives that retained URL once. Every later click asks again.
+3. Try a same-origin popup, delayed `window.open()` followed by a location change,
+   and a regular/blob attachment download. The main provider stays available;
+   downloads use Save As, while external navigation asks for confirmation.
+4. Confirm encoded/signed URLs remain intact and credentials, foreign-origin blobs,
+   local files and executable/custom schemes never reach the browser opener.
+5. Disable the external-browser preference or remove the originating service while
+   a warning is open: accepting the stale warning must not open it.
 
 ### Updater and desktop layout
 
