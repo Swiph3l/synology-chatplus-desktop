@@ -593,18 +593,8 @@ pub fn report_activation(app: &tauri::AppHandle, id: &str, identity: &str, gener
         );
         return;
     }
-    if crate::unread::acknowledge_notification_local(app, &context.service, generation).is_err() {
-        notification(
-            app,
-            id,
-            Event::ToastSuppressed,
-            Reason::ActivationUnavailable,
-            generation,
-        );
-        return;
-    }
-    // The provider's own public onclick chooses the originating conversation;
-    // local acknowledgement does not claim a remote/server-side read.
+    // Swiph3l: A toast click only routes the provider's public onclick. It is not
+    // evidence that its message rendered or was read, including on WhatsApp.
     let result = unsafe { context.notification.ReportClicked() };
     if result.is_err() {
         let _ = app.emit_to("main", "notification-issue", ());
@@ -1213,6 +1203,38 @@ pub fn attach(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn toast_lifecycle_routes_without_dispatching_unread_acknowledgements() {
+        // Swiph3l: Keep this boundary check beside the reducer race tests. Native
+        // callbacks need Windows UI/COM to execute, but must never gain a read path.
+        let bridge = include_str!("notification_bridge.rs");
+        let activation = bridge
+            .split_once("pub fn report_activation(")
+            .unwrap()
+            .1
+            .split_once("fn finish_native_notification(")
+            .unwrap()
+            .0;
+        assert!(activation.contains("activate_notification_for"));
+        assert!(activation.contains("ReportClicked"));
+        let desktop = include_str!("desktop_notifications.rs");
+        let native_show = desktop
+            .split_once("fn show(")
+            .unwrap()
+            .1
+            .split_once("#[cfg(not(windows))]")
+            .unwrap()
+            .0;
+        assert!(native_show.contains("on_activated"));
+        assert!(native_show.contains("report_activation"));
+        for lifecycle in [activation, native_show] {
+            assert!(!lifecycle.contains("unread::"));
+            assert!(!lifecycle.contains("__chatplusAcceptRead"));
+            assert!(!lifecycle.contains("__chatplusAcknowledgeAllLocal"));
+        }
+    }
+
     fn whatsapp_permission_settings() -> crate::state::Settings {
         use crate::providers::{NotificationColor, ProviderId, ServiceConfig};
         crate::state::Settings {

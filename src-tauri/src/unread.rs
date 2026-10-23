@@ -113,26 +113,15 @@ struct Tracking {
     evidence_hasher: std::collections::hash_map::RandomState,
     provider_fingerprints: HashMap<String, u64>,
     local_acknowledgements: HashMap<String, Option<u64>>,
-    provider_unread_extents: HashMap<String, ProviderUnreadExtent>,
-}
-#[derive(Default)]
-struct ProviderUnreadExtent {
-    count: Option<u32>,
-    conversations: usize,
-    clicked: u32,
-    fingerprint: Option<u64>,
-    covered_arrivals: Option<HashSet<u64>>,
 }
 #[derive(Default)]
 struct ReadProof {
     through: u64,
     excluded: HashSet<u64>,
-    exact: HashSet<u64>,
 }
 impl ReadProof {
     fn includes(&self, generation: u64) -> bool {
-        self.exact.contains(&generation)
-            || (generation <= self.through && !self.excluded.contains(&generation))
+        generation <= self.through && !self.excluded.contains(&generation)
     }
 }
 pub fn remove(app: &AppHandle, id: &str) {
@@ -146,7 +135,6 @@ pub fn remove(app: &AppHandle, id: &str) {
     tracking.observed_unread_overflow.remove(id);
     tracking.provider_fingerprints.remove(id);
     tracking.local_acknowledgements.remove(id);
-    tracking.provider_unread_extents.remove(id);
     tracking.revision += 1;
     drop(tracking);
     refresh(app);
@@ -331,11 +319,6 @@ fn record_acknowledgement(tracking: &mut Tracking, id: &str) {
     let proof = ReadProof {
         through: tracking.incoming_generations.get(id).copied().unwrap_or(0),
         excluded,
-        exact: tracking
-            .read_generations
-            .get(id)
-            .map(|proof| proof.exact.clone())
-            .unwrap_or_default(),
     };
     tracking.read_generations.insert(id.into(), proof);
 }
@@ -802,9 +785,6 @@ fn record_provider_evidence(
         tracking
             .provider_fingerprints
             .insert(id.into(), fingerprint);
-        if !suppressed {
-            record_provider_extent(tracking, id, count, has_unread, evidence, fingerprint);
-        }
     }
     if !suppressed {
         tracking.local_acknowledgements.remove(id);
@@ -850,159 +830,6 @@ fn record_provider_evidence(
         return true;
     }
     false
-}
-
-fn record_provider_extent(
-    tracking: &mut Tracking,
-    id: &str,
-    count: Option<u32>,
-    has_unread: Option<bool>,
-    evidence: &ProviderEvidence,
-    fingerprint: u64,
-) {
-    if has_unread == Some(false) {
-        tracking.provider_unread_extents.remove(id);
-        return;
-    }
-    let extent = tracking
-        .provider_unread_extents
-        .entry(id.into())
-        .or_default();
-    if extent.fingerprint != Some(fingerprint) {
-        extent.fingerprint = Some(fingerprint);
-        extent.covered_arrivals = None;
-    }
-    if let Some(count) = count {
-        if let Some(previous) = extent.count {
-            // Swiph3l: A provider count decrease may already include a clicked message;
-            // retire that local offset first so it cannot hide another remaining message.
-            extent.clicked = extent
-                .clicked
-                .saturating_sub(previous.saturating_sub(count));
-        }
-        extent.count = Some(count);
-    }
-    if !evidence.conversations.is_empty() {
-        extent.conversations = evidence
-            .conversations
-            .iter()
-            .filter(|conversation| conversation.has_unread == Some(true))
-            .map(|conversation| &conversation.id)
-            .collect::<HashSet<_>>()
-            .len();
-    }
-}
-
-/// The native bridge must first validate its retained event, service config and epoch.
-/// This acknowledges that one local arrival, independently of provider/server read state.
-pub fn acknowledge_notification_local(
-    app: &AppHandle,
-    service: &crate::providers::ServiceConfig,
-    arrival: u64,
-) -> Result<bool, String> {
-    let id = &service.id;
-    let (changed, view) = crate::services::with_configured(app, service, || {
-        if !service.supports_unread() {
-            return Ok((false, None));
-        }
-        let unread = app.state::<Service>();
-        let mut tracking = unread.0.lock().unwrap_or_else(|error| error.into_inner());
-        let changed = acknowledge_notification(&mut tracking, id, arrival, now());
-        drop(tracking);
-        Ok((changed, app.get_webview(&crate::services::label(id))))
-    })?;
-    if changed {
-        // Swiph3l: Keep the originating view handle after releasing the transition
-        // guard. A later label reuse must not receive this session's read projection.
-        if let Some(view) = view {
-            accept_read_in(&view, &[arrival]);
-        }
-        crate::diagnostics::notification(
-            app,
-            id,
-            crate::diagnostics::NotificationEvent::ReadAccepted,
-            crate::diagnostics::NotificationReason::ExplicitLocalAcknowledgement,
-            arrival,
-        );
-        refresh(app);
-    }
-    Ok(changed)
-}
-
-fn acknowledge_notification(tracking: &mut Tracking, id: &str, arrival: u64, at: u64) -> bool {
-    let retained = tracking
-        .observed_unread_arrivals
-        .get(id)
-        .is_some_and(|arrivals| arrivals.contains(&arrival));
-    let pending = tracking
-        .pending_generations
-        .get(id)
-        .is_some_and(|arrivals| arrivals.contains(&arrival));
-    if arrival == 0 || (!retained && !pending) {
-        return false;
-    }
-    let covered_arrivals = tracking
-        .observed_unread_arrivals
-        .get(id)
-        .into_iter()
-        .flatten()
-        .chain(tracking.pending_generations.get(id).into_iter().flatten())
-        .copied()
-        .collect::<HashSet<_>>();
-    if let Some(arrivals) = tracking.observed_unread_arrivals.get_mut(id) {
-        arrivals.remove(&arrival);
-        if arrivals.is_empty() {
-            tracking.observed_unread_arrivals.remove(id);
-        }
-    }
-    finish_event(tracking, id, arrival, true);
-    // Swiph3l: A click is exact local intent even while the provider DOM is unknown.
-    // Never advance the broad read boundary: pending/other-conversation arrivals survive.
-    let proof = tracking.read_generations.entry(id.into()).or_default();
-    proof.exact.insert(arrival);
-    // Swiph3l: Match the bridge's bounded retained activation history; duplicate
-    // browser callbacks never latch a new arrival after their first observation.
-    if proof.exact.len() > READ_ARRIVAL_LIMIT {
-        if let Some(oldest) = proof.exact.iter().min().copied() {
-            proof.exact.remove(&oldest);
-        }
-    }
-    let provider_remaining = tracking
-        .provider_unread_extents
-        .get_mut(id)
-        .is_some_and(|extent| {
-            // Swiph3l: Freeze attribution at this baseline's first click. Later
-            // arrivals cannot spend a stale count that still includes other messages.
-            if extent
-                .covered_arrivals
-                .get_or_insert(covered_arrivals)
-                .remove(&arrival)
-            {
-                extent.clicked = extent.clicked.saturating_add(1);
-            }
-            extent.count.is_some_and(|count| count > extent.clicked)
-                // Swiph3l: Without an exact notification-to-row binding, a click cannot
-                // acknowledge a second provider conversation merely by counting toasts.
-                || extent.conversations > 1
-        });
-    let cleared = native_unread_complete(tracking, id) && !provider_remaining;
-    if cleared {
-        tracking
-            .local_acknowledgements
-            .insert(id.into(), tracking.provider_fingerprints.get(id).copied());
-    }
-    let state = tracking.observations.entry(id.into()).or_default();
-    if cleared {
-        state.has_unread = false;
-        state.certainty = Certainty::Unknown;
-    }
-    state.total_unread_count = None;
-    state.locally_acknowledged = true;
-    state.last_read_evidence = Some(at);
-    state.last_update = Some(at);
-    state.generation += 1;
-    tracking.revision += 1;
-    true
 }
 
 /// Opaque, single-use boundary captured before Discord's public Inbox flow starts.
@@ -1175,9 +1002,6 @@ fn acknowledge_inbox_baseline(
         .get(id)
         .is_some_and(|state| state.certainty == Certainty::KnownRead);
     let acknowledge_provider = same_provider || provider_read;
-    if acknowledge_provider {
-        tracking.provider_unread_extents.remove(id);
-    }
     let cleared = acknowledge_provider && native_unread_complete(tracking, id);
     if cleared && same_provider && provider_fingerprint.is_some() {
         tracking
@@ -1250,10 +1074,8 @@ fn acknowledge_all(tracking: &mut Tracking, id: &str, at: u64) -> (u64, Vec<u64>
         ReadProof {
             through,
             excluded: HashSet::new(),
-            exact: HashSet::new(),
         },
     );
-    tracking.provider_unread_extents.remove(id);
     tracking
         .local_acknowledgements
         .insert(id.into(), tracking.provider_fingerprints.get(id).copied());
@@ -1425,6 +1247,128 @@ mod tests {
     use super::*;
 
     #[test]
+    fn toast_related_focus_and_badge_changes_do_not_acknowledge_any_provider_arrival() {
+        use crate::providers::ProviderId;
+        for (provider, source) in [
+            (ProviderId::SynologyChatplus, Source::ChatPlusDom),
+            (ProviderId::SynologyChat, Source::SynologyChatDom),
+            (ProviderId::Discord, Source::DiscordDom),
+            (ProviderId::Whatsapp, Source::WhatsappDom),
+            (ProviderId::Messenger, Source::MessengerDom),
+        ] {
+            assert!(source.accepts(provider));
+            let mut tracking = Tracking::default();
+            let clicked = begin_event(&mut tracking, "work", true, None);
+            latch_arrival(&mut tracking, "work", clicked, 1);
+            let other_conversation = begin_event(&mut tracking, "work", true, None);
+            latch_arrival(&mut tracking, "work", other_conversation, 2);
+            let other_instance = begin_event(&mut tracking, "personal", true, None);
+            latch_arrival(&mut tracking, "personal", other_instance, 3);
+            finish_event(&mut tracking, "work", clicked, true);
+            finish_event(&mut tracking, "work", other_conversation, true);
+
+            for event in ["toast-click", "toast-dismissal", "focus"] {
+                let foreground = event != "toast-dismissal";
+                tracking.foreground_service = foreground.then(|| "work".into());
+                tracking.presentation_generation += 1;
+                // Swiph3l: Routing/focus can remove a provider badge before a read
+                // gesture. Neither that zero nor a late view query proves a read.
+                let result = observe_provider(
+                    &mut tracking,
+                    "work",
+                    false,
+                    foreground,
+                    None,
+                    &[],
+                    false,
+                    4,
+                );
+                assert!(result.accepted.is_empty(), "{provider:?}/{event}");
+                assert!(!result.changed, "{provider:?}/{event}");
+                assert!(!observe_browser_event(
+                    &mut tracking,
+                    "work",
+                    true,
+                    5,
+                    true,
+                    clicked,
+                ));
+                assert!(
+                    tracking.observations["work"].has_unread,
+                    "{provider:?}/{event}"
+                );
+                assert!(tracking.observations["personal"].has_unread);
+                assert_eq!(tracking.observed_unread_arrivals["work"].len(), 2);
+                assert!(tracking.observed_unread_arrivals["personal"].contains(&other_instance));
+                assert!(!tracking.read_generations.contains_key("work"));
+            }
+            let newer = begin_event(&mut tracking, "work", true, None);
+            latch_arrival(&mut tracking, "work", newer, 6);
+            assert!(tracking.observed_unread_arrivals["work"].contains(&newer));
+            assert!(tracking.observations["personal"].has_unread);
+        }
+    }
+
+    #[test]
+    fn actual_current_provider_read_proof_after_routing_retires_only_its_exact_message() {
+        let mut tracking = Tracking {
+            foreground_service: Some("discord-work".into()),
+            presentation_generation: 4,
+            ..Default::default()
+        };
+        let current = begin_event(&mut tracking, "discord-work", true, None);
+        latch_arrival(&mut tracking, "discord-work", current, 1);
+        let other_conversation = begin_event(&mut tracking, "discord-work", true, None);
+        latch_arrival(&mut tracking, "discord-work", other_conversation, 2);
+        let other_instance = begin_event(&mut tracking, "discord-personal", true, None);
+        latch_arrival(&mut tracking, "discord-personal", other_instance, 3);
+        finish_event(&mut tracking, "discord-work", current, true);
+        finish_event(&mut tracking, "discord-work", other_conversation, true);
+
+        let focus_only = observe_provider(
+            &mut tracking,
+            "discord-work",
+            false,
+            true,
+            None,
+            &[],
+            false,
+            4,
+        );
+        assert!(focus_only.accepted.is_empty());
+        assert!(tracking.observed_unread_arrivals["discord-work"].contains(&current));
+        let proof = observe_provider(
+            &mut tracking,
+            "discord-work",
+            false,
+            true,
+            Some(4),
+            &[current],
+            false,
+            5,
+        );
+        assert_eq!(proof.accepted, [current]);
+        assert!(tracking.read_generations["discord-work"].includes(current));
+        assert!(!tracking.read_generations["discord-work"].includes(other_conversation));
+        assert!(!tracking.read_generations["discord-work"].includes(other_instance));
+        assert!(tracking.observations["discord-work"].has_unread);
+        assert!(tracking.observations["discord-personal"].has_unread);
+        assert_eq!(tracking.observed_unread_arrivals["discord-work"].len(), 1);
+        assert!(!observe_browser_event(
+            &mut tracking,
+            "discord-work",
+            false,
+            6,
+            true,
+            current,
+        ));
+        let newer = begin_event(&mut tracking, "discord-work", true, None);
+        latch_arrival(&mut tracking, "discord-work", newer, 7);
+        assert!(tracking.observed_unread_arrivals["discord-work"].contains(&newer));
+        assert!(tracking.observations["discord-personal"].has_unread);
+    }
+
+    #[test]
     fn inbox_completion_acknowledges_its_baseline_but_keeps_new_arrivals_and_other_instances() {
         let mut tracking = Tracking::default();
         tracking.provider_fingerprints.insert("work".into(), 10);
@@ -1511,20 +1455,29 @@ mod tests {
 
     #[test]
     fn inbox_completion_preserves_later_read_proof_and_excludes_new_unread_queries() {
-        let mut tracking = Tracking::default();
+        let mut tracking = Tracking {
+            foreground_service: Some("discord".into()),
+            presentation_generation: 3,
+            ..Default::default()
+        };
         let old = begin_event(&mut tracking, "discord", true, None);
         latch_arrival(&mut tracking, "discord", old, 1);
         let later_read = begin_event(&mut tracking, "discord", true, None);
         latch_arrival(&mut tracking, "discord", later_read, 2);
         let pending = begin_event(&mut tracking, "discord", true, None);
         latch_arrival(&mut tracking, "discord", pending, 3);
-        assert!(acknowledge_notification(
+        finish_event(&mut tracking, "discord", later_read, true);
+        let read = observe_provider(
             &mut tracking,
             "discord",
-            later_read,
-            4
-        ));
-        record_acknowledgement(&mut tracking, "discord");
+            true,
+            true,
+            Some(3),
+            &[later_read],
+            true,
+            4,
+        );
+        assert_eq!(read.accepted, [later_read]);
         assert_eq!(tracking.read_generations["discord"].through, pending);
 
         assert_eq!(
@@ -1654,431 +1607,6 @@ mod tests {
             None
         );
         assert!(tracking.observations.is_empty());
-    }
-
-    #[test]
-    fn toast_click_is_exact_local_intent_when_provider_dom_is_unknown() {
-        let mut tracking = Tracking::default();
-        let arrival = begin_event(&mut tracking, "whatsapp-work", true, None);
-        latch_arrival(&mut tracking, "whatsapp-work", arrival, 1);
-        finish_event(&mut tracking, "whatsapp-work", arrival, true);
-        let other = begin_event(&mut tracking, "whatsapp-personal", true, None);
-        latch_arrival(&mut tracking, "whatsapp-personal", other, 2);
-
-        assert!(acknowledge_notification(
-            &mut tracking,
-            "whatsapp-work",
-            arrival,
-            3
-        ));
-        assert!(!tracking.observations["whatsapp-work"].has_unread);
-        assert_eq!(
-            tracking.observations["whatsapp-work"].certainty,
-            Certainty::Unknown
-        );
-        assert!(tracking.observations["whatsapp-work"].locally_acknowledged);
-        assert!(tracking.observations["whatsapp-personal"].has_unread);
-        assert!(tracking.read_generations["whatsapp-work"].includes(arrival));
-        assert!(!tracking.read_generations["whatsapp-work"].includes(other));
-
-        let newer = begin_event(&mut tracking, "whatsapp-work", true, None);
-        latch_arrival(&mut tracking, "whatsapp-work", newer, 4);
-        assert!(!acknowledge_notification(
-            &mut tracking,
-            "whatsapp-work",
-            arrival,
-            5
-        ));
-        assert!(tracking.observations["whatsapp-work"].has_unread);
-        assert!(tracking.observed_unread_arrivals["whatsapp-work"].contains(&newer));
-        assert!(!tracking.read_generations["whatsapp-work"].includes(newer));
-    }
-
-    #[test]
-    fn single_provider_badge_before_its_browser_arrival_does_not_make_the_click_stick() {
-        let mut tracking = Tracking::default();
-        let evidence = ProviderEvidence {
-            revision: Some(1),
-            certainty: Certainty::KnownUnread,
-            ..Default::default()
-        };
-        observe(&mut tracking.observations, "discord", true, false, 1);
-        record_provider_evidence(
-            &mut tracking,
-            "discord",
-            Some(1),
-            Some(true),
-            &evidence,
-            1,
-            false,
-        );
-        let arrival = begin_event(&mut tracking, "discord", true, None);
-        latch_arrival(&mut tracking, "discord", arrival, 2);
-        finish_event(&mut tracking, "discord", arrival, true);
-
-        assert!(acknowledge_notification(
-            &mut tracking,
-            "discord",
-            arrival,
-            3
-        ));
-        assert!(!tracking.observations["discord"].has_unread);
-        assert!(same_local_acknowledgement(
-            &tracking,
-            "discord",
-            Some(1),
-            Some(true),
-            &evidence
-        ));
-        assert!(!observe_browser_event(
-            &mut tracking,
-            "discord",
-            false,
-            4,
-            true,
-            arrival
-        ));
-        assert!(!tracking.observations["discord"].has_unread);
-    }
-
-    #[test]
-    fn clicking_a_later_toast_cannot_acknowledge_an_earlier_pending_conversation() {
-        let mut tracking = Tracking::default();
-        let earlier = begin_event(&mut tracking, "messenger", true, None);
-        latch_arrival(&mut tracking, "messenger", earlier, 1);
-        let later = begin_event(&mut tracking, "messenger", true, None);
-        latch_arrival(&mut tracking, "messenger", later, 2);
-        finish_event(&mut tracking, "messenger", later, true);
-
-        assert!(acknowledge_notification(
-            &mut tracking,
-            "messenger",
-            later,
-            3
-        ));
-        assert!(tracking.observations["messenger"].has_unread);
-        assert!(tracking.pending_generations["messenger"].contains(&earlier));
-        assert!(!tracking.read_generations["messenger"].includes(earlier));
-        assert!(tracking.read_generations["messenger"].includes(later));
-        observe_browser_event(&mut tracking, "messenger", false, 4, true, earlier);
-        assert!(tracking.observed_unread_arrivals["messenger"].contains(&earlier));
-        assert!(acknowledge_notification(
-            &mut tracking,
-            "messenger",
-            earlier,
-            5
-        ));
-        assert!(!tracking.observations["messenger"].has_unread);
-        assert!(!observe_browser_event(
-            &mut tracking,
-            "messenger",
-            false,
-            6,
-            true,
-            later
-        ));
-        assert!(!tracking.observations["messenger"].has_unread);
-    }
-
-    #[test]
-    fn a_click_overtaking_a_query_preserves_new_arrivals_and_survives_provider_read_proofs() {
-        let mut tracking = Tracking {
-            foreground_service: Some("origin".into()),
-            presentation_generation: 3,
-            ..Default::default()
-        };
-        let clicked = begin_event(&mut tracking, "origin", true, None);
-        latch_arrival(&mut tracking, "origin", clicked, 1);
-        assert!(acknowledge_notification(
-            &mut tracking,
-            "origin",
-            clicked,
-            2
-        ));
-        let newer = begin_event(&mut tracking, "origin", true, None);
-        latch_arrival(&mut tracking, "origin", newer, 3);
-        let proof = observe_provider(
-            &mut tracking,
-            "origin",
-            true,
-            true,
-            Some(3),
-            &[clicked],
-            true,
-            4,
-        );
-        assert_eq!(proof.accepted, [clicked]);
-        assert!(tracking.read_generations["origin"].includes(clicked));
-        assert!(!tracking.read_generations["origin"].includes(newer));
-        assert!(!observe_browser_event(
-            &mut tracking,
-            "origin",
-            false,
-            5,
-            true,
-            clicked
-        ));
-        assert!(tracking.observations["origin"].has_unread);
-        assert!(tracking.pending_generations["origin"].contains(&newer));
-        assert!(tracking.observed_unread_arrivals["origin"].contains(&newer));
-    }
-
-    #[test]
-    fn a_toast_click_preserves_provider_count_beyond_retained_browser_arrivals() {
-        let mut tracking = Tracking::default();
-        let evidence = ProviderEvidence {
-            certainty: Certainty::KnownUnread,
-            ..Default::default()
-        };
-        record_provider_evidence(
-            &mut tracking,
-            "discord",
-            Some(2),
-            Some(true),
-            &evidence,
-            1,
-            false,
-        );
-        let arrival = begin_event(&mut tracking, "discord", true, None);
-        latch_arrival(&mut tracking, "discord", arrival, 2);
-        finish_event(&mut tracking, "discord", arrival, true);
-        assert!(acknowledge_notification(
-            &mut tracking,
-            "discord",
-            arrival,
-            3
-        ));
-        assert!(tracking.observations["discord"].has_unread);
-        assert!(!tracking.local_acknowledgements.contains_key("discord"));
-    }
-
-    #[test]
-    fn separate_exact_clicks_can_acknowledge_two_counted_messages_without_a_global_clear() {
-        let mut tracking = Tracking::default();
-        let evidence = ProviderEvidence {
-            certainty: Certainty::KnownUnread,
-            ..Default::default()
-        };
-        record_provider_evidence(
-            &mut tracking,
-            "discord",
-            Some(2),
-            Some(true),
-            &evidence,
-            1,
-            false,
-        );
-        let first = begin_event(&mut tracking, "discord", true, None);
-        latch_arrival(&mut tracking, "discord", first, 2);
-        finish_event(&mut tracking, "discord", first, true);
-        let second = begin_event(&mut tracking, "discord", true, None);
-        latch_arrival(&mut tracking, "discord", second, 3);
-        finish_event(&mut tracking, "discord", second, true);
-        assert!(acknowledge_notification(&mut tracking, "discord", first, 4));
-        assert!(tracking.observations["discord"].has_unread);
-        record_provider_evidence(
-            &mut tracking,
-            "discord",
-            Some(2),
-            Some(true),
-            &evidence,
-            5,
-            false,
-        );
-        assert!(acknowledge_notification(
-            &mut tracking,
-            "discord",
-            second,
-            6
-        ));
-        assert!(!tracking.observations["discord"].has_unread);
-    }
-
-    #[test]
-    fn provider_count_decrease_retires_local_offsets_before_the_next_message_click() {
-        let mut tracking = Tracking::default();
-        let evidence = ProviderEvidence {
-            certainty: Certainty::KnownUnread,
-            ..Default::default()
-        };
-        record_provider_evidence(
-            &mut tracking,
-            "discord",
-            Some(3),
-            Some(true),
-            &evidence,
-            1,
-            false,
-        );
-        let first = begin_event(&mut tracking, "discord", true, None);
-        latch_arrival(&mut tracking, "discord", first, 2);
-        finish_event(&mut tracking, "discord", first, true);
-        assert!(acknowledge_notification(&mut tracking, "discord", first, 3));
-        record_provider_evidence(
-            &mut tracking,
-            "discord",
-            Some(2),
-            Some(true),
-            &evidence,
-            4,
-            false,
-        );
-        let second = begin_event(&mut tracking, "discord", true, None);
-        latch_arrival(&mut tracking, "discord", second, 5);
-        finish_event(&mut tracking, "discord", second, true);
-        assert!(acknowledge_notification(
-            &mut tracking,
-            "discord",
-            second,
-            6
-        ));
-        assert!(
-            tracking.observations["discord"].has_unread,
-            "a count drop may already have removed the first clicked message"
-        );
-    }
-
-    #[test]
-    fn newer_arrival_clicks_cannot_spend_a_stale_provider_count_for_other_messages() {
-        let mut tracking = Tracking::default();
-        let evidence = ProviderEvidence {
-            certainty: Certainty::KnownUnread,
-            revision: Some(1),
-            ..Default::default()
-        };
-        observe(&mut tracking.observations, "discord", true, false, 1);
-        record_provider_evidence(
-            &mut tracking,
-            "discord",
-            Some(3),
-            Some(true),
-            &evidence,
-            1,
-            false,
-        );
-        let first = begin_event(&mut tracking, "discord", true, None);
-        latch_arrival(&mut tracking, "discord", first, 2);
-        finish_event(&mut tracking, "discord", first, true);
-        assert!(acknowledge_notification(&mut tracking, "discord", first, 3));
-
-        for revision in [2, 3] {
-            let newer = begin_event(&mut tracking, "discord", true, None);
-            latch_arrival(&mut tracking, "discord", newer, 4);
-            finish_event(&mut tracking, "discord", newer, true);
-            let repeated = ProviderEvidence {
-                revision: Some(revision),
-                certainty: Certainty::KnownUnread,
-                ..Default::default()
-            };
-            record_provider_evidence(
-                &mut tracking,
-                "discord",
-                Some(3),
-                Some(true),
-                &repeated,
-                5,
-                false,
-            );
-            assert!(acknowledge_notification(&mut tracking, "discord", newer, 6));
-            assert!(tracking.observations["discord"].has_unread);
-        }
-        assert_eq!(tracking.provider_unread_extents["discord"].clicked, 1);
-        assert!(native_unread_complete(&tracking, "discord"));
-    }
-
-    #[test]
-    fn a_provider_snapshot_after_its_native_arrival_still_allows_a_single_exact_click() {
-        let mut tracking = Tracking::default();
-        let arrival = begin_event(&mut tracking, "discord", true, None);
-        latch_arrival(&mut tracking, "discord", arrival, 1);
-        finish_event(&mut tracking, "discord", arrival, true);
-        let evidence = ProviderEvidence {
-            certainty: Certainty::KnownUnread,
-            ..Default::default()
-        };
-        record_provider_evidence(
-            &mut tracking,
-            "discord",
-            Some(1),
-            Some(true),
-            &evidence,
-            2,
-            false,
-        );
-        assert!(acknowledge_notification(
-            &mut tracking,
-            "discord",
-            arrival,
-            3
-        ));
-        assert!(!tracking.observations["discord"].has_unread);
-    }
-
-    #[test]
-    fn a_toast_click_cannot_discard_known_other_provider_conversations() {
-        let mut tracking = Tracking::default();
-        let evidence = ProviderEvidence {
-            certainty: Certainty::KnownUnread,
-            conversations: ["dm-a", "dm-b"]
-                .into_iter()
-                .map(|id| ConversationObservation {
-                    id: id.into(),
-                    has_unread: Some(true),
-                    count: None,
-                })
-                .collect(),
-            ..Default::default()
-        };
-        observe(&mut tracking.observations, "discord", true, false, 1);
-        record_provider_evidence(
-            &mut tracking,
-            "discord",
-            None,
-            Some(true),
-            &evidence,
-            1,
-            false,
-        );
-        let arrival = begin_event(&mut tracking, "discord", true, None);
-        latch_arrival(&mut tracking, "discord", arrival, 2);
-        finish_event(&mut tracking, "discord", arrival, true);
-        assert!(acknowledge_notification(
-            &mut tracking,
-            "discord",
-            arrival,
-            3
-        ));
-        assert!(tracking.observations["discord"].has_unread);
-        assert_eq!(tracking.observations["discord"].conversations.len(), 2);
-    }
-
-    #[test]
-    fn a_click_requires_a_retained_arrival_owned_by_that_service_and_keeps_overflow_unknown() {
-        let mut tracking = Tracking::default();
-        let other = begin_event(&mut tracking, "other", true, None);
-        latch_arrival(&mut tracking, "other", other, 1);
-        let mut first = 0;
-        for _ in 0..=READ_ARRIVAL_LIMIT {
-            let arrival = begin_event(&mut tracking, "origin", true, None);
-            if first == 0 {
-                first = arrival;
-            }
-            latch_arrival(&mut tracking, "origin", arrival, 2);
-            finish_event(&mut tracking, "origin", arrival, true);
-        }
-        assert!(!acknowledge_notification(&mut tracking, "origin", other, 3));
-        assert!(!acknowledge_notification(
-            &mut tracking,
-            "removed",
-            first,
-            3
-        ));
-        assert!(!acknowledge_notification(&mut tracking, "origin", 0, 3));
-        assert!(acknowledge_notification(&mut tracking, "origin", first, 3));
-        assert!(tracking.observations["origin"].has_unread);
-        assert!(tracking.observed_unread_overflow.contains("origin"));
-        assert!(tracking.observations["other"].has_unread);
-        assert!(!tracking.read_generations["origin"].includes(other));
     }
 
     #[test]

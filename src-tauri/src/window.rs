@@ -53,8 +53,8 @@ pub fn focus(window: &tauri::Window) -> tauri::Result<()> {
 }
 
 pub fn activate_notification(app: &AppHandle, service_id: Option<&str>) -> Result<(), String> {
-    // Swiph3l: Restoring/focusing alone never acknowledges a message; the
-    // notification bridge separately validates an explicit clicked arrival.
+    // Swiph3l: Restoring/focusing and toast clicks never acknowledge a message;
+    // only provider/view proof or an explicit supported read action can do so.
     open(app)?;
     let settings = state::current(app);
     if let Some(id) = notification_destination(&settings, service_id) {

@@ -76,7 +76,7 @@ a current proven provider zero can recover saturation without clearing a newer
 pending arrival. Missing/ambiguous provider zero is never
 guessed, so incomplete provider navigation can still retain a dot.
 
-Selection, restore, child focus, header/sidebar clicks, synthetic
+Selection, restore, child focus, toast activation/dismissal, header/sidebar clicks, synthetic
 input, stale generations, unrelated conversation activity and background badge
 disappearance do not acknowledge unread. A send action cannot clear another unread
 conversation/service. Child-document blur/focus and visibility loss revoke old
@@ -139,7 +139,7 @@ WhatsApp uses the official `web.whatsapp.com` session with a separate profile pe
 stable service ID. It never scrapes contacts/phone numbers or uses private APIs.
 Unread badge absence never establishes account-wide zero, including filtered,
 archived, collapsed and virtualized lists. A validated toast click selects the correct
-instance and acknowledges its exact local arrival without guessing a chat; authenticated originating
+instance without acknowledging unread or guessing a chat; authenticated originating
 chat routing and remote read UI semantics remain unverified. See the
 [WhatsApp audit](WHATSAPP_2026-10-22.md) for evidence and remaining QA.
 
@@ -246,16 +246,16 @@ implicit `Mark all as read` action.
 
 Activation uses the existing process and main window, shows it if hidden, unminimizes,
 brings it foreground/focuses it and selects the originating enabled service. It never
-creates another window/process. A validated retained toast click acknowledges that
-exact local arrival, preserving other arrivals and provider evidence of other unread
-conversations. A new arrival restores unread. Dismissal, timeout and ordinary window
-activation do not acknowledge messages. After restore,
+creates another window/process. Clicking a toast, dismissing it, letting it time out
+or restoring a window never acknowledges unread. The clicked arrival and unrelated
+messages remain unread until the normal provider/view proof or an explicit supported
+read action is accepted. After restore,
 the retained originating WebView notification receives `ReportClicked` on its COM
 apartment, allowing the provider's own click handler to route the conversation.
 No route is guessed from tags/titles. The bounded activation history retains 256
 contexts; evicted or replaced-source contexts are ignored without opening another
-account or changing unread. Acknowledgement is local and does not claim a server-side
-read. Closed-process activation still
+account or changing unread. Calling the provider's click handler is routing, not
+evidence that a message was read. Closed-process activation still
 requires Windows acceptance; this change handles the running application.
 
 ## Privacy-safe diagnostics
