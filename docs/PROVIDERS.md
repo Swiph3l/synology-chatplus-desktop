@@ -15,7 +15,7 @@ Web UI and may have account, browser or server-version compatibility limits.
 | Synology ChatPlus | Primary      | Aggregate DOM                            | Yes                          | Yes            |
 | Synology Chat     | Experimental | Aggregate DOM                            | Yes                          | No             |
 | Discord           | Experimental | DM-scoped DOM; exact identity for toasts | Yes                          | No             |
-| WhatsApp          | Experimental | Positive badges only; otherwise unknown  | Yes                          | No             |
+| WhatsApp          | Experimental | Official notification-attention counter  | Yes                          | No             |
 | Messenger         | Experimental | Browser notification arrivals only       | Yes                          | No             |
 | Slack             | Experimental | Unavailable                              | No                           | No             |
 | Mattermost        | Experimental | Browser arrivals; verified server zero   | Yes                          | No             |
@@ -159,19 +159,25 @@ retained; no user-agent spoof, pairing/session interception or custom credential
 storage is implemented. Each instance has its own linked-device profile. ChatPlus
 does not control the browser name shown by WhatsApp on a phone.
 
-The dedicated adapter reads only existing `icon-unread-count` / `unread-count`
-badge metadata inside visible chat-list rows. Arbitrary contact, preview, action
-and photo labels are not inspected, even if their text resembles an unread badge.
-Visible badge counts are not promoted to an account total. Missing badges or
-filtered, archived, collapsed and virtualized lists remain unknown, never a global
-zero.
+The indicator follows WhatsApp's own notification-attention counter in its
+canonical publisher title. It has the explicit `notification-attention` scope:
+WhatsApp excludes some muted, archived, locked and otherwise hidden chats from
+that counter. Zero means no attention in this scope, not that all account
+messages have been read. A recognized zero can clear the indicator after reading
+on another device or opening the conversation through WhatsApp's own sidebar.
+Unknown titles, incomplete or missing authenticated UI and loading screens retain
+the previous known attention state. Contact, preview and photo labels are not
+inspected; visible row positions and bare message IDs are not treated as chat
+identities.
 
 There is no reliable privacy-safe current-chat/message mapping. Current read,
 provider-wide read-all and exact foreground suppression are unavailable. **Mark all
 as read (local)** explicitly clears only that instance's ChatPlus unread state;
 it does not read WhatsApp messages on the server. Later arrivals or changed
-provider evidence can restore unread. Native browser events provide notification
-content; DOM observations do not scrape messages or fabricate toasts. Activation
+provider attention evidence can restore the indicator. Native browser events
+provide notification content and rearm local acknowledgement on new events, but
+do not independently own this indicator. DOM observations do not scrape messages
+or fabricate toasts. Activation
 selects the correct instance and may invoke the provider's own retained click
 handler without guessing a conversation URL or acknowledging unread.
 The integration remains Experimental. ChatPlus Desktop is independent of WhatsApp

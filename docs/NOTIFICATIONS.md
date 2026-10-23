@@ -38,13 +38,15 @@ The Windows path is:
 
 ```text
 browser Notification -> validated WebView2 event -> exact event deduplication
-  -> native unread latch -> shared presentation -> native toast policy
+  -> arrival barrier and provider unread policy -> native toast policy
 ```
 
 Source validation binds the event to an enabled configured service, exact origin
 and live bridge session. Distinct arrivals revoke earlier gestures and advance
 arrival state before toast policy runs. DOM unread changes never create message
-payloads or synthetic toasts.
+payloads or synthetic toasts. Discord and WhatsApp browser events do not latch
+their indicators: their separate scoped observations own that state. Shared
+presentation derives from the resulting native unread snapshot.
 
 Read and suppression context requires the main window to be visible, focused and
 not minimized, with the originating service selected. Child focus or public
@@ -237,6 +239,19 @@ messages, not a universal event category. Unknown events remain eligible rather
 than discarding real DMs based on titles, sidebar badges or selected routes.
 
 WhatsApp has no exact chat/message correlation for foreground suppression.
+Its indicator instead follows the official notification-attention counter,
+using a dedicated WhatsApp-only scope. A counter zero clears that indicator even
+in the background, including after a phone read; it does not acknowledge server
+messages or establish account-wide read certainty. WhatsApp may omit muted,
+archived, locked and hidden conversations from this counter. Browser events still
+deliver banners but cannot independently latch its indicator. Local **Mark all
+as read** suppresses the current attention baseline; a new native event rearms
+fresh counter observation even when the numeric counter has not changed.
+Unavailable or unsupported counter metadata preserves the last known state.
+Every counter packet carries a document nonce and revision. Native rechecks the
+current document, configured instance, bridge and incoming boundary before using
+it, so an old page or delayed packet cannot clear a newer observation.
+
 Messenger browser events come from the whole Facebook origin and may include
 non-messaging notifications; provider-side categories remain authoritative. See
 [Provider adapter contracts](PROVIDERS.md#adapter-contracts).

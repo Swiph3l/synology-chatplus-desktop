@@ -1,52 +1,7 @@
-import { visibleElement } from "./dom";
+import { readWhatsAppAttention } from "./whatsapp-attention";
 import { probeWhatsAppReadStructure } from "./whatsapp-read-probe";
 import type { ProviderUnreadAdapter } from "./types";
 import type { ProviderHostWindow } from "../provider-unread";
-
-const listSelector = '#pane-side [role="grid"], #pane-side [role="list"]';
-const badgeSelector =
-  '[data-testid="icon-unread-count"], [data-testid="unread-count"], [data-icon="unread-count"]';
-
-// Swiph3l: Inspect accessibility metadata only on dedicated unread badge elements.
-// Arbitrary row labels can be contact names or previews, even when their text
-// happens to say "2 unread messages". Never inspect those labels or QR/session data.
-const unreadLabels = [
-  /^unread messages?$/i,
-  /^nieprzeczytan\p{L}* wiadomo\p{L}*$/iu,
-  /^mensajes? (?:no le[ií]dos?|sin leer)$/i,
-  /^ungelesene? nachrichten?$/i,
-  /^messages? non lus?$/i,
-  /^未読(?:の)?メッセージ(?:\s*件)?$/,
-  /^(?:則)?未讀(?:訊息|消息)$/,
-];
-
-function positiveUnreadLabel(label: string): boolean {
-  const numbers = label.match(/[0-9]+/g);
-  if (numbers && !numbers.some((number) => Number(number) > 0)) return false;
-  const semantic = label
-    .replace(/[0-9]+\+?/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  return unreadLabels.some((pattern) => pattern.test(semantic));
-}
-
-function visible(document: Document, element: Element): boolean {
-  return (
-    !element.closest('[aria-hidden="true"]') &&
-    visibleElement(document, element)
-  );
-}
-
-function unreadBadge(row: Element, document: Document): boolean {
-  for (const badge of row.querySelectorAll(badgeSelector)) {
-    if (!visible(document, badge)) continue;
-    const count = badge.textContent?.trim() ?? "";
-    if (/^[1-9][0-9]*\+?$/.test(count)) return true;
-    const label = badge.getAttribute("aria-label") ?? "";
-    if (positiveUnreadLabel(label)) return true;
-  }
-  return false;
-}
 
 export function createWhatsAppAdapter(
   document: Document,
@@ -63,6 +18,7 @@ export function createWhatsAppAdapter(
   let tagReceivedAt = 0;
   let pendingProbe: number | null = null;
   let lastProbe: string | null = null;
+  let sawPositiveAttention = false;
   const cancelProbe = () => {
     if (pendingProbe !== null) view?.clearTimeout(pendingProbe);
     pendingProbe = null;
@@ -117,29 +73,27 @@ export function createWhatsAppAdapter(
   };
   return {
     source: "whatsapp-dom",
+    // Swiph3l: WhatsApp owns this scoped counter. Browser events still deliver
+    // banners, but cannot latch an unrelated all-chat unread dot behind it.
+    tracksNotificationArrivals: false,
     snapshot() {
       scheduleProbe();
-      const lists = [...document.querySelectorAll(listSelector)].filter(
-        (list) => visible(document, list),
-      );
-      const positive = lists.some((list) =>
-        [...list.querySelectorAll('[role="row"], [role="listitem"]')].some(
-          (row) => visible(document, row) && unreadBadge(row, document),
-        ),
-      );
-      // Swiph3l: WhatsApp lists may be virtualized, filtered, archived or collapsed. Even
-      // aria-rowcount cannot prove the entire account has zero unread. Visible
-      // row counts are lower bounds, so never present their sum as a total.
+      // Swiph3l: A later publisher zero may reflect reading on the phone while
+      // Web stays on its home screen. Keep initial-zero readiness stricter, but
+      // do not require an open message pane after a ready positive was observed.
+      const attention = readWhatsAppAttention(document, {
+        allowReadyZeroAfterPositive: sawPositiveAttention,
+      });
+      if (attention.hasUnread === true) sawPositiveAttention = true;
       return {
-        hasUnread: positive ? true : null,
-        count: null,
+        ...attention,
         conversations: [],
         currentConversation: null,
       };
     },
     providerUnreadZero: () => false,
-    // Swiph3l: No authenticated, privacy-safe current-chat/message identity has been
-    // verified. Focus, selected rows and title text cannot acknowledge reads.
+    // Swiph3l: Attention zero is not a current-chat/message or all-chat read proof.
+    // Keep these capabilities unavailable; only the explicitly scoped counter changes.
     readContext: () => null,
     contentContext: () => null,
     interactionContext: () => null,
@@ -174,18 +128,21 @@ export function createWhatsAppAdapter(
         attributes: true,
         attributeFilter: [
           "role",
-          "aria-label",
           "aria-hidden",
+          "aria-busy",
           "data-testid",
-          "data-icon",
+          "data-id",
           "hidden",
           "style",
           "class",
-          ...(diagnostics ? ["aria-selected", "data-id", "id"] : []),
+          "id",
+          "lang",
+          ...(diagnostics ? ["aria-selected", "data-icon"] : []),
         ],
       });
       return () => {
         disposed = true;
+        sawPositiveAttention = false;
         tag = null;
         cancelProbe();
         observer?.disconnect();

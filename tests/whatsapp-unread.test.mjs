@@ -13,10 +13,11 @@ const { createWhatsAppAdapter } = await import(
   `data:text/javascript;base64,${Buffer.from(built.outputFiles[0].text).toString("base64")}`
 );
 
-function fixture(content = "", listAttributes = "") {
+function fixture(content = "", listAttributes = "", title = "") {
   const { window, document } = parseHTML(
-    `<html><body><div id="pane-side"><div role="grid" ${listAttributes}>${content}</div></div><div id="main" role="main"><div contenteditable="true"></div></div></body></html>`,
+    `<html lang="en"><head><title></title></head><body><div id="pane-side"><div role="grid" ${listAttributes}>${content}</div></div><div id="main" role="main"><div data-id="ABCDEF1234567890" data-testid="conv-msg-ABCDEF1234567890"></div><div contenteditable="true"></div></div></body></html>`,
   );
+  document.title = title;
   window.getComputedStyle = (node) => ({
     display: node.style.display || "block",
     visibility: node.style.visibility || "visible",
@@ -28,7 +29,10 @@ function fixture(content = "", listAttributes = "") {
   return { window, document, adapter: createWhatsAppAdapter(document) };
 }
 
-test("WhatsApp dedicated UI badges provide positive unread evidence without inventing aggregate message counts", () => {
+// Swiph3l: This is an explicit product-scope change. Dedicated badges remain real
+// per-row evidence, but must no longer latch the notification-attention counter.
+// The canonical publisher count now owns the dot and its scoped count value.
+test("WhatsApp notification-attention counter owns the dot independently of formerly observed row badges", () => {
   for (const badge of [
     '<span data-testid="icon-unread-count">4</span>',
     '<span data-testid="unread-count">99+</span>',
@@ -42,19 +46,27 @@ test("WhatsApp dedicated UI badges provide positive unread evidence without inve
     '<span data-testid="unread-count" aria-label="未読メッセージ 2 件"></span>',
     '<span data-testid="unread-count" aria-label="2 則未讀訊息"></span>',
   ]) {
-    const f = fixture(`<div role="row">${badge}</div>`);
+    const f = fixture(`<div role="row">${badge}</div>`, "", "(4) WhatsApp");
     assert.equal(f.adapter.source, "whatsapp-dom");
+    assert.equal(f.adapter.tracksNotificationArrivals, false);
     assert.equal(f.adapter.snapshot().hasUnread, true, badge);
     assert.equal(
       f.adapter.snapshot().count,
-      null,
-      "a visible row count is not an account total",
+      4,
+      "the value is the canonical attention count, never the row badge sum",
     );
+    assert.equal(f.adapter.snapshot().unreadScope, "notification-attention");
     assert.equal(f.adapter.providerUnreadZero(), false);
+    f.document.title = "WhatsApp";
+    assert.equal(
+      f.adapter.snapshot().hasUnread,
+      false,
+      "muted/archived or otherwise excluded row badges do not own attention",
+    );
   }
 });
 
-test("WhatsApp absent, filtered, archived, collapsed or virtualized DOM always remains unknown instead of global read", () => {
+test("WhatsApp partial row DOM without a canonical attention counter remains unknown instead of global read", () => {
   for (const [rows, attributes] of [
     ["", ""],
     ['<div role="row" aria-posinset="1">Chat</div>', 'aria-rowcount="100"'],
@@ -112,6 +124,7 @@ test("WhatsApp contact names and previews that resemble unread labels remain unk
     assert.deepEqual(f.adapter.snapshot(), {
       hasUnread: null,
       count: null,
+      unreadScope: "notification-attention",
       conversations: [],
       currentConversation: null,
     });
@@ -140,6 +153,8 @@ test("WhatsApp contact names and previews that resemble unread labels remain unk
 test("WhatsApp current chat cannot be acknowledged from selection, focus, interaction or ambiguous notification tags", () => {
   const f = fixture(
     '<div role="row" aria-selected="true"><span data-testid="unread-count">4</span></div>',
+    "",
+    "(4) WhatsApp",
   );
   assert.equal(f.adapter.readContext(), null);
   assert.equal(f.adapter.contentContext(), null);
@@ -159,6 +174,7 @@ test("WhatsApp observations follow replaced chat lists and stop cleanly", async 
   const stop = f.adapter.observe(() => changes++);
   f.document.getElementById("pane-side").innerHTML =
     '<div role="list"><div role="listitem"><span data-testid="unread-count">3</span></div></div>';
+  f.document.title = "(3) WhatsApp";
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.ok(changes > 0);
   assert.equal(f.adapter.snapshot().hasUnread, true);
@@ -169,9 +185,65 @@ test("WhatsApp observations follow replaced chat lists and stop cleanly", async 
   assert.equal(changes, 0);
 });
 
+test("WhatsApp title-only attention changes are observed in background without reading pane input", async () => {
+  const f = fixture('<div role="row"></div>', "", "(2) WhatsApp");
+  Object.defineProperties(f.document, {
+    visibilityState: { value: "hidden" },
+    hasFocus: {
+      value() {
+        throw new Error("scoped provider attention does not require focus");
+      },
+    },
+  });
+  let changes = 0;
+  const stop = f.adapter.observe(() => changes++);
+  assert.equal(f.adapter.snapshot().hasUnread, true);
+  f.document.title = "WhatsApp";
+  await new Promise(setImmediate);
+  assert.ok(
+    changes > 0,
+    "counter changes cannot depend on chat-list mutations",
+  );
+  assert.deepEqual(f.adapter.snapshot(), {
+    hasUnread: false,
+    count: null,
+    unreadScope: "notification-attention",
+    conversations: [],
+    currentConversation: null,
+  });
+  f.document.title = "";
+  assert.equal(f.adapter.snapshot().hasUnread, null);
+  stop();
+});
+
+test("WhatsApp ready positive-to-zero mirrors phone reads while its web view stays on home", async () => {
+  const f = fixture('<div role="row"></div>', "", "(2) WhatsApp");
+  f.document.getElementById("main").remove();
+  Object.defineProperty(f.document, "visibilityState", { value: "hidden" });
+  let changes = 0;
+  const stop = f.adapter.observe(() => changes++);
+  assert.equal(f.adapter.snapshot().hasUnread, true);
+  f.document.title = "WhatsApp";
+  await new Promise(setImmediate);
+  assert.ok(changes > 0);
+  assert.equal(f.adapter.snapshot().hasUnread, false);
+  const initial = fixture('<div role="row"></div>', "", "WhatsApp");
+  initial.document.getElementById("main").remove();
+  assert.equal(
+    initial.adapter.snapshot().hasUnread,
+    null,
+    "another document cannot borrow the established counter history",
+  );
+  f.document.getElementById("pane-side").remove();
+  assert.equal(f.adapter.snapshot().hasUnread, null);
+  stop();
+});
+
 test("two WhatsApp renderer adapters keep observations isolated", () => {
   const a = fixture(
     '<div role="row"><span data-testid="unread-count">4</span></div>',
+    "",
+    "(4) WhatsApp",
   );
   const b = fixture('<div role="row">Read chat</div>');
   assert.equal(a.adapter.snapshot().hasUnread, true);

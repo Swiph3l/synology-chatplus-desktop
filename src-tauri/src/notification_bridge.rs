@@ -738,6 +738,17 @@ thread_local! {
     // apartment. Toast callbacks carry a native identity, never a provider URL.
     static NOTIFICATION_ACTIVATIONS: std::cell::RefCell<std::collections::VecDeque<NotificationActivation>> = std::cell::RefCell::new(std::collections::VecDeque::new());
     static ACTIVATION_FOCUS: std::cell::RefCell<PendingQueries<NotificationActivation>> = std::cell::RefCell::new(PendingQueries::default());
+    static ATTENTION_QUERIES: std::cell::RefCell<PendingQueries<AttentionQueryContext>> = std::cell::RefCell::new(PendingQueries::default());
+}
+
+#[cfg(windows)]
+struct AttentionQueryContext {
+    core: webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2,
+    service: crate::providers::ServiceConfig,
+    bridge: u64,
+    query: crate::unread::AttentionQuery,
+    observation: UnreadObservation,
+    completed: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 #[cfg(windows)]
@@ -752,7 +763,7 @@ struct NotificationActivation {
 }
 
 #[cfg(windows)]
-fn current_bridge(app: &tauri::AppHandle, id: &str, bridge_id: u64) -> bool {
+pub(crate) fn current_bridge(app: &tauri::AppHandle, id: &str, bridge_id: u64) -> bool {
     app.state::<crate::desktop_notifications::Service>()
         .0
         .lock()
@@ -760,6 +771,187 @@ fn current_bridge(app: &tauri::AppHandle, id: &str, bridge_id: u64) -> bool {
         .bridges
         .get(id)
         .is_some_and(|(current, _)| *current == bridge_id)
+}
+
+#[cfg(windows)]
+fn query_attention_epoch(
+    app: &tauri::AppHandle,
+    service: &crate::providers::ServiceConfig,
+    bridge: u64,
+    core: &webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2,
+    observation: UnreadObservation,
+) {
+    let Some(query) = crate::unread::begin_attention_query(
+        app,
+        &service.id,
+        observation.known.then_some(observation.has_unread),
+    ) else {
+        return;
+    };
+    start_attention_query(
+        app,
+        AttentionQueryContext {
+            core: core.clone(),
+            service: service.clone(),
+            bridge,
+            query,
+            observation,
+            completed: Default::default(),
+        },
+    );
+}
+
+#[cfg(windows)]
+fn retain_attention_query(
+    mut pending: AttentionQueryContext,
+) -> Option<(u64, std::sync::Arc<std::sync::atomic::AtomicBool>)> {
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+    pending.completed = Arc::new(AtomicBool::new(false));
+    let completed = pending.completed.clone();
+    let token = ATTENTION_QUERIES.with(|queries| {
+        let mut queries = queries.borrow_mut();
+        queries.values.retain(|_, previous| {
+            if previous.service.id == pending.service.id {
+                previous.completed.store(true, Ordering::Release);
+                false
+            } else {
+                true
+            }
+        });
+        if queries.values.len() >= EVENT_HISTORY_LIMIT {
+            return None;
+        }
+        Some(queries.insert(pending))
+    });
+    token.map(|token| (token, completed))
+}
+
+#[cfg(windows)]
+fn start_attention_query(app: &tauri::AppHandle, pending: AttentionQueryContext) {
+    use std::sync::atomic::Ordering;
+    use windows::core::w;
+    let Some(remaining) =
+        crate::unread::attention_query_remaining_for(app, &pending.service.id, &pending.query)
+    else {
+        return;
+    };
+    if !crate::services::configured(app, &pending.service)
+        || !current_bridge(app, &pending.service.id, pending.bridge)
+    {
+        return;
+    }
+    let core = pending.core.clone();
+    let Some((token, completed)) = retain_attention_query(pending) else {
+        return;
+    };
+    let timer_app = app.clone();
+    let timer_completed = completed.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(remaining.min(std::time::Duration::from_secs(2))).await;
+        if timer_completed.load(Ordering::Acquire) {
+            return;
+        }
+        let dispatcher = timer_app.clone();
+        let _ = dispatcher
+            .run_on_main_thread(move || finish_attention_query(&timer_app, token, false, "null"));
+    });
+    let callback_app = app.clone();
+    // Swiph3l: Bridge IDs last for a WebView, while renderer revisions restart on
+    // reload. Query only the current document's opaque nonce before accepting its
+    // attention projection; no provider stores, title or page data are inspected.
+    let result = unsafe {
+        core.ExecuteScript(
+        w!("typeof window.__chatplusUnreadObservationEpoch === 'string' ? window.__chatplusUnreadObservationEpoch : null"),
+        &webview2_com::ExecuteScriptCompletedHandler::create(Box::new(move |status, value| {
+            finish_attention_query(&callback_app, token, status.is_ok(), &value);
+            Ok(())
+        })),
+    )
+    };
+    if result.is_err() {
+        finish_attention_query(app, token, false, "null");
+    }
+}
+
+#[cfg(windows)]
+fn retry_attention_query(app: &tauri::AppHandle, pending: AttentionQueryContext) {
+    let Some(remaining) =
+        crate::unread::attention_query_remaining_for(app, &pending.service.id, &pending.query)
+    else {
+        return;
+    };
+    let Some((token, completed)) = retain_attention_query(pending) else {
+        return;
+    };
+    let handle = app.clone();
+    // Swiph3l: Worker-origin dispatch is a real delay; run_on_main_thread alone
+    // may execute inline. Retained COM stays on its original UI apartment.
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(remaining.min(std::time::Duration::from_millis(50))).await;
+        if completed.load(std::sync::atomic::Ordering::Acquire) {
+            return;
+        }
+        let dispatcher = handle.clone();
+        let _ = dispatcher.run_on_main_thread(move || {
+            if let Some(pending) =
+                ATTENTION_QUERIES.with(|queries| queries.borrow_mut().take(token))
+            {
+                pending
+                    .completed
+                    .store(true, std::sync::atomic::Ordering::Release);
+                // Reuses the original native ticket and checks the current epoch
+                // again; a newer observation/navigation cannot be overwritten.
+                start_attention_query(&handle, pending);
+            }
+        });
+    });
+}
+
+#[cfg(windows)]
+fn finish_attention_query(app: &tauri::AppHandle, token: u64, succeeded: bool, value: &str) {
+    use webview2_com::CoTaskMemPWSTR;
+    use windows::core::PWSTR;
+    let Some(pending) = ATTENTION_QUERIES.with(|queries| queries.borrow_mut().take(token)) else {
+        return;
+    };
+    pending
+        .completed
+        .store(true, std::sync::atomic::Ordering::Release);
+    if !succeeded {
+        return;
+    }
+    let Some(epoch) =
+        verified_observation_epoch(pending.observation.attention_epoch.as_deref(), value)
+    else {
+        return;
+    };
+    if !current_bridge(app, &pending.service.id, pending.bridge) {
+        return;
+    }
+    let mut source = PWSTR::null();
+    if unsafe { pending.core.Source(&mut source) }.is_err() {
+        return;
+    }
+    let source = CoTaskMemPWSTR::from(source).to_string();
+    if !trusted_origin(&pending.service.url, &source) {
+        return;
+    }
+    let result = crate::unread::publish_attention_for(
+        app,
+        &pending.service,
+        pending.bridge,
+        &pending.query,
+        &epoch,
+        pending.observation.evidence.revision.unwrap(),
+        Some(pending.observation.has_unread),
+        pending.observation.count,
+    );
+    if result == crate::unread::AttentionPublication::Retry {
+        retry_attention_query(app, pending);
+    }
 }
 
 #[cfg(windows)]
@@ -1132,7 +1324,7 @@ pub fn attach(
         let unread_app = app.clone();
         let unread_service = service.clone();
         let unread_registration = core.add_WebMessageReceived(
-            &webview2_com::WebMessageReceivedEventHandler::create(Box::new(move |_, args| {
+            &webview2_com::WebMessageReceivedEventHandler::create(Box::new(move |sender, args| {
                 let Some(args) = args else { return Ok(()) };
                 let mut source = PWSTR::null();
                 args.Source(&mut source)?;
@@ -1163,6 +1355,12 @@ pub fn attach(
                         return Ok(());
                     }
                     if let Some(unread) = parse_unread(&json) {
+                        if unread.attention_epoch.is_some() {
+                            if let Some(core) = sender {
+                                query_attention_epoch(&unread_app, &unread_service, bridge_id, &core, unread);
+                            }
+                            return Ok(());
+                        }
                         crate::unread::publish_for(
                             &unread_app,
                             &unread_service.id,
@@ -1425,6 +1623,7 @@ struct UnreadObservation {
     proof_only: bool,
     provider_zero: bool,
     conversation_read: bool,
+    attention_epoch: Option<String>,
     evidence: crate::unread::ProviderEvidence,
 }
 
@@ -1704,6 +1903,7 @@ fn parse_unread(json: &str) -> Option<UnreadObservation> {
         read_scope: Option<String>,
         unread_scope: Option<String>,
         unattributed_unread: Option<bool>,
+        observation_epoch: Option<String>,
     }
 
     // Swiph3l: Up to 256 u64 read proofs can exceed the old tiny badge payload;
@@ -1713,6 +1913,61 @@ fn parse_unread(json: &str) -> Option<UnreadObservation> {
     }
     let value: Message = serde_json::from_str(json).ok()?;
     if value.chatplus_unread != 1 {
+        return None;
+    }
+    if value.unread_scope.as_deref() == Some("notification-attention") {
+        let raw = serde_json::from_str::<serde_json::Value>(json).ok()?;
+        let allowed = [
+            "chatplusUnread",
+            "source",
+            "unreadScope",
+            "hasUnread",
+            "count",
+            "certainty",
+            "providerRevision",
+            "observationEpoch",
+            "reason",
+        ];
+        if value.source.as_deref() != Some("whatsapp-dom")
+            || raw
+                .as_object()?
+                .keys()
+                .any(|key| !allowed.contains(&key.as_str()))
+            || !raw.as_object()?.contains_key("hasUnread")
+            || value.certainty != Some(crate::unread::Certainty::Unknown)
+            || !value
+                .provider_revision
+                .is_some_and(|revision| revision > 0 && revision <= 9_007_199_254_740_991)
+            || !value
+                .observation_epoch
+                .as_deref()
+                .is_some_and(valid_observation_epoch)
+            || value
+                .count
+                .is_some_and(|count| count == 0 || value.has_unread != Some(true))
+        {
+            return None;
+        }
+        return Some(UnreadObservation {
+            has_unread: value.has_unread.unwrap_or(false),
+            known: value.has_unread.is_some(),
+            count: value.count,
+            source: crate::unread::Source::WhatsappDom,
+            reason: "notification-attention".into(),
+            acknowledgement: None,
+            read_arrivals: Vec::new(),
+            proof_only: false,
+            provider_zero: false,
+            conversation_read: false,
+            attention_epoch: value.observation_epoch,
+            evidence: crate::unread::ProviderEvidence {
+                revision: value.provider_revision,
+                certainty: crate::unread::Certainty::Unknown,
+                ..Default::default()
+            },
+        });
+    }
+    if value.source.as_deref() == Some("whatsapp-dom") || value.observation_epoch.is_some() {
         return None;
     }
     let mut proofs = std::collections::HashSet::new();
@@ -1869,6 +2124,7 @@ fn parse_unread(json: &str) -> Option<UnreadObservation> {
         proof_only: value.proof_only,
         provider_zero,
         conversation_read,
+        attention_epoch: None,
         evidence: crate::unread::ProviderEvidence {
             revision: value.provider_revision,
             certainty,
@@ -1877,6 +2133,25 @@ fn parse_unread(json: &str) -> Option<UnreadObservation> {
             unattributed_unread: value.unattributed_unread,
         },
     })
+}
+
+fn valid_observation_epoch(epoch: &str) -> bool {
+    epoch.len() == 36
+        && epoch.bytes().enumerate().all(|(index, byte)| {
+            if [8, 13, 18, 23].contains(&index) {
+                byte == b'-'
+            } else {
+                byte.is_ascii_hexdigit()
+            }
+        })
+}
+
+fn verified_observation_epoch(expected: Option<&str>, json: &str) -> Option<String> {
+    if json.len() > 128 {
+        return None;
+    }
+    let epoch = serde_json::from_str::<String>(json).ok()?;
+    (valid_observation_epoch(&epoch) && expected == Some(epoch.as_str())).then_some(epoch)
 }
 #[cfg(not(windows))]
 pub fn attach(
@@ -1890,6 +2165,132 @@ pub fn attach(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn whatsapp_attention_packet() -> serde_json::Value {
+        serde_json::json!({
+            "chatplusUnread": 1, "source": "whatsapp-dom",
+            "unreadScope": "notification-attention", "hasUnread": true,
+            "count": 3, "certainty": "unknown", "providerRevision": 1,
+            "observationEpoch": "12345678-1234-4234-8234-123456789abc"
+        })
+    }
+
+    #[test]
+    fn whatsapp_attention_is_known_scoped_counter_state_without_global_read_certainty() {
+        for observed in [Some(true), Some(false), None] {
+            let mut value = whatsapp_attention_packet();
+            value["hasUnread"] = serde_json::to_value(observed).unwrap();
+            value["count"] = if observed == Some(true) {
+                3.into()
+            } else {
+                serde_json::Value::Null
+            };
+            let parsed = parse_unread(&value.to_string()).unwrap();
+            assert_eq!(parsed.source, crate::unread::Source::WhatsappDom);
+            assert_eq!(parsed.known, observed.is_some());
+            assert_eq!(parsed.has_unread, observed.unwrap_or(false));
+            assert_eq!(parsed.evidence.certainty, crate::unread::Certainty::Unknown);
+            assert!(parsed.attention_epoch.is_some());
+            assert!(!parsed.provider_zero);
+            assert!(!parsed.conversation_read);
+            assert!(parsed.acknowledgement.is_none());
+            assert!(parsed.read_arrivals.is_empty());
+        }
+    }
+
+    #[test]
+    fn whatsapp_attention_rejects_other_sources_legacy_unscoped_state_and_read_metadata() {
+        for source in [
+            "discord-dom",
+            "chatplus-dom",
+            "synology-chat-dom",
+            "messenger-dom",
+            "mattermost-dom",
+            "unknown",
+        ] {
+            let mut value = whatsapp_attention_packet();
+            value["source"] = source.into();
+            assert!(parse_unread(&value.to_string()).is_none(), "{source}");
+        }
+        for (field, forbidden) in [
+            ("acknowledgement", serde_json::json!(null)),
+            ("readArrivals", serde_json::json!([])),
+            ("proofOnly", serde_json::json!(false)),
+            ("readScope", serde_json::json!("provider-zero")),
+            ("currentConversation", serde_json::json!(null)),
+            ("conversations", serde_json::json!([])),
+            ("unattributedUnread", serde_json::json!(false)),
+            ("unread", serde_json::json!(true)),
+            ("privateUnexpectedField", serde_json::json!("private")),
+        ] {
+            let mut value = whatsapp_attention_packet();
+            value[field] = forbidden;
+            assert!(parse_unread(&value.to_string()).is_none(), "{field}");
+        }
+        let mut value = whatsapp_attention_packet();
+        value.as_object_mut().unwrap().remove("unreadScope");
+        assert!(parse_unread(&value.to_string()).is_none());
+    }
+
+    #[test]
+    fn whatsapp_attention_requires_bounded_revision_epoch_and_consistent_counter() {
+        for revision in [
+            serde_json::json!(0),
+            serde_json::json!(9_007_199_254_740_992_u64),
+            serde_json::json!(null),
+        ] {
+            let mut value = whatsapp_attention_packet();
+            value["providerRevision"] = revision;
+            assert!(parse_unread(&value.to_string()).is_none());
+        }
+        for epoch in [
+            serde_json::json!(null),
+            serde_json::json!("contact-name"),
+            serde_json::json!("12345678-1234-4234-8234-123456789abc-private"),
+        ] {
+            let mut value = whatsapp_attention_packet();
+            value["observationEpoch"] = epoch;
+            assert!(parse_unread(&value.to_string()).is_none());
+        }
+        for certainty in ["known-read", "known-unread"] {
+            let mut value = whatsapp_attention_packet();
+            value["certainty"] = certainty.into();
+            assert!(parse_unread(&value.to_string()).is_none());
+        }
+        for observed in [Some(false), None] {
+            let mut value = whatsapp_attention_packet();
+            value["hasUnread"] = serde_json::to_value(observed).unwrap();
+            assert!(
+                parse_unread(&value.to_string()).is_none(),
+                "positive count cannot accompany false/unknown"
+            );
+        }
+        let mut value = whatsapp_attention_packet();
+        value["count"] = 0.into();
+        assert!(parse_unread(&value.to_string()).is_none());
+    }
+
+    #[test]
+    fn attention_document_epoch_results_must_match_the_current_document_exactly() {
+        let expected = "12345678-1234-4234-8234-123456789abc";
+        assert_eq!(
+            verified_observation_epoch(Some(expected), &serde_json::to_string(expected).unwrap())
+                .as_deref(),
+            Some(expected)
+        );
+        for result in [
+            "null",
+            "false",
+            "{}",
+            "\"different document\"",
+            "\"22345678-1234-4234-8234-123456789abc\"",
+        ] {
+            assert!(verified_observation_epoch(Some(expected), result).is_none());
+        }
+        assert!(
+            verified_observation_epoch(None, &serde_json::to_string(expected).unwrap()).is_none()
+        );
+    }
 
     #[test]
     fn whatsapp_structure_probe_accepts_only_fixed_metadata_for_its_own_source() {
@@ -2411,7 +2812,7 @@ mod tests {
     }
     #[test]
     fn scoped_provider_evidence_preserves_unknown_and_explicit_reliable_counts() {
-        let unknown = parse_unread(r#"{"chatplusUnread":1,"hasUnread":null,"certainty":"unknown","source":"whatsapp-dom","providerRevision":4,"currentConversation":"runtime-chat-1"}"#).unwrap();
+        let unknown = parse_unread(r#"{"chatplusUnread":1,"hasUnread":null,"certainty":"unknown","source":"messenger-dom","providerRevision":4,"currentConversation":"runtime-chat-1"}"#).unwrap();
         assert!(!unknown.known);
         assert_eq!(
             unknown.evidence.certainty,
@@ -2421,10 +2822,10 @@ mod tests {
         let unknown_proof = parse_unread(r#"{"chatplusUnread":1,"hasUnread":false,"certainty":"unknown","proofOnly":true,"acknowledgement":7,"readArrivals":[1]}"#).unwrap();
         assert!(!unknown_proof.known);
         assert!(unknown_proof.proof_only);
-        let known = parse_unread(r#"{"chatplusUnread":1,"hasUnread":true,"certainty":"known-unread","source":"whatsapp-dom","count":3,"conversations":[{"id":"runtime-chat-1","hasUnread":true,"count":3}]}"#).unwrap();
+        let known = parse_unread(r#"{"chatplusUnread":1,"hasUnread":true,"certainty":"known-unread","source":"messenger-dom","count":3,"conversations":[{"id":"runtime-chat-1","hasUnread":true,"count":3}]}"#).unwrap();
         assert!(known.known);
         assert_eq!(known.count, Some(3));
-        assert_eq!(known.source, crate::unread::Source::WhatsappDom);
+        assert_eq!(known.source, crate::unread::Source::MessengerDom);
         assert_eq!(known.evidence.conversations.len(), 1);
         for invalid in [
             r#"{"chatplusUnread":1,"hasUnread":null}"#,
@@ -2599,6 +3000,12 @@ mod tests {
             if source == "discord-dom" {
                 value["unreadScope"] = "direct-messages".into();
             }
+            if source == "whatsapp-dom" {
+                value["unreadScope"] = "notification-attention".into();
+                value["certainty"] = "unknown".into();
+                value["providerRevision"] = 1.into();
+                value["observationEpoch"] = "12345678-1234-4234-8234-123456789abc".into();
+            }
             let json = value.to_string();
             assert_eq!(
                 parse_unread(&json).map(|value| value.source),
@@ -2653,6 +3060,8 @@ mod tests {
                 }
                 let valid = if source == "discord-dom" {
                     scope == Some("direct-messages")
+                } else if source == "whatsapp-dom" {
+                    false
                 } else {
                     scope.is_none()
                 };

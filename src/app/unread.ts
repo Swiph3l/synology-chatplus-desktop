@@ -14,6 +14,7 @@ export interface ServiceUnreadState {
     count: number | null;
   }>;
   locallyAcknowledged?: boolean;
+  unreadScope?: "notification-attention" | null;
 }
 
 export interface UnreadSnapshot {

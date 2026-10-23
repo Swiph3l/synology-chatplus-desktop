@@ -6,6 +6,7 @@ import type {
 import { currentReadArrivals, readCapabilities } from "./providers/read";
 
 export interface ProviderHostWindow {
+  readonly __chatplusUnreadObservationEpoch?: string;
   __chatplusSetForeground?: (
     foreground: boolean,
     generation: number,
@@ -35,6 +36,7 @@ export function installUnreadAdapter(
   host: ProviderHostWindow,
 ) {
   let lastKey: string | undefined;
+  let lastAttentionKey: string | undefined;
   let lastConversationReadKey: string | undefined;
   let lastDiagnosticKey: string | undefined;
   let duplicateDiagnosticKey: string | undefined;
@@ -73,6 +75,23 @@ export function installUnreadAdapter(
   const unseenArrivals = new Map<number, ProviderNotification | null>();
   const acceptedArrivals = new Set<number>();
   let arrivalOverflow = false;
+  let observationEpoch: string | null = null;
+  if (adapter.source === "whatsapp-dom") {
+    try {
+      const epoch = globalThis.crypto?.randomUUID();
+      if (epoch) {
+        // Swiph3l: Native checks this document-owned nonce before accepting a
+        // counter snapshot; delayed packets from a replaced document stay stale.
+        Object.defineProperty(host, "__chatplusUnreadObservationEpoch", {
+          get: () => epoch,
+          configurable: false,
+        });
+        observationEpoch = epoch;
+      }
+    } catch {
+      // Without a document identity, retain unknown rather than weaken ordering.
+    }
+  }
   const revokeRead = () => {
     interaction = null;
     interactionContent = null;
@@ -240,6 +259,27 @@ export function installUnreadAdapter(
     if (sent) lastConversationReadKey = key;
     return sent;
   };
+  const publishAttention = (state: ProviderUnreadSnapshot) => {
+    if (observationEpoch === null) return;
+    const key = `${providerRevision}:${incomingSequence}:${state.hasUnread === null ? "unknown" : Number(state.hasUnread)}:${state.count ?? "dot"}`;
+    if (key === lastAttentionKey) return;
+    // Swiph3l: WhatsApp's own notification counter has a narrower scope than
+    // all chats. Its zero is attention state, never a message-read proof.
+    if (
+      post({
+        chatplusUnread: 1,
+        source: adapter.source,
+        unreadScope: "notification-attention",
+        hasUnread: state.hasUnread,
+        count: state.count,
+        certainty: "unknown",
+        providerRevision,
+        observationEpoch,
+        reason: "notification-attention",
+      })
+    )
+      lastAttentionKey = key;
+  };
   const report = () => {
     scheduled = false;
     if (disposed) return;
@@ -249,6 +289,14 @@ export function installUnreadAdapter(
       diagnostic("detected", "provider-observation");
       if (diagnostic("normalized", "provider-observation"))
         lastDiagnosticKey = diagnosticKey;
+    }
+    if (
+      adapter.source === "whatsapp-dom" &&
+      state.unreadScope === "notification-attention"
+    ) {
+      revokeRead();
+      publishAttention(state);
+      return;
     }
     if (!visible()) revokeRead();
     if (state.hasUnread === true) {
@@ -431,6 +479,12 @@ export function installUnreadAdapter(
     }
     if (newArrival) {
       incomingSequence = nextIncoming;
+      if (adapter.source === "whatsapp-dom") {
+        // Swiph3l: A new event can follow a local Read all without changing the
+        // official counter. Repost fresh scoped evidence, not the old suppression.
+        providerRevision += 1;
+        lastAttentionKey = undefined;
+      }
       if (adapter.tracksNotificationArrivals !== false)
         retain(nextIncoming, null);
     }
@@ -556,6 +610,11 @@ export function installUnreadAdapter(
         // Swiph3l: A notification query can beat its queued native projection;
         // revoke prior input here too so an old gesture cannot read a new event.
         revokeRead();
+        if (adapter.source === "whatsapp-dom") {
+          providerRevision += 1;
+          lastAttentionKey = undefined;
+          schedule();
+        }
       }
       incomingSequence = Math.max(incomingSequence, arrival!);
       if (adapter.tracksNotificationArrivals !== false)

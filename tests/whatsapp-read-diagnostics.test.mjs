@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { build } from "esbuild";
 import { parseHTML } from "linkedom";
 import { runInNewContext } from "node:vm";
+import { randomUUID } from "node:crypto";
 
 const built = await build({
   stdin: {
@@ -89,6 +90,7 @@ function fixture(enabled = true, install = false) {
     };
   }
   const context = {
+    crypto: { randomUUID },
     Event,
     KeyboardEvent: class {},
     queueMicrotask,
@@ -246,7 +248,13 @@ test("actual host retains background WhatsApp notification metadata without trea
   assert.ok(
     f.messages
       .filter((row) => row.chatplusUnread === 1)
-      .every((row) => row.acknowledgement === null),
+      .every(
+        (row) =>
+          row.unreadScope === "notification-attention" &&
+          row.certainty === "unknown" &&
+          !("acknowledgement" in row) &&
+          !("readArrivals" in row),
+      ),
   );
   assert.doesNotMatch(
     JSON.stringify(

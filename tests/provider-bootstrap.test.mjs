@@ -4,6 +4,7 @@ import { build } from "esbuild";
 import { parseHTML } from "linkedom";
 import { runInNewContext } from "node:vm";
 import { bridgeMessages } from "./helpers/bridge-messages.mjs";
+import { randomUUID } from "node:crypto";
 
 const built = await build({
   entryPoints: ["src/theme/unread.ts"],
@@ -12,7 +13,7 @@ const built = await build({
   format: "iife",
 });
 
-function fixture(provider, frame = false) {
+function fixture(provider, frame = false, title) {
   const { window: dom, document } = parseHTML(`<html><body class="eos-scope">
     <div><div id="sidebar-tab-item-messages"><span data-testid="tab-item-indicator"></span></div></div>
     <div class="syno-chat"><div class="channel-list-main"><div class="channel-list-view"><div class="channel-list-item highlight"></div></div></div></div>
@@ -43,6 +44,7 @@ function fixture(provider, frame = false) {
     },
   };
   host.top = frame ? {} : host;
+  if (provider === "whatsapp") document.title = title ?? "(2) WhatsApp";
   document.hasFocus = () => true;
   dom.HTMLElement.prototype.getBoundingClientRect = () => ({
     width: 300,
@@ -55,6 +57,7 @@ function fixture(provider, frame = false) {
     document,
     Event: dom.Event,
     KeyboardEvent: class {},
+    crypto: { randomUUID },
     queueMicrotask: (callback) => tasks.push(callback),
   });
   while (tasks.length) tasks.shift()();
@@ -77,7 +80,12 @@ for (const [provider, source] of [
       f.messages[0].hasUnread,
       ["messenger", "mattermost"].includes(provider) ? null : true,
     );
-    assert.equal(f.messages[0].acknowledgement, null);
+    if (provider === "whatsapp") {
+      assert.equal(f.messages[0].unreadScope, "notification-attention");
+      assert.equal(f.messages[0].certainty, "unknown");
+      assert.equal("acknowledgement" in f.messages[0], false);
+      assert.equal(f.messages[0].count, 2);
+    } else assert.equal(f.messages[0].acknowledgement, null);
     if (provider === "discord")
       assert.equal(f.messages[0].unreadScope, "direct-messages");
     assert.equal(typeof f.host.__chatplusSetForeground, "function");
@@ -85,6 +93,12 @@ for (const [provider, source] of [
     assert.equal(f.document.querySelector("#chatplus-desktop-theme"), null);
   });
 }
+
+test("WhatsApp bootstrap cannot replace an unavailable official counter with a visible row badge", () => {
+  const f = fixture("whatsapp", false, "Unavailable publisher title");
+  assert.equal(f.messages[0].hasUnread, null);
+  assert.equal(f.messages[0].unreadScope, "notification-attention");
+});
 
 test("unsupported providers and frames cannot install a different provider's unread adapter", () => {
   for (const provider of ["slack", "unknown", "constructor"]) {

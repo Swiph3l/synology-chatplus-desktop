@@ -4,7 +4,7 @@ use std::{
     collections::{HashMap, HashSet},
     hash::{BuildHasher, Hash, Hasher},
     sync::Mutex,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager};
 pub(crate) const READ_ARRIVAL_LIMIT: usize = 256;
@@ -87,6 +87,7 @@ pub struct Unread {
     pub last_update: Option<u64>,
     pub generation: u64,
     pub source: Option<&'static str>,
+    pub unread_scope: Option<&'static str>,
     pub last_arrival: Option<u64>,
     pub last_read_evidence: Option<u64>,
     pub certainty: Certainty,
@@ -123,6 +124,22 @@ struct Tracking {
     evidence_hasher: std::collections::hash_map::RandomState,
     provider_fingerprints: HashMap<String, u64>,
     local_acknowledgements: HashMap<String, Option<u64>>,
+    attention_query_sequence: u64,
+    attention_queries: HashMap<String, u64>,
+    attention_revisions: HashMap<String, (String, u64)>,
+}
+
+pub(crate) struct AttentionQuery {
+    sequence: u64,
+    incoming: u64,
+    started: Instant,
+}
+
+#[cfg(any(windows, test))]
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum AttentionPublication {
+    Complete,
+    Retry,
 }
 #[derive(Default)]
 struct ReadProof {
@@ -148,6 +165,8 @@ pub fn remove(app: &AppHandle, id: &str) {
     tracking.provider_unread_unattributed.remove(id);
     tracking.provider_fingerprints.remove(id);
     tracking.local_acknowledgements.remove(id);
+    tracking.attention_queries.remove(id);
+    tracking.attention_revisions.remove(id);
     tracking.revision += 1;
     drop(tracking);
     refresh(app);
@@ -181,12 +200,19 @@ pub fn snapshot(app: &AppHandle) -> Snapshot {
 pub fn invalidate_presentation(app: &AppHandle, id: &str) {
     let service = app.state::<Service>();
     let mut tracking = service.0.lock().unwrap_or_else(|e| e.into_inner());
+    invalidate_attention(&mut tracking, id);
     if tracking.foreground_service.as_deref() == Some(id) {
         // Swiph3l: Navigation can deliver queued messages from the old document; its interaction generation must not acknowledge the new page.
         tracking.foreground_service = None;
         tracking.presentation_generation += 1;
         tracking.visibility_generation += 1;
     }
+}
+
+fn invalidate_attention(tracking: &mut Tracking, id: &str) {
+    // Swiph3l: A same-origin reload can begin after nonce evaluation but before
+    // its callback. Reject that old query even for a background service.
+    tracking.attention_queries.remove(id);
 }
 
 pub fn sync_presentation(app: &AppHandle) {
@@ -242,7 +268,13 @@ pub fn begin_incoming_for(
     first_observation: bool,
     previous_generation: Option<u64>,
 ) -> IncomingGeneration {
-    let tracks_unread = browser_arrivals_tracked(&crate::state::current(app), id);
+    let settings = crate::state::current(app);
+    let tracks_unread = browser_arrivals_tracked(&settings, id);
+    let attention = settings.services.iter().any(|service| {
+        service.id == id
+            && service.enabled
+            && service.provider == crate::providers::ProviderId::Whatsapp
+    });
     let service = app.state::<Service>();
     let mut tracking = service.0.lock().unwrap_or_else(|e| e.into_inner());
     let (generation, changed) = begin_browser_event(
@@ -253,6 +285,9 @@ pub fn begin_incoming_for(
         now(),
         tracks_unread,
     );
+    if attention && first_observation {
+        rearm_attention(&mut tracking, id);
+    }
     drop(tracking);
     if first_observation {
         crate::diagnostics::notification(
@@ -281,7 +316,7 @@ pub fn begin_incoming_for(
         refresh(app);
     }
     // Background arrivals still advance the gesture barrier; notification-only
-    // Discord events do not own pending unread or retain unread renderer tags.
+    // Discord/WhatsApp events do not own pending unread or retain renderer tags.
     if first_observation {
         sync_presentation(app);
     }
@@ -289,9 +324,229 @@ pub fn begin_incoming_for(
 }
 
 pub(crate) fn provider_tracks_browser_arrivals(provider: crate::providers::ProviderId) -> bool {
-    // Swiph3l: Discord browser notifications also include servers and other events.
-    // Only the dedicated public DM DOM can establish its DM-scoped unread dot.
-    provider != crate::providers::ProviderId::Discord
+    // Swiph3l: Discord's dot follows DM evidence; WhatsApp mirrors its official
+    // attention counter. Browser events deliver banners, not either unread scope.
+    !matches!(
+        provider,
+        crate::providers::ProviderId::Discord | crate::providers::ProviderId::Whatsapp
+    )
+}
+
+fn rearm_attention(tracking: &mut Tracking, id: &str) {
+    // A new event removes the explicit local override, but only a fresh official
+    // counter observation may restore the attention dot.
+    tracking.local_acknowledgements.remove(id);
+}
+
+fn begin_attention(tracking: &mut Tracking, id: &str, started: Instant) -> AttentionQuery {
+    tracking.attention_query_sequence += 1;
+    let sequence = tracking.attention_query_sequence;
+    tracking.attention_queries.insert(id.into(), sequence);
+    AttentionQuery {
+        sequence,
+        incoming: tracking.incoming_generations.get(id).copied().unwrap_or(0),
+        started,
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn begin_attention_query(
+    app: &AppHandle,
+    id: &str,
+    value: Option<bool>,
+) -> Option<AttentionQuery> {
+    let service = app.state::<Service>();
+    let mut tracking = service.0.lock().unwrap_or_else(|error| error.into_inner());
+    begin_attention_observation(&mut tracking, id, value, Instant::now())
+}
+
+fn begin_attention_observation(
+    tracking: &mut Tracking,
+    id: &str,
+    value: Option<bool>,
+    started: Instant,
+) -> Option<AttentionQuery> {
+    // Unknown/loading cannot supersede the last pending recognized counter.
+    value.map(|_| begin_attention(tracking, id, started))
+}
+
+fn attention_query_current(
+    tracking: &Tracking,
+    id: &str,
+    query: &AttentionQuery,
+    at: Instant,
+) -> bool {
+    tracking.attention_queries.get(id) == Some(&query.sequence)
+        && tracking.incoming_generations.get(id).copied().unwrap_or(0) == query.incoming
+        && at.saturating_duration_since(query.started) < Duration::from_secs(5)
+}
+
+fn attention_query_remaining(
+    tracking: &Tracking,
+    id: &str,
+    query: &AttentionQuery,
+    at: Instant,
+) -> Option<Duration> {
+    attention_query_current(tracking, id, query, at)
+        .then(|| Duration::from_secs(5) - at.saturating_duration_since(query.started))
+}
+
+#[cfg(windows)]
+pub(crate) fn attention_query_remaining_for(
+    app: &AppHandle,
+    id: &str,
+    query: &AttentionQuery,
+) -> Option<Duration> {
+    let service = app.state::<Service>();
+    let tracking = service.0.lock().unwrap_or_else(|error| error.into_inner());
+    attention_query_remaining(&tracking, id, query, Instant::now())
+}
+
+fn observe_attention(
+    tracking: &mut Tracking,
+    id: &str,
+    query: &AttentionQuery,
+    epoch: &str,
+    revision: u64,
+    has_unread: Option<bool>,
+    count: Option<u32>,
+    at: u64,
+    completed: Instant,
+) -> bool {
+    if has_unread.is_none()
+        || revision == 0
+        || revision > 9_007_199_254_740_991
+        || !attention_query_current(tracking, id, query, completed)
+        || tracking
+            .attention_revisions
+            .get(id)
+            .is_some_and(|(current, previous)| current == epoch && revision <= *previous)
+    {
+        return false;
+    }
+    tracking.attention_queries.remove(id);
+    tracking
+        .attention_revisions
+        .insert(id.into(), (epoch.into(), revision));
+    let mut suppressed = false;
+    if let Some(value) = has_unread {
+        let fingerprint =
+            tracking
+                .evidence_hasher
+                .hash_one(("notification-attention", value, count));
+        suppressed = tracking
+            .local_acknowledgements
+            .get(id)
+            .is_some_and(|baseline| baseline.is_none_or(|baseline| baseline == fingerprint));
+        tracking
+            .provider_fingerprints
+            .insert(id.into(), fingerprint);
+        if suppressed {
+            tracking
+                .local_acknowledgements
+                .insert(id.into(), Some(fingerprint));
+        } else {
+            tracking.local_acknowledgements.remove(id);
+        }
+        if value && !suppressed {
+            tracking.provider_unread_latched.insert(id.into());
+        } else {
+            tracking.provider_unread_latched.remove(id);
+        }
+    }
+    let state = tracking.observations.entry(id.into()).or_default();
+    let previous = state.clone();
+    state.source = Some(Source::WhatsappDom.label());
+    state.unread_scope = Some("notification-attention");
+    state.certainty = Certainty::Unknown;
+    state.total_unread_count = None;
+    state.last_provider_revision = Some(revision);
+    if let Some(value) = has_unread {
+        state.has_unread = value && !suppressed;
+        state.locally_acknowledged = suppressed;
+        if state.has_unread && !previous.has_unread {
+            state.last_arrival = Some(at);
+        }
+    }
+    // Swiph3l: This mirrors provider attention, including background phone reads.
+    // It never asserts all chats read or changes the last genuine read evidence.
+    if *state == previous {
+        return false;
+    }
+    state.last_update = Some(at);
+    state.generation += 1;
+    tracking.revision += 1;
+    true
+}
+
+#[cfg(windows)]
+pub(crate) fn publish_attention_for(
+    app: &AppHandle,
+    configured: &crate::providers::ServiceConfig,
+    bridge: u64,
+    query: &AttentionQuery,
+    epoch: &str,
+    revision: u64,
+    has_unread: Option<bool>,
+    count: Option<u32>,
+) -> AttentionPublication {
+    let outcome = crate::services::with_configured(app, configured, || {
+        if configured.provider != crate::providers::ProviderId::Whatsapp
+            || !crate::notification_bridge::current_bridge(app, &configured.id, bridge)
+        {
+            return Err("Provider attention session changed.".into());
+        }
+        let service = app.state::<Service>();
+        let mut tracking = service.0.lock().unwrap_or_else(|error| error.into_inner());
+        let was_unread = tracking
+            .observations
+            .get(&configured.id)
+            .is_some_and(|state| state.has_unread);
+        let changed = observe_attention(
+            &mut tracking,
+            &configured.id,
+            query,
+            epoch,
+            revision,
+            has_unread,
+            count,
+            now(),
+            Instant::now(),
+        );
+        let unread = tracking
+            .observations
+            .get(&configured.id)
+            .is_some_and(|state| state.has_unread);
+        Ok((changed, was_unread, unread))
+    });
+    if outcome.is_err()
+        && configured.provider == crate::providers::ProviderId::Whatsapp
+        && crate::services::configured(app, configured)
+        && crate::notification_bridge::current_bridge(app, &configured.id, bridge)
+        && attention_query_remaining_for(app, &configured.id, query).is_some()
+    {
+        // Swiph3l: A settings transition may temporarily own the UI guard. Keep
+        // the original query ticket; a retry must recheck its document and cannot
+        // extend its deadline, cross navigation or cover a newer arrival.
+        return AttentionPublication::Retry;
+    }
+    if let Ok((true, previous, current)) = outcome {
+        if previous != current {
+            crate::diagnostics::notification(
+                app,
+                &configured.id,
+                if current {
+                    crate::diagnostics::NotificationEvent::UnreadLatched
+                } else {
+                    crate::diagnostics::NotificationEvent::UnreadCleared
+                },
+                crate::diagnostics::NotificationReason::ProviderObservation,
+                0,
+            );
+        }
+        refresh(app);
+    }
+    AttentionPublication::Complete
 }
 
 fn browser_arrivals_tracked(settings: &crate::state::Settings, id: &str) -> bool {
@@ -1540,6 +1795,342 @@ fn refresh_presentation(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn attention_sample(
+        tracking: &mut Tracking,
+        id: &str,
+        epoch: &str,
+        revision: u64,
+        value: Option<bool>,
+        count: Option<u32>,
+    ) -> bool {
+        let instant = Instant::now();
+        let Some(query) = begin_attention_observation(tracking, id, value, instant) else {
+            return false;
+        };
+        observe_attention(
+            tracking, id, &query, epoch, revision, value, count, revision, instant,
+        )
+    }
+
+    #[test]
+    fn unknown_attention_does_not_discard_a_pending_recognized_counter() {
+        let mut tracking = Tracking::default();
+        let instant = Instant::now();
+        let query = begin_attention_observation(&mut tracking, "wa", Some(true), instant).unwrap();
+        assert!(begin_attention_observation(&mut tracking, "wa", None, instant).is_none());
+        assert!(observe_attention(
+            &mut tracking,
+            "wa",
+            &query,
+            "document",
+            1,
+            Some(true),
+            Some(2),
+            1,
+            instant
+        ));
+        assert!(tracking.observations["wa"].has_unread);
+    }
+
+    #[test]
+    fn attention_transition_retry_keeps_its_original_deadline_and_applies_once() {
+        let mut tracking = Tracking::default();
+        attention_sample(&mut tracking, "wa", "document", 1, Some(true), Some(2));
+        let started = Instant::now();
+        let query = begin_attention(&mut tracking, "wa", started);
+        let sequence = query.sequence;
+        // A busy settings guard performs no mutation. Rechecking this same
+        // ticket must leave the known counter intact until publication succeeds.
+        for elapsed in [50, 100, 150] {
+            assert_eq!(
+                attention_query_remaining(
+                    &tracking,
+                    "wa",
+                    &query,
+                    started + Duration::from_millis(elapsed)
+                ),
+                Some(Duration::from_millis(5000 - elapsed))
+            );
+            assert_eq!(tracking.attention_queries["wa"], sequence);
+            assert!(tracking.observations["wa"].has_unread);
+        }
+        assert!(observe_attention(
+            &mut tracking,
+            "wa",
+            &query,
+            "document",
+            2,
+            Some(false),
+            None,
+            2,
+            started + Duration::from_millis(150)
+        ));
+        assert!(!tracking.observations["wa"].has_unread);
+        assert!(attention_query_remaining(
+            &tracking,
+            "wa",
+            &query,
+            started + Duration::from_millis(200)
+        )
+        .is_none());
+        assert!(!observe_attention(
+            &mut tracking,
+            "wa",
+            &query,
+            "document",
+            2,
+            Some(false),
+            None,
+            3,
+            started + Duration::from_millis(200)
+        ));
+    }
+
+    #[test]
+    fn attention_transition_retry_cannot_extend_or_replace_an_invalidated_ticket() {
+        for invalid in ["navigation", "arrival", "superseded", "deadline"] {
+            let mut tracking = Tracking::default();
+            attention_sample(&mut tracking, "wa", "document", 1, Some(true), Some(2));
+            let started = Instant::now();
+            let query = begin_attention(&mut tracking, "wa", started);
+            let mut retry_at = started + Duration::from_millis(50);
+            match invalid {
+                "navigation" => invalidate_attention(&mut tracking, "wa"),
+                "arrival" => {
+                    begin_browser_event(&mut tracking, "wa", true, None, 2, false);
+                }
+                "superseded" => {
+                    begin_attention(&mut tracking, "wa", retry_at);
+                }
+                "deadline" => retry_at = started + Duration::from_secs(5),
+                _ => unreachable!(),
+            }
+            assert!(
+                attention_query_remaining(&tracking, "wa", &query, retry_at).is_none(),
+                "{invalid}"
+            );
+            assert!(
+                !observe_attention(
+                    &mut tracking,
+                    "wa",
+                    &query,
+                    "document",
+                    2,
+                    Some(false),
+                    None,
+                    3,
+                    retry_at
+                ),
+                "{invalid}"
+            );
+            assert!(tracking.observations["wa"].has_unread, "{invalid}");
+            if invalid == "superseded" {
+                assert_ne!(
+                    tracking.attention_queries["wa"], query.sequence,
+                    "an older retry cannot consume the newer ticket"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn whatsapp_attention_zero_projects_in_background_without_claiming_all_chats_read() {
+        let mut tracking = Tracking::default();
+        assert!(attention_sample(
+            &mut tracking,
+            "wa",
+            "document-a",
+            1,
+            Some(true),
+            Some(3)
+        ));
+        tracking
+            .observations
+            .get_mut("wa")
+            .unwrap()
+            .last_read_evidence = Some(17);
+        assert!(attention_sample(
+            &mut tracking,
+            "wa",
+            "document-a",
+            2,
+            Some(false),
+            None
+        ));
+        let state = &tracking.observations["wa"];
+        assert!(!state.has_unread);
+        assert_eq!(state.unread_scope, Some("notification-attention"));
+        assert_eq!(state.certainty, Certainty::Unknown);
+        assert_eq!(state.total_unread_count, None);
+        assert_eq!(state.last_read_evidence, Some(17));
+        assert!(!tracking.provider_unread_latched.contains("wa"));
+        let output = serde_json::to_string(state).unwrap();
+        assert!(
+            !output.contains("document-a"),
+            "document nonces stay out of public snapshots"
+        );
+    }
+
+    #[test]
+    fn unknown_whatsapp_attention_retains_cached_state_and_local_acknowledgement() {
+        let mut tracking = Tracking::default();
+        attention_sample(&mut tracking, "wa", "a", 1, Some(true), Some(2));
+        attention_sample(&mut tracking, "wa", "a", 2, None, None);
+        assert!(tracking.observations["wa"].has_unread);
+        acknowledge_all(&mut tracking, "wa", 3);
+        let baseline = tracking.local_acknowledgements["wa"];
+        attention_sample(&mut tracking, "wa", "new-document", 1, None, None);
+        assert!(!tracking.observations["wa"].has_unread);
+        assert!(tracking.observations["wa"].locally_acknowledged);
+        assert_eq!(tracking.local_acknowledgements["wa"], baseline);
+        attention_sample(&mut tracking, "wa", "new-document", 2, Some(true), Some(2));
+        assert!(
+            !tracking.observations["wa"].has_unread,
+            "unchanged attention stays locally acknowledged across reload"
+        );
+    }
+
+    #[test]
+    fn whatsapp_attention_revisions_are_ordered_only_within_the_verified_document() {
+        let mut tracking = Tracking::default();
+        attention_sample(&mut tracking, "wa", "old-document", 9, Some(true), Some(1));
+        assert!(!attention_sample(
+            &mut tracking,
+            "wa",
+            "old-document",
+            8,
+            Some(false),
+            None
+        ));
+        assert!(tracking.observations["wa"].has_unread);
+        assert!(attention_sample(
+            &mut tracking,
+            "wa",
+            "new-document",
+            1,
+            Some(false),
+            None
+        ));
+        assert!(!tracking.observations["wa"].has_unread);
+    }
+
+    #[test]
+    fn whatsapp_attention_rejects_superseded_expired_and_pre_arrival_query_results() {
+        for invalid in ["superseded", "expired", "new-arrival"] {
+            let mut tracking = Tracking::default();
+            attention_sample(&mut tracking, "wa", "document", 1, Some(true), Some(1));
+            let instant = Instant::now();
+            let query = begin_attention(&mut tracking, "wa", instant);
+            let mut completed = instant;
+            match invalid {
+                "superseded" => {
+                    begin_attention(&mut tracking, "wa", instant);
+                }
+                "expired" => completed += Duration::from_secs(6),
+                "new-arrival" => {
+                    begin_browser_event(&mut tracking, "wa", true, None, 2, false);
+                }
+                _ => unreachable!(),
+            }
+            assert!(
+                !observe_attention(
+                    &mut tracking,
+                    "wa",
+                    &query,
+                    "document",
+                    2,
+                    Some(false),
+                    None,
+                    3,
+                    completed
+                ),
+                "{invalid}"
+            );
+            assert!(tracking.observations["wa"].has_unread, "{invalid}");
+        }
+    }
+
+    #[test]
+    fn navigation_invalidates_pending_attention_without_clearing_cached_positive() {
+        let mut tracking = Tracking::default();
+        attention_sample(&mut tracking, "wa", "old-document", 1, Some(true), Some(2));
+        let instant = Instant::now();
+        let query = begin_attention(&mut tracking, "wa", instant);
+        invalidate_attention(&mut tracking, "wa");
+        assert!(!observe_attention(
+            &mut tracking,
+            "wa",
+            &query,
+            "old-document",
+            2,
+            Some(false),
+            None,
+            2,
+            instant
+        ));
+        assert!(tracking.observations["wa"].has_unread);
+        attention_sample(&mut tracking, "wa", "new-document", 1, None, None);
+        assert!(tracking.observations["wa"].has_unread);
+        attention_sample(&mut tracking, "wa", "new-document", 2, Some(false), None);
+        assert!(!tracking.observations["wa"].has_unread);
+    }
+
+    #[test]
+    fn new_whatsapp_arrival_rearms_local_override_but_only_counter_evidence_restores_dot() {
+        let mut tracking = Tracking::default();
+        attention_sample(&mut tracking, "wa", "document", 1, Some(true), Some(2));
+        acknowledge_all(&mut tracking, "wa", 2);
+        attention_sample(&mut tracking, "wa", "document", 2, Some(true), Some(2));
+        assert!(!tracking.observations["wa"].has_unread);
+        let (arrival, changed) = begin_browser_event(&mut tracking, "wa", true, None, 3, false);
+        rearm_attention(&mut tracking, "wa");
+        assert!(!changed);
+        assert!(
+            !tracking.observations["wa"].has_unread,
+            "a banner event alone never owns attention"
+        );
+        assert!(!tracking.pending_generations.contains_key("wa"));
+        assert!(!tracking.observed_unread_arrivals.contains_key("wa"));
+        assert_eq!(tracking.incoming_generations["wa"], arrival.read);
+        attention_sample(&mut tracking, "wa", "document", 3, Some(true), Some(2));
+        assert!(
+            tracking.observations["wa"].has_unread,
+            "fresh unchanged positive counter can rearm"
+        );
+        acknowledge_all(&mut tracking, "wa", 4);
+        begin_browser_event(&mut tracking, "wa", true, None, 5, false);
+        rearm_attention(&mut tracking, "wa");
+        attention_sample(&mut tracking, "wa", "document", 4, Some(false), None);
+        assert!(
+            !tracking.observations["wa"].has_unread,
+            "an official zero stays zero after an arrival"
+        );
+    }
+
+    #[test]
+    fn whatsapp_attention_counter_changes_preserve_other_instances_and_refresh_local_baselines() {
+        let mut tracking = Tracking::default();
+        for id in ["personal", "work"] {
+            attention_sample(&mut tracking, id, "document", 1, Some(true), Some(2));
+        }
+        acknowledge_all(&mut tracking, "personal", 2);
+        attention_sample(
+            &mut tracking,
+            "personal",
+            "document",
+            2,
+            Some(true),
+            Some(3),
+        );
+        assert!(
+            tracking.observations["personal"].has_unread,
+            "changed official attention is outside the local baseline"
+        );
+        attention_sample(&mut tracking, "personal", "document", 3, Some(false), None);
+        assert!(!tracking.observations["personal"].has_unread);
+        assert!(tracking.observations["work"].has_unread);
+    }
 
     fn discord_evidence(
         rows: &[(&str, bool)],
@@ -3498,12 +4089,11 @@ mod tests {
     }
 
     #[test]
-    fn only_discord_browser_events_are_excluded_from_native_unread_ownership() {
+    fn scoped_discord_and_whatsapp_browser_events_are_excluded_from_native_unread_ownership() {
         use crate::providers::ProviderId;
         for provider in [
             ProviderId::SynologyChatplus,
             ProviderId::SynologyChat,
-            ProviderId::Whatsapp,
             ProviderId::Messenger,
             ProviderId::Mattermost,
             ProviderId::Slack,
@@ -3534,6 +4124,7 @@ mod tests {
             assert!(!tracking.pending_generations.contains_key("origin"));
         }
         assert!(!provider_tracks_browser_arrivals(ProviderId::Discord));
+        assert!(!provider_tracks_browser_arrivals(ProviderId::Whatsapp));
     }
 
     #[test]
