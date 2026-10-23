@@ -498,6 +498,26 @@ fn dismissal_reason(
         _ => Reason::DismissalUnknown,
     }
 }
+
+#[cfg(any(windows, test))]
+fn presentation_reason(
+    state: crate::platform::NotificationPresentationState,
+) -> crate::diagnostics::NotificationReason {
+    use crate::{
+        diagnostics::NotificationReason as Reason, platform::NotificationPresentationState as State,
+    };
+    match state {
+        State::AcceptsNotifications => Reason::PresentationAcceptsNotifications,
+        State::Busy => Reason::PresentationBusy,
+        State::D3dFullscreen => Reason::PresentationD3dFullscreen,
+        State::PresentationMode => Reason::PresentationMode,
+        State::NotPresent => Reason::PresentationNotPresent,
+        State::QuietTime => Reason::PresentationQuietTime,
+        State::App => Reason::PresentationApp,
+        State::Unavailable => Reason::PresentationUnavailable,
+    }
+}
+
 #[cfg(windows)]
 fn show(
     app: &AppHandle,
@@ -512,6 +532,7 @@ fn show(
     let handle = app.clone();
     let dismissal_app = app.clone();
     let dismissal_service = service_id.clone();
+    let presentation_service = service_id.clone();
     let settings = crate::state::current(app);
     let service = settings
         .services
@@ -524,7 +545,7 @@ fn show(
     if let Ok(icon) = crate::notification_presentation::icon_path(app, service) {
         toast = toast.icon(&icon, IconCrop::Square, &presentation.attribution);
     }
-    toast
+    let toast = toast
         .sound(if sound { Some(Sound::IM) } else { None })
         .on_dismissed(move |reason| {
             // Swiph3l: OS dismissal is diagnostic only, never read evidence. The
@@ -590,7 +611,21 @@ fn show(
                 }
             });
             Ok(())
-        })
+        });
+    // Swiph3l: Real and fixed test toasts share this final submission path.
+    // Record current OS presentation state without changing notification policy
+    // or treating an accepting state as evidence that a banner became visible.
+    let presentation_state = crate::platform::notification_presentation_state();
+    if let Some(id) = presentation_service.as_deref() {
+        crate::diagnostics::notification(
+            app,
+            id,
+            crate::diagnostics::NotificationEvent::PresentationChecked,
+            presentation_reason(presentation_state),
+            arrival_generation,
+        );
+    }
+    toast
         .show()
         .map_err(|_| crate::i18n::t(app, "notification.showWindowsFailed"))
 }
@@ -683,6 +718,29 @@ pub fn taskbar(window: &tauri::Window, unread: &crate::unread::Unread) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn presentation_observations_have_distinct_fixed_diagnostic_codes() {
+        use crate::platform::NotificationPresentationState as State;
+        for (state, expected) in [
+            (
+                State::AcceptsNotifications,
+                "presentation_accepts_notifications",
+            ),
+            (State::Busy, "presentation_busy"),
+            (State::D3dFullscreen, "presentation_d3d_fullscreen"),
+            (State::PresentationMode, "presentation_mode"),
+            (State::NotPresent, "presentation_not_present"),
+            (State::QuietTime, "presentation_quiet_time"),
+            (State::App, "presentation_app"),
+            (State::Unavailable, "presentation_unavailable"),
+        ] {
+            assert_eq!(
+                serde_json::to_value(presentation_reason(state)).unwrap(),
+                expected
+            );
+        }
+    }
     #[test]
     fn capture_keeps_sender_not_registered_distinct_from_blocked_and_unknown() {
         for (state, expected) in [

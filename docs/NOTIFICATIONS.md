@@ -238,6 +238,11 @@ the source checkout. Its main title includes **Notification QA**. Ordinary build
 do not enable disk capture. The capture includes delivery/block reasons, not
 message content or contact names. A successful toast submission means Windows
 accepted the API call; confirm actual banner visibility separately.
+Immediately before Windows submission, `presentation_checked` records the generic
+OS interruption state: accepting notifications, busy, full-screen, presentation,
+away, quiet time, an immersive app or unavailable. This is observational metadata;
+it does not change delivery policy, prove the per-app banner setting or certify
+that a banner appeared. Compare it for fixed tests and real provider events.
 The QA build retains the normal application/profile identity for sender testing,
 but does not repair Windows autostart registration or allow start-at-login changes.
 

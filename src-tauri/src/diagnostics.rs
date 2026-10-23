@@ -47,6 +47,7 @@ pub enum NotificationEvent {
     ToastDismissed,
     StatusSnapshot,
     ProviderPermissionChecked,
+    PresentationChecked,
 }
 
 #[derive(Clone, Copy, Serialize)]
@@ -104,6 +105,14 @@ pub enum NotificationReason {
     SourceRejected,
     UnreadBridgeRegistrationFailed,
     BridgeEventFailed,
+    PresentationAcceptsNotifications,
+    PresentationBusy,
+    PresentationD3dFullscreen,
+    PresentationMode,
+    PresentationNotPresent,
+    PresentationQuietTime,
+    PresentationApp,
+    PresentationUnavailable,
 }
 
 #[derive(Clone, Serialize)]
@@ -746,6 +755,24 @@ mod tests {
             assert!(json.get(forbidden).is_none());
         }
         assert_eq!(json["reason"], "stale_or_background");
+    }
+
+    #[test]
+    fn presentation_checks_keep_the_existing_content_free_record_shape() {
+        let mut event = diagnostic(7);
+        event.event = NotificationEvent::PresentationChecked;
+        event.reason = NotificationReason::PresentationBusy;
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["event"], "presentation_checked");
+        assert_eq!(json["reason"], "presentation_busy");
+        assert_eq!(json["ordinal"], 7);
+        assert_eq!(json["generation"], 7);
+        assert_eq!(json.as_object().unwrap().len(), 9);
+        for forbidden in [
+            "title", "body", "tag", "url", "path", "error", "hresult", "settings",
+        ] {
+            assert!(json.get(forbidden).is_none());
+        }
     }
 
     #[test]
