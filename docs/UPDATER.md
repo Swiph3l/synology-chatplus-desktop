@@ -43,9 +43,10 @@ No newer eligible release is a successful check, including repositories without 
 stable release. A newer eligible release with a missing manifest or package is an
 error, rather than a reason to silently select an older release.
 
-Stable tags produce `latest.json`; prerelease tags produce
+Plain SemVer tags produce `latest.json`, including a `v0.9.0` release initially
+marked prerelease on GitHub. Hyphenated prerelease versions produce
 `latest-prerelease.json`. The selected release version determines the manifest,
-while the saved beta preference controls eligibility. A preference change
+while the GitHub prerelease flag and saved beta preference control eligibility. A preference change
 invalidates in-flight results and previously verified downloads, even if changed
 away and back while requests are pending.
 The selected tag, full manifest version (including build metadata), published
@@ -96,13 +97,23 @@ The Windows-only release workflow runs for `v*` tags. It validates synchronized
 source versions, Windows x64 host, production signing configuration and required CI,
 CodeQL/security checks on the tagged main commit. It builds NSIS, collects actual
 artifacts/signatures, creates SBOMs/channel metadata/checksums and public attestations,
-then creates a **draft**. Publishing that draft is a separate maintainer action.
+then creates a **prerelease draft**, even for a plain SemVer tag. Publishing that
+draft is a separate maintainer action. A rerun that encounters an existing release
+fails instead of changing its status or replacing its assets.
 Both jobs pin their checkout to the workflow event commit and validate the peeled
 tag against it. Collected target metadata carries version/source-commit provenance,
 which the manifest job checks before generating updater metadata. The release job
 also schedules the existing production signature verifier against the collected
 setup before uploading it.
 Branch development stays lightweight and does not create release artifacts.
+
+After publishing and accepting a plain-version prerelease, a maintainer can clear
+its GitHub prerelease flag to promote the same signed artifacts to stable. Its
+`latest.json`, tag and asset bytes stay unchanged. Existing installations of that
+exact version need no reinstall; older stable installations become eligible for
+the promoted release. Changes after publication require a higher version rather
+than replacement assets. Hyphenated prerelease tags remain ineligible with beta
+updates off, regardless of their GitHub flag.
 
 ## Artifact names
 

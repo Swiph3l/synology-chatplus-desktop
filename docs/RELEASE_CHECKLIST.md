@@ -1,8 +1,9 @@
 # Release checklist
 
-Version tags trigger the Windows x64 signed draft-release pipeline. Publishing
-the draft is a separate maintainer action. Linux and macOS are experimental and
-need their own target validation before distribution.
+Version tags trigger the Windows x64 signed draft-release pipeline. Every new
+draft is marked prerelease, including plain tags such as `v0.9.0`. Publishing
+and stable promotion are separate maintainer actions. Linux and macOS are
+experimental and need their own target validation before distribution.
 
 Keep the candidate commit, tool versions, test results and final artifact hashes
 with the release record. An unchecked or unavailable check is not a pass.
@@ -72,5 +73,16 @@ must use an artifact intended for public distribution.
       SBOMs, attestation and release notes. The updater targets the NSIS setup,
       not the standalone application.
 - [ ] Capture current, sanitized [screenshots](screenshots/README.md) if needed.
-- [ ] Approve publication and publish the unchanged reviewed artifacts. Confirm
-      public release discovery and retain source and recovery downloads.
+- [ ] Approve initial publication as a prerelease with the unchanged reviewed
+      artifacts. Confirm discovery with **Include beta updates** on, exclusion
+      with it off, and retain source and recovery downloads.
+- [ ] After acceptance, a plain SemVer release such as `v0.9.0` can be promoted
+      by clearing its GitHub prerelease flag. Keep the same tag, signed files,
+      checksums and `latest.json`; confirm stable users can discover it.
+
+Promotion does not rebuild an artifact or make an equal version an update.
+Testers already running `0.9.0` keep those accepted bytes. If a published
+candidate needs code changes, prepare a higher version instead of replacing
+its tag or files. A hyphenated version such as `0.9.0-beta.1` remains a SemVer
+prerelease even if its GitHub flag is cleared; its stable successor needs its
+own plain version and signed artifacts.

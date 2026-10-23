@@ -52,6 +52,11 @@ test("beta metadata never overwrites stable manifest and checksums hash actual E
   assert.equal(manifestName("0.5.0-beta.1"), "latest-prerelease.json");
   assert.equal(manifestName("0.5.0-beta.2"), "latest-prerelease.json");
   assert.equal(manifestName("0.5.0"), "latest.json");
+  assert.equal(
+    manifestName("0.9.0"),
+    "latest.json",
+    "a plain SemVer keeps its manifest name while GitHub prerelease status changes",
+  );
   const dir = await mkdtemp(path.join(tmpdir(), "chatplus-release-test-"));
   const cli = path.resolve("scripts/updater-metadata.mjs");
   const checksums = path.resolve("scripts/checksums.mjs");

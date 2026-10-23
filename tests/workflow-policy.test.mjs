@@ -126,3 +126,33 @@ test("signed release artifacts keep exact source, integrity checks and isolated 
       source.indexOf("node scripts/release-metadata.mjs"),
   );
 });
+
+test("every new signed release starts as a prerelease draft and existing releases are not changed", () => {
+  const step = steps(workflows.release).find((step) =>
+    step.includes("name: Create draft only"),
+  );
+  assert.ok(step);
+  const args = /^\s+\$releaseArgs = @\((.+)\)\s*$/m.exec(step)?.[1];
+  assert.ok(
+    args,
+    "release flags must be unconditional for plain and prerelease tags",
+  );
+  for (const flag of [
+    "'release'",
+    "'create'",
+    "'--draft'",
+    "'--prerelease'",
+    "'--verify-tag'",
+  ])
+    assert.ok(args.includes(flag), flag);
+  assert.match(
+    step,
+    /gh @releaseArgs\r?\n\s+if \(\$LASTEXITCODE -ne 0\) \{ exit \$LASTEXITCODE \}/,
+    "a duplicate or failed create must stop before uploading assets",
+  );
+  assert.doesNotMatch(
+    step,
+    /gh\s+release\s+(?:edit|delete)|--clobber|--draft=false|--prerelease=false|\$releaseArgs\s*\+=/,
+    "the workflow must not publish, promote or replace an existing release",
+  );
+});
