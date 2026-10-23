@@ -18,6 +18,13 @@ The 2026-10-23 validation toolchain is Rust 1.98.1. Keep the JavaScript Tauri AP
 and native Tauri minor versions synchronized, along with the Windows/WebView2
 interface family; `npm run check:dependencies` verifies these relationships.
 
+Keep `@types/node` on the oldest supported Node major, currently 22, so typechecking
+does not admit APIs unavailable on that runtime. Dependabot ignores its major
+updates; minor and patch updates remain enabled. The dependency check validates
+the declared and locked typing major against `engines.node`. Declare supported
+lines as explicit caret ranges such as `^22.12.0 || ^24.0.0`; changing this format
+or retiring a runtime requires reviewing the typing baseline and CI together.
+
 From the repository root:
 
 ```sh
