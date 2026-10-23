@@ -53,7 +53,8 @@ pub fn focus(window: &tauri::Window) -> tauri::Result<()> {
 }
 
 pub fn activate_notification(app: &AppHandle, service_id: Option<&str>) -> Result<(), String> {
-    // Swiph3l: Restore the native frame before focusing its provider; a toast click routes the existing instance and never marks it read.
+    // Swiph3l: Restoring/focusing alone never acknowledges a message; the
+    // notification bridge separately validates an explicit clicked arrival.
     open(app)?;
     let settings = state::current(app);
     if let Some(id) = notification_destination(&settings, service_id) {
@@ -64,6 +65,13 @@ pub fn activate_notification(app: &AppHandle, service_id: Option<&str>) -> Resul
         }
     }
     Ok(())
+}
+
+pub fn activate_notification_for(
+    app: &AppHandle,
+    service: &crate::providers::ServiceConfig,
+) -> Result<(), String> {
+    crate::services::activate_configured(app, service)
 }
 
 fn notification_destination<'a>(
@@ -177,6 +185,7 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
         }
         _ => {}
     });
+    crate::services::start_configured(app);
     Ok(())
 }
 

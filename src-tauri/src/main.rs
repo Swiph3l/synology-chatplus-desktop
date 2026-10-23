@@ -147,6 +147,12 @@ fn main() {
     #[cfg(windows)]
     drop(startup_guard);
     app.run(|app, event| {
+        if matches!(
+            event,
+            tauri::RunEvent::ExitRequested { code: Some(_), .. } | tauri::RunEvent::Exit
+        ) {
+            services::shutdown(app);
+        }
         if let tauri::RunEvent::ExitRequested {
             code: None, api, ..
         } = event

@@ -281,12 +281,14 @@ pub async fn activate_service(
     crate::services::activate(&app, &id)
 }
 #[tauri::command]
-pub fn reorder_services(
+pub async fn reorder_services(
     window: tauri::Webview,
     app: tauri::AppHandle,
     ids: Vec<String>,
 ) -> Result<Settings, String> {
     local_view(&window, &["main"])?;
+    // Swiph3l: A service worker can own the transition lock while waiting on
+    // WebView UI work. Drag reordering must never wait for that lock on the UI.
     crate::services::reorder(&app, &ids)
 }
 #[tauri::command]

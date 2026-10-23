@@ -1,9 +1,348 @@
 //! Native service sessions live behind a local rail; provider pages have no Tauri capability.
 use crate::{providers::ServiceConfig, state};
+use std::{
+    collections::HashMap,
+    sync::{Condvar, Mutex},
+    time::{Duration, Instant},
+};
 use tauri::{AppHandle, Emitter, Manager, Webview, WebviewBuilder, WebviewUrl};
 
 #[derive(Default)]
-pub struct Lifecycle(std::sync::Mutex<()>);
+pub struct Lifecycle(Mutex<()>, Mutex<Startup>, Condvar);
+
+impl Lifecycle {
+    fn stop(&self) {
+        self.1
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .stopping = true;
+        self.2.notify_all();
+    }
+}
+
+const STARTUP_GAP: Duration = Duration::from_millis(750);
+const STARTUP_LOAD_LIMIT: Duration = Duration::from_secs(8);
+
+#[derive(Clone, PartialEq, Eq)]
+struct SessionIdentity {
+    id: String,
+    provider: crate::providers::ProviderId,
+    url: String,
+}
+
+impl From<&ServiceConfig> for SessionIdentity {
+    fn from(service: &ServiceConfig) -> Self {
+        Self {
+            id: service.id.clone(),
+            provider: service.provider,
+            url: service.url.clone(),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct LoadTicket {
+    identity: SessionIdentity,
+    generation: u64,
+    started: Instant,
+}
+
+struct StartupLoad {
+    ticket: LoadTicket,
+    finished: bool,
+}
+
+#[derive(Default)]
+struct Startup {
+    running: bool,
+    stopping: bool,
+    generation: u64,
+    attempted: Vec<SessionIdentity>,
+    loads: HashMap<String, StartupLoad>,
+    creating: Option<LoadTicket>,
+    presentation: Option<SessionIdentity>,
+}
+
+impl Startup {
+    fn begin(&mut self) -> bool {
+        if self.running || self.stopping {
+            return false;
+        }
+        self.running = true;
+        self.attempted.clear();
+        true
+    }
+
+    fn register(&mut self, service: &ServiceConfig, now: Instant) -> LoadTicket {
+        self.generation += 1;
+        let ticket = LoadTicket {
+            identity: service.into(),
+            generation: self.generation,
+            started: now,
+        };
+        self.loads.insert(
+            service.id.clone(),
+            StartupLoad {
+                ticket: ticket.clone(),
+                finished: false,
+            },
+        );
+        ticket
+    }
+
+    fn loaded(&mut self, ticket: &LoadTicket, finished: bool) -> bool {
+        if let Some(load) = self.loads.get_mut(&ticket.identity.id) {
+            // Swiph3l: A closed/reconfigured view may still deliver its old load callback.
+            if load.ticket.generation == ticket.generation {
+                load.finished = finished;
+                return true;
+            }
+        }
+        false
+    }
+
+    fn defer_presentation(&mut self, service: &ServiceConfig) -> bool {
+        if self.reserved(&service.id) {
+            self.presentation = Some(service.into());
+            true
+        } else {
+            false
+        }
+    }
+
+    fn reserved(&self, id: &str) -> bool {
+        self.creating
+            .as_ref()
+            .is_some_and(|ticket| ticket.identity.id == id)
+    }
+
+    fn release(&mut self, ticket: &LoadTicket) {
+        if self
+            .creating
+            .as_ref()
+            .is_some_and(|current| current.generation == ticket.generation)
+        {
+            self.creating = None;
+        }
+    }
+
+    fn current(&self, ticket: &LoadTicket) -> bool {
+        !self.stopping && self.owns(ticket)
+    }
+
+    fn owns(&self, ticket: &LoadTicket) -> bool {
+        self.loads
+            .get(&ticket.identity.id)
+            .is_some_and(|load| load.ticket.generation == ticket.generation)
+    }
+
+    fn remaining(&self, ticket: &LoadTicket, settings: &state::Settings, now: Instant) -> Duration {
+        if self.stopping
+            || !settings
+                .services
+                .iter()
+                .any(|service| service.enabled && SessionIdentity::from(service) == ticket.identity)
+        {
+            return Duration::ZERO;
+        }
+        let Some(load) = self
+            .loads
+            .get(&ticket.identity.id)
+            .filter(|load| load.ticket.generation == ticket.generation)
+        else {
+            return Duration::ZERO;
+        };
+        let elapsed = now.saturating_duration_since(ticket.started);
+        let limit = if load.finished {
+            STARTUP_GAP
+        } else {
+            STARTUP_LOAD_LIMIT
+        };
+        limit.saturating_sub(elapsed)
+    }
+
+    fn next(
+        &mut self,
+        settings: &state::Settings,
+        exists: impl Fn(&str) -> bool,
+    ) -> Option<ServiceConfig> {
+        if self.stopping {
+            return None;
+        }
+        let next = settings.services.iter().find(|service| {
+            service.enabled
+                && !exists(&service.id)
+                && !self.attempted.contains(&SessionIdentity::from(*service))
+        })?;
+        self.attempted.push(next.into());
+        Some(next.clone())
+    }
+}
+
+/// Start configured sessions after the selected service has opened normally.
+pub fn start_configured(app: &AppHandle) {
+    let lifecycle = app.state::<Lifecycle>();
+    let mut startup = lifecycle
+        .1
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    if !startup.begin() {
+        lifecycle.2.notify_all();
+        return;
+    }
+    let previous = state::current(app)
+        .active_service
+        .as_ref()
+        .and_then(|id| startup.loads.get(id))
+        .map(|load| load.ticket.clone());
+    drop(startup);
+    let handle = app.clone();
+    if std::thread::Builder::new()
+        .name("chatplus-service-startup".into())
+        .spawn(move || run_startup(&handle, previous))
+        .is_err()
+    {
+        lifecycle
+            .1
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .running = false;
+        eprintln!("[services] Could not queue background service startup.");
+    }
+}
+
+fn wait_for_startup(app: &AppHandle, ticket: &LoadTicket) {
+    let lifecycle = app.state::<Lifecycle>();
+    let mut startup = lifecycle
+        .1
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    loop {
+        let remaining = startup.remaining(ticket, &state::current(app), Instant::now());
+        if remaining.is_zero() {
+            return;
+        }
+        startup = lifecycle
+            .2
+            .wait_timeout(startup, remaining)
+            .unwrap_or_else(|error| error.into_inner())
+            .0;
+    }
+}
+
+fn run_startup(app: &AppHandle, mut previous: Option<LoadTicket>) {
+    let lifecycle = app.state::<Lifecycle>();
+    loop {
+        if let Some(ticket) = previous.take() {
+            wait_for_startup(app, &ticket);
+        }
+        let (service, ticket) = {
+            let _transition = lifecycle
+                .0
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            let settings = state::current(app);
+            let mut startup = lifecycle
+                .1
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            let next = app
+                .get_window("main")
+                .and_then(|_| startup.next(&settings, |id| app.get_webview(&label(id)).is_some()));
+            let Some(service) = next else {
+                startup.running = false;
+                return;
+            };
+            let ticket = startup.register(&service, Instant::now());
+            startup.creating = Some(ticket.clone());
+            (service, ticket)
+        };
+        // Swiph3l: add_child waits for the UI. Never retain the lifecycle lock
+        // across it: a toast/menu callback on that UI may need the same lock.
+        // The reservation defers competing activation, and completion rechecks
+        // identity so removal/reconfiguration cannot resurrect a stale session.
+        let created = create_registered(app, &service, &ticket, true);
+        let valid = configured(app, &service)
+            && lifecycle
+                .1
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .current(&ticket);
+        if !valid {
+            if let Ok(view) = &created {
+                let _ = view.close();
+            }
+        }
+        let requested = {
+            let _transition = lifecycle
+                .0
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            let mut startup = lifecycle
+                .1
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            startup.release(&ticket);
+            if created.is_err() {
+                startup.loaded(&ticket, true);
+            }
+            let requested = startup.presentation.as_ref() == Some(&ticket.identity);
+            if requested {
+                startup.presentation = None;
+            }
+            requested
+        };
+        lifecycle.2.notify_all();
+        if valid {
+            if let Ok(view) = created {
+                let handle = app.clone();
+                let completed = ticket.clone();
+                let _ = app.run_on_main_thread(move || {
+                    let state = handle.state::<Lifecycle>();
+                    let startup = state.1.lock().unwrap_or_else(|error| error.into_inner());
+                    // Swiph3l: Webview::close unregisters by label. An old
+                    // completion must never close/unregister a newer view that
+                    // already reused that stable service label.
+                    if !startup.owns(&completed) {
+                        return;
+                    }
+                    let current = startup.current(&completed);
+                    drop(startup);
+                    if !current || !configured(&handle, &service) {
+                        let _ = view.close();
+                        return;
+                    }
+                    let selected = state::current(&handle).active_service.as_deref()
+                        == Some(service.id.as_str());
+                    if selected {
+                        let _ = view.show();
+                    } else {
+                        let _ = view.hide();
+                    }
+                    if selected && requested && crate::window::is_foreground(&handle) {
+                        let _ = view.set_focus();
+                    }
+                    layout(&handle);
+                    crate::unread::sync_presentation(&handle);
+                });
+            } else {
+                // Do not open Settings, focus a window or include account URLs in logs.
+                eprintln!(
+                    "[services] Background service startup failed; open the service to retry."
+                );
+            }
+        }
+        previous = Some(ticket);
+    }
+}
+
+pub fn shutdown(app: &AppHandle) {
+    if let Some(lifecycle) = app.try_state::<Lifecycle>() {
+        // Swiph3l: Exit must wake a waiting worker without blocking the native UI
+        // on a WebView creation that may itself be dispatched to that UI thread.
+        lifecycle.stop();
+    }
+}
 
 const RAIL_WIDTH: f64 = 56.;
 // Swiph3l: Native provider WebViews cover the shell, so this must match the 30px CSS footer height.
@@ -14,6 +353,10 @@ fn service_size(width: f64, height: f64) -> tauri::LogicalSize<f64> {
         (width - RAIL_WIDTH).max(1.),
         (height - FOOTER_HEIGHT).max(1.),
     )
+}
+
+fn creation_position(selected: bool, width: f64) -> tauri::LogicalPosition<f64> {
+    tauri::LogicalPosition::new(if selected { RAIL_WIDTH } else { -width - 1. }, 0.)
 }
 
 pub struct ServiceSession {
@@ -33,15 +376,49 @@ pub fn label(id: &str) -> String {
     format!("service-{id}")
 }
 pub fn active(app: &AppHandle) -> Option<Webview> {
-    state::current(app)
-        .active()
-        .and_then(|s| app.get_webview(&label(&s.id)))
-}
-pub fn configured(app: &AppHandle, service: &ServiceConfig) -> bool {
-    state::current(app).services.iter().any(|s| {
-        s.id == service.id && s.provider == service.provider && s.url == service.url && s.enabled
+    state::current(app).active().and_then(|s| {
+        let creating = app
+            .state::<Lifecycle>()
+            .1
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .creating
+            .as_ref()
+            .is_some_and(|ticket| ticket.identity.id == s.id);
+        (!creating)
+            .then(|| app.get_webview(&label(&s.id)))
+            .flatten()
     })
 }
+pub fn configured(app: &AppHandle, service: &ServiceConfig) -> bool {
+    configured_identity(&state::current(app), service)
+}
+fn configured_identity(settings: &state::Settings, service: &ServiceConfig) -> bool {
+    settings.services.iter().any(|current| {
+        current.enabled && SessionIdentity::from(current) == SessionIdentity::from(service)
+    })
+}
+
+/// Validate and mutate a captured session without allowing a settings replacement between them.
+pub fn with_configured<T>(
+    app: &AppHandle,
+    service: &ServiceConfig,
+    action: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    let lifecycle = app.state::<Lifecycle>();
+    // Swiph3l: UI callbacks must fail a concurrent transition instead of waiting
+    // for a worker that may itself need the UI. The action cannot reenter services
+    // transitions or wait for native UI work while this nonreentrant guard lives.
+    let _transition = lifecycle
+        .0
+        .try_lock()
+        .map_err(|_| "Service is changing. Try again.")?;
+    if !configured_identity(&state::current(app), service) {
+        return Err("Service is no longer configured.".into());
+    }
+    action()
+}
+
 pub fn external(app: &AppHandle, service: &ServiceConfig, url: &url::Url, source_window: &str) {
     crate::external_links::request(app, service, url, source_window);
 }
@@ -60,6 +437,18 @@ pub fn layout(app: &AppHandle) {
     }
     for service in state::current(app).services {
         if let Some(view) = app.get_webview(&label(&service.id)) {
+            // Swiph3l: Resize and deferred selection can run between native
+            // registration and hide(). Keep that reserved view offscreen until
+            // startup has hidden it; completion reapplies the latest bounds.
+            if app
+                .state::<Lifecycle>()
+                .1
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .reserved(&service.id)
+            {
+                continue;
+            }
             let _ = view.set_position(tauri::LogicalPosition::new(RAIL_WIDTH, 0.));
             let _ = view.set_size(service_size(width, height));
         }
@@ -75,13 +464,22 @@ pub fn show(app: &AppHandle) -> Result<(), String> {
         crate::connection::refresh(app);
         return Ok(());
     };
+    let deferred = app
+        .state::<Lifecycle>()
+        .1
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .defer_presentation(&service);
     let session_label = label(&service.id);
-    if app.get_webview(&session_label).is_none() {
+    if !deferred && app.get_webview(&session_label).is_none() {
         create(app, &service)?;
     }
     for configured in &settings.services {
         if let Some(view) = app.get_webview(&label(&configured.id)) {
             if configured.id == service.id {
+                if deferred {
+                    continue;
+                }
                 view.show()
             } else {
                 view.hide()
@@ -94,6 +492,9 @@ pub fn show(app: &AppHandle) -> Result<(), String> {
     let _ = app.emit_to("main", "services-changed", &settings);
     crate::unread::refresh(app);
     crate::connection::refresh(app);
+    if deferred {
+        return Ok(());
+    }
     // Swiph3l: Switching services preserves provider unread; focus alone is never a read acknowledgement.
     active(app)
         .ok_or("Service unavailable.")?
@@ -109,6 +510,48 @@ pub fn activate(app: &AppHandle, id: &str) -> Result<(), String> {
     }
     settings.active_service = Some(id.into());
     state::persist(app, settings)?;
+    show(app)
+}
+
+/// Activate only the existing session that produced a retained notification.
+pub fn activate_configured(app: &AppHandle, service: &ServiceConfig) -> Result<(), String> {
+    let lifecycle = app.state::<Lifecycle>();
+    // Swiph3l: Toast COM callbacks belong to the UI apartment. Fail a concurrent
+    // settings transition instead of blocking that UI behind native worker calls.
+    let _transition = lifecycle
+        .0
+        .try_lock()
+        .map_err(|_| "Service is changing. Try again.")?;
+    let mut settings = state::current(app);
+    if !configured_identity(&settings, service) {
+        return Err("Notification service is no longer configured.".into());
+    }
+    let startup = lifecycle
+        .1
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    if startup.stopping
+        || startup
+            .creating
+            .as_ref()
+            .is_some_and(|ticket| ticket.identity.id == service.id)
+    {
+        return Err("Notification service is not ready.".into());
+    }
+    drop(startup);
+    if app.get_webview(&label(&service.id)).is_none() {
+        return Err("Notification session is no longer available.".into());
+    }
+    let window = app
+        .get_window("main")
+        .ok_or("Desktop window unavailable.")?;
+    crate::window::focus(&window).map_err(|_| "Could not restore ChatPlus.")?;
+    if settings.active_service.as_deref() != Some(service.id.as_str()) {
+        settings.active_service = Some(service.id.clone());
+        state::persist(app, settings)?;
+    }
+    // The authoritative identity and existing view stay protected by the
+    // transition lock. This path cannot create a WebView on the COM/UI thread.
     show(app)
 }
 
@@ -252,6 +695,221 @@ mod removal_tests {
         };
         settings.migrate_services().unwrap();
         settings
+    }
+
+    #[test]
+    fn captured_session_rejects_replacement_but_accepts_presentation_changes() {
+        let original = settings();
+        let captured = original.services[0].clone();
+        assert!(configured_identity(&original, &captured));
+
+        let mut presentation = original.clone();
+        presentation.services[0].name = "Renamed account".into();
+        presentation.services[0].notifications = false;
+        presentation.active_service = Some(original.services[1].id.clone());
+        assert!(configured_identity(&presentation, &captured));
+
+        let mut replacement = original.clone();
+        replacement.services[0].url = "https://replacement.example/".into();
+        assert!(!configured_identity(&replacement, &captured));
+        replacement = original.clone();
+        replacement.services[0].provider = ProviderId::Discord;
+        assert!(!configured_identity(&replacement, &captured));
+        replacement = original.clone();
+        replacement.services[0].enabled = false;
+        assert!(!configured_identity(&replacement, &captured));
+        replacement.services.remove(0);
+        assert!(!configured_identity(&replacement, &captured));
+    }
+
+    #[test]
+    fn startup_keeps_selected_session_and_starts_remaining_enabled_accounts_in_rail_order() {
+        let mut settings = settings();
+        let mut disabled = settings.services[0].clone();
+        disabled.id = "disabled".into();
+        disabled.enabled = false;
+        let mut last = settings.services[0].clone();
+        last.id = "same-provider-other-account".into();
+        settings.services.insert(1, disabled);
+        settings.services.push(last);
+        settings.active_service = Some("second".into());
+        let unchanged = serde_json::to_value(&settings).unwrap();
+        let mut startup = Startup::default();
+        assert!(startup.begin());
+        assert!(
+            !startup.begin(),
+            "reconciliation must not spawn another worker"
+        );
+        let mut existing = std::collections::HashSet::from(["second".to_string()]);
+        let first = startup.next(&settings, |id| existing.contains(id)).unwrap();
+        assert_eq!(first.id, "first");
+        existing.insert(first.id.clone());
+        let last = startup.next(&settings, |id| existing.contains(id)).unwrap();
+        assert_eq!(last.id, "same-provider-other-account");
+        assert_ne!(
+            first.profile_directory(std::path::Path::new("profiles")),
+            last.profile_directory(std::path::Path::new("profiles"))
+        );
+        existing.insert(last.id);
+        assert!(startup
+            .next(&settings, |id| existing.contains(id))
+            .is_none());
+        assert_eq!(serde_json::to_value(&settings).unwrap(), unchanged);
+    }
+
+    #[test]
+    fn startup_waits_for_document_completion_with_a_minimum_gap_and_offline_deadline() {
+        let settings = settings();
+        let now = Instant::now();
+        let mut startup = Startup::default();
+        let ticket = startup.register(&settings.services[0], now);
+        assert_eq!(
+            startup.remaining(&ticket, &settings, now),
+            STARTUP_LOAD_LIMIT
+        );
+        assert_eq!(
+            startup.remaining(&ticket, &settings, now + STARTUP_GAP),
+            STARTUP_LOAD_LIMIT - STARTUP_GAP
+        );
+        assert!(startup.loaded(&ticket, true));
+        assert_eq!(startup.remaining(&ticket, &settings, now), STARTUP_GAP);
+        assert_eq!(
+            startup.remaining(&ticket, &settings, now + STARTUP_GAP),
+            Duration::ZERO
+        );
+        assert!(startup.loaded(&ticket, false));
+        assert_eq!(
+            startup.remaining(&ticket, &settings, now + STARTUP_LOAD_LIMIT),
+            Duration::ZERO
+        );
+    }
+
+    #[test]
+    fn startup_rechecks_removed_disabled_reconfigured_and_manually_opened_services() {
+        let mut settings = settings();
+        let now = Instant::now();
+        let mut startup = Startup::default();
+        assert!(startup.begin());
+        let first = startup.next(&settings, |_| false).unwrap();
+        let ticket = startup.register(&first, now);
+        settings.services[0].enabled = false;
+        assert_eq!(startup.remaining(&ticket, &settings, now), Duration::ZERO);
+        settings.services[0].enabled = true;
+        settings.services[0].url = "https://changed.example/chat/".into();
+        assert_eq!(startup.remaining(&ticket, &settings, now), Duration::ZERO);
+        let replacement = startup.next(&settings, |_| false).unwrap();
+        assert_eq!(replacement.url, "https://changed.example/chat/");
+        let replacement_ticket = startup.register(&replacement, now);
+        assert!(
+            !startup.loaded(&ticket, true),
+            "old view completion cannot release a replacement"
+        );
+        assert_eq!(
+            startup.remaining(&replacement_ticket, &settings, now),
+            STARTUP_LOAD_LIMIT
+        );
+        settings.services.remove(0);
+        assert!(
+            startup.next(&settings, |id| id == "second").is_none(),
+            "a manually opened account must not be recreated"
+        );
+        assert_eq!(
+            settings.active_service.as_deref(),
+            Some("first"),
+            "queue policy must not change selection"
+        );
+    }
+
+    #[test]
+    fn a_failed_start_is_not_retried_in_a_hot_loop_but_a_later_reconciliation_can_retry() {
+        let settings = settings();
+        let mut startup = Startup::default();
+        assert!(startup.begin());
+        assert_eq!(startup.next(&settings, |_| false).unwrap().id, "first");
+        assert_eq!(startup.next(&settings, |_| false).unwrap().id, "second");
+        assert!(startup.next(&settings, |_| false).is_none());
+        startup.running = false;
+        assert!(startup.begin());
+        assert_eq!(startup.next(&settings, |_| false).unwrap().id, "first");
+    }
+
+    #[test]
+    fn activation_during_creation_is_deferred_and_old_completion_cannot_release_or_close_replacement(
+    ) {
+        let mut settings = settings();
+        let now = Instant::now();
+        let mut startup = Startup::default();
+        let old = startup.register(&settings.services[0], now);
+        startup.creating = Some(old.clone());
+        assert!(
+            startup.reserved("first"),
+            "layout must leave the in-progress view offscreen"
+        );
+        assert!(!startup.reserved("second"));
+        assert!(startup.defer_presentation(&settings.services[0]));
+        settings.services[0].url = "https://replacement.example/chat/".into();
+        assert!(
+            startup.defer_presentation(&settings.services[0]),
+            "same-label replacement waits until old creation is disposed"
+        );
+        assert!(
+            startup.presentation.as_ref() == Some(&SessionIdentity::from(&settings.services[0]))
+        );
+        assert!(
+            startup.reserved("first"),
+            "deferred selection/reconfiguration must not expose the view before hide"
+        );
+        let replacement = startup.register(&settings.services[0], now);
+        startup.creating = Some(replacement.clone());
+        startup.release(&old);
+        assert!(startup
+            .creating
+            .as_ref()
+            .is_some_and(|ticket| ticket.generation == replacement.generation));
+        assert!(!startup.owns(&old));
+        assert!(startup.current(&replacement));
+        assert!(!startup.defer_presentation(&settings.services[1]));
+        startup.release(&replacement);
+        assert!(
+            !startup.reserved("first"),
+            "only current completion may rejoin layout"
+        );
+    }
+
+    #[test]
+    fn shutdown_wakes_the_worker_without_waiting_on_the_ui_transition_and_is_terminal() {
+        use std::sync::{mpsc, Arc};
+        let lifecycle = Arc::new(Lifecycle::default());
+        let _transition = lifecycle.0.lock().unwrap();
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let (done_tx, done_rx) = mpsc::channel();
+        let worker_lifecycle = lifecycle.clone();
+        let worker = std::thread::spawn(move || {
+            let mut startup = worker_lifecycle.1.lock().unwrap();
+            ready_tx.send(()).unwrap();
+            while !startup.stopping {
+                startup = worker_lifecycle.2.wait(startup).unwrap();
+            }
+            assert!(!startup.begin());
+            assert!(startup.next(&settings(), |_| false).is_none());
+            done_tx.send(()).unwrap();
+        });
+        ready_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        lifecycle.stop();
+        done_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        worker.join().unwrap();
+    }
+
+    #[test]
+    fn background_creation_is_staged_outside_the_selected_surface() {
+        for width in [1., 300., 900., 1280.] {
+            let background = creation_position(false, width);
+            assert!(
+                background.x + width < 0.,
+                "initial provider paint must be outside the window"
+            );
+            assert_eq!(creation_position(true, width).x, RAIL_WIDTH);
+        }
     }
     #[test]
     fn first_service_and_add_another_wait_for_continue_while_skip_opens_an_empty_workspace() {
@@ -471,7 +1129,11 @@ fn reconcile_current(app: &AppHandle, old: &state::Settings) -> Result<(), Strin
         app.get_window("main").is_some(),
         || crate::window::open(app),
         || show(app),
-    )
+    )?;
+    if app.get_window("main").is_some() {
+        start_configured(app);
+    }
+    Ok(())
 }
 
 fn reconcile_workspace(
@@ -490,7 +1152,36 @@ fn reconcile_workspace(
     }
     show()
 }
-fn create(app: &AppHandle, service: &ServiceConfig) -> Result<(), String> {
+fn create(app: &AppHandle, service: &ServiceConfig) -> Result<LoadTicket, String> {
+    let lifecycle = app.state::<Lifecycle>();
+    let ticket = {
+        let mut startup = lifecycle
+            .1
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if startup.stopping {
+            return Err("Application is shutting down.".into());
+        }
+        startup.register(service, Instant::now())
+    };
+    if let Err(error) = create_registered(app, service, &ticket, false) {
+        lifecycle
+            .1
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .loaded(&ticket, true);
+        lifecycle.2.notify_all();
+        return Err(error);
+    }
+    Ok(ticket)
+}
+
+fn create_registered(
+    app: &AppHandle,
+    service: &ServiceConfig,
+    ticket: &LoadTicket,
+    background: bool,
+) -> Result<Webview, String> {
     let session = ServiceSession::new(service);
     let service = &session.config;
     let window = app
@@ -503,12 +1194,14 @@ fn create(app: &AppHandle, service: &ServiceConfig) -> Result<(), String> {
     let popup_app = app.clone();
     let load_app = app.clone();
     let load_id = service.id.clone();
+    let load_ticket = ticket.clone();
     let url = service
         .provider
         .validate_url(&service.url)?
         .parse()
         .map_err(|_| "Invalid service URL.")?;
     let mut builder = WebviewBuilder::new(&session.webview_label, WebviewUrl::External(url))
+        .focused(false)
         .disable_drag_drop_handler()
         .on_navigation(move |target| {
             if !configured(&nav_app, &nav_service) {
@@ -545,6 +1238,20 @@ fn create(app: &AppHandle, service: &ServiceConfig) -> Result<(), String> {
             tauri::webview::NewWindowResponse::Deny
         })
         .on_page_load(move |_, payload| {
+            if let Some(lifecycle) = load_app.try_state::<Lifecycle>() {
+                let current = lifecycle
+                    .1
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .loaded(
+                        &load_ticket,
+                        matches!(payload.event(), tauri::webview::PageLoadEvent::Finished),
+                    );
+                lifecycle.2.notify_all();
+                if !current {
+                    return;
+                }
+            }
             if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
                 crate::unread::invalidate_presentation(&load_app, &load_id);
                 crate::connection::set_for(
@@ -593,21 +1300,49 @@ fn create(app: &AppHandle, service: &ServiceConfig) -> Result<(), String> {
     let size = window
         .inner_size()
         .map_err(|_| "Could not measure desktop window.")?;
+    let bounds = service_size(size.width as f64 / scale, size.height as f64 / scale);
+    let selected = !background && settings.active_service.as_deref() == Some(service.id.as_str());
     let view = window
         .add_child(
             builder,
-            tauri::LogicalPosition::new(RAIL_WIDTH, 0.),
-            service_size(size.width as f64 / scale, size.height as f64 / scale),
+            // Swiph3l: Tauri has no hidden child-builder flag. Stage background
+            // controllers fully outside the client area before hiding them, so
+            // initial provider paint cannot cover the selected conversation.
+            creation_position(selected, bounds.width),
+            bounds,
         )
         .map_err(|_| "Could not create service WebView. Check WebView2 installation.")?;
-    crate::native_shortcuts::attach(app, &view)
-        .map_err(|_| "Could not register service shortcuts.")?;
-    crate::platform::observe_connection(app, &view, &service.id)
-        .map_err(|_| "Could not observe service connection.")?;
-    crate::downloads::attach(app, &view, &service.id)
-        .map_err(|_| "Could not observe attachment downloads.")?;
-    crate::notification_bridge::attach(app, &view, service)
-        .map_err(|_| "Could not attach service bridge.")?;
-    crate::menu::restore_zoom(app, &view).map_err(|_| "Could not restore zoom.")?;
-    Ok(())
+    let attach = || -> Result<(), String> {
+        if !configured(app, service)
+            || !app
+                .state::<Lifecycle>()
+                .1
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .current(ticket)
+        {
+            return Err("Service changed during startup.".into());
+        }
+        if !selected {
+            view.hide()
+                .map_err(|_| "Could not hide background service.")?;
+            view.set_position(tauri::LogicalPosition::new(RAIL_WIDTH, 0.))
+                .map_err(|_| "Could not position background service.")?;
+        }
+        crate::native_shortcuts::attach(app, &view)
+            .map_err(|_| "Could not register service shortcuts.")?;
+        crate::platform::observe_connection(app, &view, &service.id)
+            .map_err(|_| "Could not observe service connection.")?;
+        crate::downloads::attach(app, &view, &service.id)
+            .map_err(|_| "Could not observe attachment downloads.")?;
+        crate::notification_bridge::attach(app, &view, service)
+            .map_err(|_| "Could not attach service bridge.")?;
+        crate::menu::restore_zoom(app, &view).map_err(|_| "Could not restore zoom.")?;
+        Ok(())
+    };
+    if let Err(error) = attach() {
+        let _ = view.close();
+        return Err(error);
+    }
+    Ok(view)
 }
