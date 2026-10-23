@@ -14,7 +14,7 @@ export interface ProviderHostWindow {
   __chatplusIsViewingNotification?: (
     notification: ProviderNotification,
   ) => boolean;
-  __chatplusAcceptRead?: (arrivals: number[]) => void;
+  __chatplusAcceptRead?: (arrivals: number[], completeThrough?: number) => void;
   __chatplusCompleteArrival?: (arrival: number) => void;
   __chatplusMarkCurrentRead?: () => boolean;
   __chatplusReadAllStep?: (
@@ -323,7 +323,7 @@ export function installUnreadAdapter(
     }
     foreground = value;
     generation = nextGeneration;
-    adapter.onHostForegroundChanged?.(value);
+    adapter.onHostForegroundChanged?.(value, generation, incomingSequence);
     schedule();
   };
   host.__chatplusMarkCurrentRead = () => {
@@ -410,16 +410,24 @@ export function installUnreadAdapter(
     // Swiph3l: Renderer visibility may be stale by native callback time. This query only retains tags/returns evidence; it cannot mint a lasting read proof.
     return visible() && adapter.isViewingNotification(notification);
   };
-  host.__chatplusAcceptRead = (arrivals) => {
+  host.__chatplusAcceptRead = (arrivals, completeThrough) => {
     if (disposed || !Array.isArray(arrivals) || arrivals.length > 256) return;
+    const accepted: number[] = [];
     for (const arrival of arrivals) {
       if (!Number.isSafeInteger(arrival) || arrival <= 0) continue;
+      accepted.push(arrival);
       unseenArrivals.delete(arrival);
       acceptedArrivals.add(arrival);
       // Swiph3l: Bounded accepted history prevents late retries from restoring retired tags; eviction can only retain extra unread, never acknowledge an unseen event.
       if (acceptedArrivals.size > 256)
         acceptedArrivals.delete(acceptedArrivals.values().next().value!);
     }
+    adapter.onReadAccepted?.(
+      accepted,
+      Number.isSafeInteger(completeThrough) && completeThrough! > 0
+        ? completeThrough
+        : undefined,
+    );
     // Swiph3l: Saturation may have omitted the newest pending token locally;
     // emptying retained tags is not confirmation that native finished that arrival.
     if (
@@ -490,7 +498,7 @@ export function installUnreadAdapter(
   document.defaultView?.addEventListener("blur", presentationChanged, true);
   document.defaultView?.addEventListener("focus", presentationChanged, true);
   document.addEventListener("visibilitychange", presentationChanged, true);
-  adapter.onHostForegroundChanged?.(false);
+  adapter.onHostForegroundChanged?.(false, generation, incomingSequence);
   const stop = adapter.observe(schedule);
   schedule();
   return () => {

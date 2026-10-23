@@ -7,6 +7,7 @@ import { createSynologyChatAdapter } from "./providers/synology-chat";
 import { createDiscordAdapter } from "./providers/discord";
 import { createWhatsAppAdapter } from "./providers/whatsapp";
 import { createMessengerAdapter } from "./providers/messenger";
+import { createMattermostAdapter } from "./providers/mattermost";
 import type { ProviderId } from "../app/providers";
 
 (() => {
@@ -21,6 +22,7 @@ import type { ProviderId } from "../app/providers";
     discord: createDiscordAdapter,
     whatsapp: createWhatsAppAdapter,
     messenger: createMessengerAdapter,
+    mattermost: createMattermostAdapter,
   };
   const provider = host.__chatplusProvider ?? "synology-chatplus";
   const adapter = Object.hasOwn(adapters, provider)

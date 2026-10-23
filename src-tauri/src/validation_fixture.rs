@@ -106,10 +106,11 @@ mod tests {
         };
         assert!(!mattermost(&service));
         assert!(service.supports_notifications());
-        assert!(!service.supports_unread());
+        assert!(service.supports_unread());
         assert_eq!(service.unread_source_provider(), ProviderId::Mattermost);
         assert!(!crate::unread::Source::ChatPlusDom.accepts(service.unread_source_provider()));
+        assert!(crate::unread::Source::MattermostDom.accepts(service.unread_source_provider()));
         assert!(ProviderId::Mattermost.definition().notifications);
-        assert!(!ProviderId::Mattermost.definition().unread);
+        assert!(ProviderId::Mattermost.definition().unread);
     }
 }

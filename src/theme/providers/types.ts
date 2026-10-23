@@ -22,7 +22,8 @@ export interface ProviderUnreadAdapter {
     | "synology-chat-dom"
     | "discord-dom"
     | "whatsapp-dom"
-    | "messenger-dom";
+    | "messenger-dom"
+    | "mattermost-dom";
   snapshot(): ProviderUnreadSnapshot;
   observe(changed: () => void): () => void;
   readContext(): string | null;
@@ -31,7 +32,12 @@ export interface ProviderUnreadAdapter {
   providerUnreadZero?(): boolean;
   providerAllUnreadZero?(): boolean;
   tracksNotificationArrivals?: boolean;
+  onReadAccepted?(arrivals: number[], completeThrough?: number): void;
   isViewingNotification(notification: ProviderNotification): boolean;
-  onHostForegroundChanged?(foreground: boolean): void;
+  onHostForegroundChanged?(
+    foreground: boolean,
+    generation?: number,
+    incomingSequence?: number,
+  ): void;
   readAllStep?(operation: string): import("./discord-read").InboxReadStatus;
 }

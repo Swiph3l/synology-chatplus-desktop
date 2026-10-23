@@ -67,6 +67,7 @@ for (const [provider, source] of [
   ["discord", "discord-dom"],
   ["whatsapp", "whatsapp-dom"],
   ["messenger", "messenger-dom"],
+  ["mattermost", "mattermost-dom"],
 ]) {
   test(`${provider}: complete native bootstrap chooses its own adapter without injecting ChatPlus CSS`, () => {
     const f = fixture(provider);
@@ -74,7 +75,7 @@ for (const [provider, source] of [
     assert.equal(f.messages[0].source, source);
     assert.equal(
       f.messages[0].hasUnread,
-      provider === "messenger" ? null : true,
+      ["messenger", "mattermost"].includes(provider) ? null : true,
     );
     assert.equal(f.messages[0].acknowledgement, null);
     if (provider === "discord")
@@ -86,7 +87,7 @@ for (const [provider, source] of [
 }
 
 test("unsupported providers and frames cannot install a different provider's unread adapter", () => {
-  for (const provider of ["slack", "mattermost", "unknown", "constructor"]) {
+  for (const provider of ["slack", "unknown", "constructor"]) {
     const f = fixture(provider);
     assert.deepEqual(f.messages, []);
     assert.equal(f.host.__chatplusSetForeground, undefined);

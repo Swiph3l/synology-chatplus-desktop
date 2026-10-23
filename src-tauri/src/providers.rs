@@ -79,9 +79,9 @@ impl ProviderId {
                 display_name: "Mattermost",
                 icon: "M",
                 experimental: true,
-                unread: false,
-                // Swiph3l: Standard browser events use the origin/profile-scoped bridge;
-                // notification support does not imply a Mattermost DOM/read adapter.
+                // Swiph3l: Read evidence uses the dedicated adapter and public
+                // server metadata; notification tags alone are not read proof.
+                unread: true,
                 notifications: true,
                 theme: false,
             },
@@ -560,18 +560,16 @@ mod tests {
             ProviderId::SynologyChatplus,
             ProviderId::SynologyChat,
             ProviderId::Discord,
+            ProviderId::Whatsapp,
+            ProviderId::Messenger,
+            ProviderId::Mattermost,
         ] {
             assert!(provider.definition().unread);
             assert!(provider.definition().notifications);
         }
-        for provider in [ProviderId::Slack, ProviderId::Mattermost] {
-            assert!(!provider.definition().unread);
-            assert_eq!(
-                provider.definition().notifications,
-                provider == ProviderId::Mattermost
-            );
-            assert!(!provider.definition().theme);
-        }
+        assert!(!ProviderId::Slack.definition().unread);
+        assert!(!ProviderId::Slack.definition().notifications);
+        assert!(!ProviderId::Slack.definition().theme);
         assert!(serde_json::from_str::<ProviderId>("\"browser\"").is_err());
         assert!(!ProviderId::SynologyChat.definition().theme);
         assert!(!ProviderId::Discord.definition().theme);
@@ -848,7 +846,7 @@ mod tests {
         let definition = provider.definition();
         assert_eq!(definition.display_name, "Mattermost");
         assert!(definition.experimental);
-        assert!(!definition.unread);
+        assert!(definition.unread);
         assert!(definition.notifications);
         assert!(!definition.theme);
         for unknown in ["mattermost-cloud", "Mattermost", "unknown"] {

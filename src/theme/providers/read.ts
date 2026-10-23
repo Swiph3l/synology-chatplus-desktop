@@ -21,6 +21,7 @@ export function readCapabilities(
               "synology-chat-dom",
               "whatsapp-dom",
               "messenger-dom",
+              "mattermost-dom",
             ].includes(source)
           ? "local"
           : "unsupported",

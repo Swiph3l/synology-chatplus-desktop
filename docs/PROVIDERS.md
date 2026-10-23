@@ -18,7 +18,7 @@ Web UI and may have account, browser or server-version compatibility limits.
 | WhatsApp          | Experimental | Positive badges only; otherwise unknown  | Yes                          | No             |
 | Messenger         | Experimental | Browser notification arrivals only       | Yes                          | No             |
 | Slack             | Experimental | Unavailable                              | No                           | No             |
-| Mattermost        | Experimental | Browser notification arrivals only       | Yes                          | No             |
+| Mattermost        | Experimental | Browser arrivals; verified server zero   | Yes                          | No             |
 
 Unread support does not imply read-action support. Current adapters report boolean
 unread or unknown, not an account-wide message total. Read capabilities and native
@@ -192,13 +192,23 @@ and Meta.
 Mattermost requires an explicit server URL and uses its normal Web login in an
 isolated profile. Standard browser `Notification` events pass through the shared
 native bridge, validated against that instance's exact configured origin and live
-session. Notification support does not install a Mattermost DOM adapter: no chat
-content, sidebar labels or hidden store is inspected. Browser arrivals can latch
-native unread; aggregate counts, provider-wide zero, exact conversation mapping
-and current-conversation read actions remain unavailable. **Mark all as read
-(local)** explicitly clears only that instance's ChatPlus state, without changing
-Mattermost's server state. Later arrivals restore unread. ChatPlus theme CSS is
-not injected.
+session. Browser arrivals own unread. A dedicated adapter maps the main message
+pane/composer and checks complete channel, membership and team/thread read metadata
+through documented same-origin GET endpoints after trusted conversation engagement.
+The existing WebView session authenticates requests; tokens/cookies and private
+stores are not read. Requests do not mark server messages read, and message bodies
+are not fetched. Metadata is reduced in memory and never logged or persisted.
+
+Automatic verification currently requires version 11.7.2 and a public unlicensed
+status, which establishes primary-store reads in the audited release. Licensed or
+unknown deployments and other versions retain explicit local all-read: lagging
+read replicas cannot provide the required fresh-zero guarantee. Incomplete or
+incompatible metadata also remains unknown; no account-wide count is invented.
+Legacy text tags are not treated as post IDs, so exact foreground suppression and
+current-conversation read remain unavailable. **Mark all as read (local)** provides
+an instance-scoped fallback. Later arrivals restore unread. See
+[Notifications and unread](NOTIFICATIONS.md#mattermost). ChatPlus theme CSS is not
+injected.
 
 Browser permission, ChatPlus global delivery, the instance's notification toggle
 and Mattermost's own **Desktop and mobile notifications** preference must allow

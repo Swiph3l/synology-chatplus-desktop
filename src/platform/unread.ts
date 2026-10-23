@@ -1,4 +1,4 @@
-/** Future unread adapters must use visible page state, never private server APIs. */
+/** Use visible page state or documented read metadata, never private server APIs. */
 export interface UnreadSource {
   subscribe(listener: (count: number | null) => void): () => void;
 }

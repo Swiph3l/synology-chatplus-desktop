@@ -34,6 +34,7 @@ test("read capabilities distinguish scoped local acknowledgement from unsupporte
     "synology-chat-dom",
     "whatsapp-dom",
     "messenger-dom",
+    "mattermost-dom",
   ])
     assert.deepEqual(readCapabilities(source), {
       current: "unsupported",
@@ -81,6 +82,8 @@ test("explicit current read retains unknown and unrelated arrivals and requires 
   };
   assert.deepEqual(currentReadArrivals(adapter, arrivals), []);
   adapter.source = "messenger-dom";
+  assert.deepEqual(currentReadArrivals(adapter, arrivals), []);
+  adapter.source = "mattermost-dom";
   assert.deepEqual(currentReadArrivals(adapter, arrivals), []);
 });
 

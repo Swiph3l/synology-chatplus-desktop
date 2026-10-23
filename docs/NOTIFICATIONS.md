@@ -59,7 +59,8 @@ Automatic acknowledgement requires all of:
 
 - The current native foreground generation and correct selected enabled service.
 - Genuine trusted interaction in the uniquely mapped conversation or main composer.
-- The same conversation/content identity and a visible latest message pane.
+- The same conversation/content identity and a visible latest message pane, or
+  Mattermost's verified complete read state with a visible mapped pane.
 - Fresh reliable provider-wide zero or an exact individually viewed message proof.
 
 Clicks, keyboard/input and foreground scrolling can supply engagement. A mapped
@@ -238,13 +239,46 @@ can be repaired with **More > Allow provider notifications** for that instance,
 followed by reload if the provider caches its permission state. See
 [Mattermost Web notification settings](https://docs.mattermost.com/end-user-guide/preferences/manage-your-web-notifications).
 
-Real arrivals can latch unread. There is no Mattermost DOM adapter or verified
-conversation/read proof, so counts, aggregate zero, foreground conversation
-suppression and current-conversation acknowledgement are unavailable. **Mark all
-as read (local)** clears only the clicked instance's captured native unread;
-later arrivals remain eligible and restore the dot. This does not mark Mattermost
-messages read on the server. Toast clicks and dismissal remain unrelated to unread
-acknowledgement.
+Real arrivals latch unread. Older releases, including 11.7.2, put the notification
+body in `Notification.tag`, so tags cannot identify a post. Exact foreground toast
+suppression and current-conversation acknowledgement remain unavailable. The
+adapter instead checks documented same-origin read metadata after trusted
+engagement in the mapped main conversation/composer.
+
+Automatic verification currently requires the audited server version 11.7.2 and
+an unlicensed deployment. The public client config/license must confirm this both
+before and after the query. In that version unlicensed stores read the primary;
+licensed servers may use lagging replicas, so matching counters alone cannot prove
+that a new arrival was included. Other versions, missing license evidence or a
+changed server configuration remain unknown and retain local all-read. See
+[Mattermost store selection](https://github.com/mattermost/mattermost/blob/70c68d0cf6357e2b5c6b66bcc6ffc03bd13d1910/server/channels/store/sqlstore/store.go).
+
+The verifier reads complete membership pages, then channel totals, comparing
+all-message/root-message and mention counters. Separate team unread requests
+include collapsed threads and cover both ordinary teams and the blank DM/group
+team. Muted channels are not excluded from the raw comparison. Incomplete pages,
+differing channel/membership sets (including archived memberships absent from the
+live channel response), malformed counters, missing thread groups, auth failures
+and timeouts stay unknown. Requests use the existing WebView session and exact
+configured server base, including its subpath. They extract no token/cookie, use
+no authorization header/private store/post-body endpoint and perform no server
+mark-read action. Channel metadata is reduced to IDs/counters in memory and never
+logged or persisted. Responses and pagination are bounded.
+
+Only a complete, fresh zero can acknowledge completed native arrivals. Positive
+or unavailable metadata does not manufacture initial unread or counts. Native
+foreground/generation/arrival and route/content changes invalidate queries. Fresh
+trusted conversation engagement is required; focus, service/toast selection and
+mere metadata availability cannot mark messages read. A bounded retry may wait for
+Mattermost's own read updater; a timer itself never clears unread. A server receipt
+supplies read evidence rather than a physical-bottom guess over virtualized
+history; receipts expire and native acceptance stops repeated queries until a new
+arrival.
+
+**Mark all as read (local)** remains available when verification cannot establish
+zero. It clears only the clicked instance's captured ChatPlus unread; later arrivals
+restore the dot. Neither this action nor verification marks messages read on the server.
+Toast clicks/dismissal remain unrelated to unread acknowledgement.
 
 ## Toast activation
 

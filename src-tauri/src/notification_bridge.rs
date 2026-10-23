@@ -1203,6 +1203,7 @@ fn parse_diagnostic(json: &str) -> Option<RendererDiagnostic> {
         "discord-dom" => crate::unread::Source::DiscordDom,
         "whatsapp-dom" => crate::unread::Source::WhatsappDom,
         "messenger-dom" => crate::unread::Source::MessengerDom,
+        "mattermost-dom" => crate::unread::Source::MattermostDom,
         _ => return None,
     };
     use crate::diagnostics::{NotificationEvent as Event, NotificationReason as Reason};
@@ -1211,6 +1212,16 @@ fn parse_diagnostic(json: &str) -> Option<RendererDiagnostic> {
         ("normalized", "provider-observation") => (Event::Normalized, Reason::ProviderObservation),
         ("duplicate-suppressed", "unchanged-state") => {
             (Event::DuplicateSuppressed, Reason::UnchangedState)
+        }
+        ("read-state-checked", "verified-zero")
+            if source == crate::unread::Source::MattermostDom =>
+        {
+            (Event::ReadStateChecked, Reason::ProviderReadZero)
+        }
+        ("read-state-checked", "unverified-zero")
+            if source == crate::unread::Source::MattermostDom =>
+        {
+            (Event::ReadStateChecked, Reason::ProviderReadUnknown)
         }
         _ => return None,
     };
@@ -1331,6 +1342,7 @@ fn parse_unread(json: &str) -> Option<UnreadObservation> {
         Some("discord-dom") => crate::unread::Source::DiscordDom,
         Some("whatsapp-dom") => crate::unread::Source::WhatsappDom,
         Some("messenger-dom") => crate::unread::Source::MessengerDom,
+        Some("mattermost-dom") => crate::unread::Source::MattermostDom,
         Some("title-fallback") => return None,
         _ => return None,
     };
@@ -1383,6 +1395,82 @@ pub fn attach(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mattermost_read_state_diagnostics_preserve_fixed_result_pairs_and_generation() {
+        for (reason, expected) in [
+            ("verified-zero", "provider_read_zero"),
+            ("unverified-zero", "provider_read_unknown"),
+        ] {
+            let value = serde_json::json!({
+                "chatplusUnreadDiagnostic": 1,
+                "source": "mattermost-dom",
+                "event": "read-state-checked",
+                "reason": reason,
+                "generation": 41,
+            });
+            let parsed = parse_diagnostic(&value.to_string()).unwrap();
+            assert_eq!(parsed.source, crate::unread::Source::MattermostDom);
+            assert_eq!(
+                serde_json::to_value(parsed.event).unwrap(),
+                "read_state_checked"
+            );
+            assert_eq!(serde_json::to_value(parsed.reason).unwrap(), expected);
+            assert_eq!(parsed.generation, 41);
+        }
+    }
+
+    #[test]
+    fn read_state_diagnostic_results_cannot_be_claimed_by_other_provider_sources() {
+        for source in [
+            "chatplus-dom",
+            "synology-chat-dom",
+            "discord-dom",
+            "whatsapp-dom",
+            "messenger-dom",
+            "unknown",
+        ] {
+            for reason in ["verified-zero", "unverified-zero"] {
+                let value = serde_json::json!({
+                    "chatplusUnreadDiagnostic": 1,
+                    "source": source,
+                    "event": "read-state-checked",
+                    "reason": reason,
+                    "generation": 41,
+                });
+                assert!(
+                    parse_diagnostic(&value.to_string()).is_none(),
+                    "{source}/{reason}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn mattermost_read_state_diagnostics_reject_unapproved_event_reason_combinations() {
+        for (event, reason) in [
+            ("read-state-checked", "provider-observation"),
+            ("read-state-checked", "unchanged-state"),
+            ("read-state-checked", "provider_read_zero"),
+            ("read-state-checked", "verified-zero "),
+            ("read-state-checked", ""),
+            ("detected", "verified-zero"),
+            ("normalized", "unverified-zero"),
+            ("read_state_checked", "verified-zero"),
+        ] {
+            let value = serde_json::json!({
+                "chatplusUnreadDiagnostic": 1,
+                "source": "mattermost-dom",
+                "event": event,
+                "reason": reason,
+                "generation": 41,
+            });
+            assert!(
+                parse_diagnostic(&value.to_string()).is_none(),
+                "{event}/{reason}"
+            );
+        }
+    }
 
     #[test]
     fn viewing_diagnostics_distinguish_native_failure_from_unproven_and_proven_results() {
@@ -1854,6 +1942,7 @@ mod tests {
             ("discord-dom", crate::unread::Source::DiscordDom),
             ("whatsapp-dom", crate::unread::Source::WhatsappDom),
             ("messenger-dom", crate::unread::Source::MessengerDom),
+            ("mattermost-dom", crate::unread::Source::MattermostDom),
         ] {
             let mut value =
                 serde_json::json!({"chatplusUnread":1,"hasUnread":false,"source":source});
@@ -1868,6 +1957,26 @@ mod tests {
         }
     }
     #[test]
+    fn mattermost_unknown_observation_and_explicit_zero_keep_distinct_read_evidence() {
+        let unknown = parse_unread(
+            r#"{"chatplusUnread":1,"source":"mattermost-dom","hasUnread":null,"certainty":"unknown","providerRevision":1}"#,
+        )
+        .unwrap();
+        assert_eq!(unknown.source, crate::unread::Source::MattermostDom);
+        assert!(!unknown.known);
+        assert!(!unknown.provider_zero);
+        assert!(unknown.acknowledgement.is_none());
+
+        let zero = parse_unread(
+            r#"{"chatplusUnread":1,"source":"mattermost-dom","hasUnread":false,"certainty":"known-read","acknowledgement":7,"readScope":"provider-zero"}"#,
+        )
+        .unwrap();
+        assert_eq!(zero.source, crate::unread::Source::MattermostDom);
+        assert!(zero.known);
+        assert!(zero.provider_zero);
+        assert_eq!(zero.acknowledgement, Some(7));
+    }
+    #[test]
     fn discord_unread_requires_direct_message_scope_and_other_sources_cannot_claim_it() {
         let scoped = serde_json::json!({
             "chatplusUnread": 1,
@@ -1878,7 +1987,12 @@ mod tests {
             "readScope": "provider-zero",
         });
         assert!(parse_unread(&scoped.to_string()).unwrap().provider_zero);
-        for source in ["discord-dom", "chatplus-dom", "whatsapp-dom"] {
+        for source in [
+            "discord-dom",
+            "chatplus-dom",
+            "whatsapp-dom",
+            "mattermost-dom",
+        ] {
             for scope in [None, Some("direct-messages"), Some("all"), Some("")] {
                 let mut value = scoped.clone();
                 value["source"] = source.into();

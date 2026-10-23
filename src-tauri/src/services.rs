@@ -1291,8 +1291,9 @@ fn create_registered(
     if service.supports_unread() {
         // Swiph3l: Unread adapters are provider-specific and independent of theme support; Discord and Synology Chat must never receive ChatPlus styling.
         builder = builder.initialization_script(format!(
-            "window.__chatplusProvider = {};\n{}",
+            "window.__chatplusProvider = {};\nwindow.__chatplusServiceBase = {};\n{}",
             serde_json::to_string(&service.unread_source_provider()).unwrap(),
+            serde_json::to_string(&service.url).unwrap(),
             include_str!("../unread-bootstrap.js")
         ));
     }

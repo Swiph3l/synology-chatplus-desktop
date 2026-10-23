@@ -15,6 +15,7 @@ pub enum Source {
     DiscordDom,
     WhatsappDom,
     MessengerDom,
+    MattermostDom,
 }
 impl Source {
     fn label(self) -> &'static str {
@@ -24,6 +25,7 @@ impl Source {
             Self::DiscordDom => "discord-dom",
             Self::WhatsappDom => "whatsapp-dom",
             Self::MessengerDom => "messenger-dom",
+            Self::MattermostDom => "mattermost-dom",
         }
     }
     pub fn accepts(self, provider: crate::providers::ProviderId) -> bool {
@@ -38,6 +40,10 @@ impl Source {
             ) | (Self::DiscordDom, crate::providers::ProviderId::Discord)
                 | (Self::WhatsappDom, crate::providers::ProviderId::Whatsapp)
                 | (Self::MessengerDom, crate::providers::ProviderId::Messenger)
+                | (
+                    Self::MattermostDom,
+                    crate::providers::ProviderId::Mattermost
+                )
         )
     }
 }
@@ -403,6 +409,22 @@ fn native_unread_complete(tracking: &Tracking, id: &str) -> bool {
             .map_or(true, HashSet::is_empty)
 }
 
+fn completed_read_through(tracking: &Tracking, id: &str) -> Option<u64> {
+    // Swiph3l: A later accepted token cannot cover an earlier pending arrival.
+    // Only the native store can certify that this service's whole boundary is read.
+    if native_unread_complete(tracking, id)
+        && tracking
+            .observations
+            .get(id)
+            .is_some_and(|state| !state.has_unread)
+        && !tracking.provider_unread_latched.contains(id)
+    {
+        tracking.incoming_generations.get(id).copied()
+    } else {
+        None
+    }
+}
+
 fn consume_provider_zero(tracking: &mut Tracking, id: &str) -> Vec<u64> {
     // Swiph3l: Synology does not expose reliable read tags. A trusted current
     // conversation plus provider-wide zero can retire completed arrivals;
@@ -439,17 +461,23 @@ fn consume_provider_zero(tracking: &mut Tracking, id: &str) -> Vec<u64> {
 
 pub fn accept_read_for(app: &AppHandle, id: &str, arrivals: &[u64]) {
     if !arrivals.is_empty() {
+        let complete_through = {
+            let service = app.state::<Service>();
+            let tracking = service.0.lock().unwrap_or_else(|error| error.into_inner());
+            completed_read_through(&tracking, id)
+        };
         if let Some(view) = app.get_webview(&crate::services::label(id)) {
-            accept_read_in(&view, arrivals);
+            accept_read_in(&view, arrivals, complete_through);
         }
     }
 }
 
-fn accept_read_in(view: &tauri::Webview, arrivals: &[u64]) {
+fn accept_read_in(view: &tauri::Webview, arrivals: &[u64], complete_through: Option<u64>) {
     for chunk in arrivals.chunks(READ_ARRIVAL_LIMIT) {
         let _ = view.eval(&format!(
-            "window.__chatplusAcceptRead?.({})",
-            serde_json::to_string(chunk).unwrap()
+            "window.__chatplusAcceptRead?.({}, {})",
+            serde_json::to_string(chunk).unwrap(),
+            serde_json::to_string(&complete_through).unwrap(),
         ));
     }
 }
@@ -975,7 +1003,7 @@ pub fn complete_discord_inbox_read(app: &AppHandle, baseline: InboxReadBaseline)
         return false;
     };
     if let Some(view) = view {
-        accept_read_in(&view, &arrivals);
+        accept_read_in(&view, &arrivals, None);
         let _ = view.eval(&format!(
             "window.__chatplusAcknowledgeAllLocal?.({})",
             baseline.through
@@ -1108,7 +1136,7 @@ pub fn acknowledge_all_local_for(
         ))
     })?;
     if let Some(view) = view {
-        accept_read_in(&view, &arrivals);
+        accept_read_in(&view, &arrivals, None);
         let _ = view.eval(&format!(
             "window.__chatplusAcknowledgeAllLocal?.({through})"
         ));
@@ -1340,6 +1368,122 @@ mod tests {
     use super::*;
 
     #[test]
+    fn native_complete_read_boundary_requires_every_unread_owner_to_be_clear() {
+        let baseline = || {
+            let mut tracking = Tracking::default();
+            tracking.incoming_generations.insert("work".into(), 5);
+            tracking
+                .observations
+                .insert("work".into(), Unread::default());
+            tracking
+        };
+        assert_eq!(completed_read_through(&baseline(), "work"), Some(5));
+        assert_eq!(completed_read_through(&baseline(), "other"), None);
+        for guard in [
+            "pending",
+            "retained",
+            "overflow",
+            "provider-positive",
+            "native-unread",
+            "missing-observation",
+            "missing-arrival",
+        ] {
+            let mut tracking = baseline();
+            match guard {
+                "pending" => {
+                    tracking
+                        .pending_generations
+                        .insert("work".into(), HashSet::from([1]));
+                }
+                "retained" => {
+                    tracking
+                        .observed_unread_arrivals
+                        .insert("work".into(), HashSet::from([1]));
+                }
+                "overflow" => {
+                    tracking.observed_unread_overflow.insert("work".into());
+                }
+                "provider-positive" => {
+                    tracking.provider_unread_latched.insert("work".into());
+                }
+                "native-unread" => {
+                    tracking.observations.get_mut("work").unwrap().has_unread = true;
+                }
+                "missing-observation" => {
+                    tracking.observations.remove("work");
+                }
+                "missing-arrival" => {
+                    tracking.incoming_generations.remove("work");
+                }
+                _ => unreachable!(),
+            }
+            assert_eq!(completed_read_through(&tracking, "work"), None, "{guard}");
+        }
+    }
+
+    #[test]
+    fn later_read_acceptance_cannot_cover_earlier_pending_or_future_arrivals() {
+        let mut tracking = Tracking {
+            foreground_service: Some("work".into()),
+            presentation_generation: 7,
+            ..Default::default()
+        };
+        let first = begin_event(&mut tracking, "work", true, None);
+        latch_arrival(&mut tracking, "work", first, 1);
+        let second = begin_event(&mut tracking, "work", true, None);
+        latch_arrival(&mut tracking, "work", second, 2);
+        finish_event(&mut tracking, "work", second, true);
+        let partial = observe_provider_scoped(
+            &mut tracking,
+            "work",
+            false,
+            true,
+            Some(7),
+            &[],
+            false,
+            3,
+            true,
+        );
+        assert_eq!(partial.accepted, vec![second]);
+        assert!(tracking.pending_generations["work"].contains(&first));
+        assert!(tracking.observations["work"].has_unread);
+        assert_eq!(completed_read_through(&tracking, "work"), None);
+
+        let other = begin_event(&mut tracking, "personal", true, None);
+        latch_arrival(&mut tracking, "personal", other, 4);
+        finish_event(&mut tracking, "work", first, true);
+        let complete = observe_provider_scoped(
+            &mut tracking,
+            "work",
+            false,
+            true,
+            Some(7),
+            &[],
+            false,
+            5,
+            true,
+        );
+        assert!(complete.accepted.contains(&first));
+        let captured = completed_read_through(&tracking, "work");
+        assert_eq!(
+            captured,
+            Some(second),
+            "the boundary belongs to this service only"
+        );
+        assert!(tracking.observations["personal"].has_unread);
+        assert!(tracking.pending_generations["personal"].contains(&other));
+
+        let newer = begin_event(&mut tracking, "work", true, None);
+        latch_arrival(&mut tracking, "work", newer, 6);
+        assert!(
+            newer > captured.unwrap(),
+            "a delayed complete callback cannot cover a new arrival"
+        );
+        assert_eq!(completed_read_through(&tracking, "work"), None);
+        assert!(tracking.observations["work"].has_unread);
+    }
+
+    #[test]
     fn toast_related_focus_and_badge_changes_do_not_acknowledge_any_provider_arrival() {
         use crate::providers::ProviderId;
         for (provider, source) in [
@@ -1348,6 +1492,7 @@ mod tests {
             (ProviderId::Discord, Source::DiscordDom),
             (ProviderId::Whatsapp, Source::WhatsappDom),
             (ProviderId::Messenger, Source::MessengerDom),
+            (ProviderId::Mattermost, Source::MattermostDom),
         ] {
             assert!(source.accepts(provider));
             let mut tracking = Tracking::default();
@@ -2845,12 +2990,14 @@ mod tests {
     #[test]
     fn provider_sources_cannot_acknowledge_another_provider() {
         use crate::providers::ProviderId;
+        assert_eq!(Source::MattermostDom.label(), "mattermost-dom");
         for (source, provider) in [
             (Source::ChatPlusDom, ProviderId::SynologyChatplus),
             (Source::SynologyChatDom, ProviderId::SynologyChat),
             (Source::DiscordDom, ProviderId::Discord),
             (Source::WhatsappDom, ProviderId::Whatsapp),
             (Source::MessengerDom, ProviderId::Messenger),
+            (Source::MattermostDom, ProviderId::Mattermost),
         ] {
             assert!(source.accepts(provider));
             for other in [
@@ -2859,6 +3006,8 @@ mod tests {
                 ProviderId::Discord,
                 ProviderId::Whatsapp,
                 ProviderId::Messenger,
+                ProviderId::Mattermost,
+                ProviderId::Slack,
             ] {
                 assert_eq!(source.accepts(other), provider == other);
             }
