@@ -225,6 +225,62 @@ test("root/head replacement, stylesheet removal and provider tampering repair th
   assert.equal(root.dataset.chatplusTheme, "dark");
 });
 
+test("Light and System-resolved Light survive provider root replacement without dark surface overrides", async () => {
+  for (const preference of ["light", "system"]) {
+    const f = fixture(preference, false);
+    const style = themeStyle(f.document);
+    const root = f.document.createElement("html");
+    root.dataset.chatplusTheme = "dark";
+    root.innerHTML = `<head></head><body class="eos-scope">
+      <main id="chat-main-app"><section class="message-viewer-scrollbar">
+        <div aria-busy="true"></div><div role="progressbar"></div>
+        <div contenteditable="true"></div><article class="jump-highlight"></article>
+      </section><section data-testid="thread-viewer-comments-section"></section>
+      <div data-testid="message-create-box-paste-zone"><div contenteditable="true"></div></div>
+      <div role="menu"><button data-testid="reaction-button"></button></div>
+      <div class="v-textfield-wrapper"><input></div></main></body>`;
+    f.document.replaceChild(root, f.document.documentElement);
+    await settle();
+    style.remove();
+    style.setAttribute("media", "not all");
+    await settle();
+    f.run();
+    await settle();
+
+    const matchesDarkOverride = () =>
+      [root, ...root.querySelectorAll("*")].some((node) =>
+        cssRules.some(
+          ([, selector]) =>
+            !/::|:(?:focus|hover)/.test(selector) &&
+            node.matches(selector.trim()),
+        ),
+      );
+    assert.equal(root.dataset.chatplusTheme, "light", preference);
+    assert.equal(themeStyle(f.document), style);
+    assert.equal(style.hasAttribute("media"), false);
+    assert.equal(
+      f.document.querySelectorAll("#chatplus-desktop-theme").length,
+      1,
+    );
+    assert.equal(
+      matchesDarkOverride(),
+      false,
+      `${preference}: provider Light colors remain available`,
+    );
+
+    f.media.matches = true;
+    f.media.change();
+    assert.equal(
+      root.dataset.chatplusTheme,
+      preference === "system" ? "dark" : "light",
+    );
+    assert.equal(matchesDarkOverride(), preference === "system");
+    f.window.__chatplusSetTheme("light");
+    assert.equal(matchesDarkOverride(), false);
+    assert.equal(themeStyle(f.document), style);
+  }
+});
+
 test("re-evaluating native bootstrap reuses styles, media listeners and observers", async () => {
   const f = fixture("dark");
   const style = themeStyle(f.document);
