@@ -23,6 +23,7 @@ fn main() {
         "Cargo.lock",
         "theme-bootstrap.js",
         "unread-bootstrap.js",
+        "external-links-bootstrap.js",
         "../package.json",
         "../src",
     ] {

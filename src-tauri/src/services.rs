@@ -1202,6 +1202,7 @@ fn create_registered(
         .map_err(|_| "Invalid service URL.")?;
     let mut builder = WebviewBuilder::new(&session.webview_label, WebviewUrl::External(url))
         .focused(false)
+        .initialization_script(crate::external_links::initialization_script(service))
         .disable_drag_drop_handler()
         .on_navigation(move |target| {
             if !configured(&nav_app, &nav_service) {
@@ -1337,6 +1338,8 @@ fn create_registered(
             .map_err(|_| "Could not observe service connection.")?;
         crate::downloads::attach(app, &view, &service.id)
             .map_err(|_| "Could not observe attachment downloads.")?;
+        crate::external_links::attach(app, &view, service)
+            .map_err(|_| "Could not attach external-link handling.")?;
         crate::notification_bridge::attach(app, &view, service)
             .map_err(|_| "Could not attach service bridge.")?;
         crate::menu::restore_zoom(app, &view).map_err(|_| "Could not restore zoom.")?;

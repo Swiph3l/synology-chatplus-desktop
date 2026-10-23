@@ -70,6 +70,18 @@ pub fn provider_document(service: &crate::providers::ServiceConfig, target: &Url
     target.scheme() == "blob" && crate::downloads::attachment_popup(service, target)
 }
 
+/// External anchor clicks may request confirmation, but may not take ownership
+/// of provider navigation or authenticated attachment popups.
+pub fn external_anchor_target(
+    service: &crate::providers::ServiceConfig,
+    target: &Url,
+) -> Option<ExternalTarget> {
+    if provider_document(service, target) || crate::downloads::attachment_popup(service, target) {
+        return None;
+    }
+    external_target(target)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

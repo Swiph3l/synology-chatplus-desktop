@@ -13,7 +13,10 @@ const PROMPT_LIFETIME: Duration = Duration::from_secs(5 * 60);
 const TEARDOWN_LIFETIME: Duration = Duration::from_secs(3);
 
 #[derive(Default)]
-pub struct Service(Mutex<PromptLifecycle<Pending>>);
+pub struct Service(
+    Mutex<PromptLifecycle<Pending>>,
+    Mutex<std::collections::HashMap<String, u64>>,
+);
 
 struct PromptLifecycle<T> {
     pending: Option<T>,
@@ -93,6 +96,7 @@ struct Context {
     parent: tauri::Window,
     source: tauri::Webview,
     source_url: url::Url,
+    source_bridge: Option<u64>,
 }
 
 struct Pending {
@@ -161,6 +165,21 @@ pub fn request(app: &AppHandle, service: &ServiceConfig, target: &url::Url, sour
     let Some(source) = app.get_webview(&source_label) else {
         return;
     };
+    request_from_source(app, service, target, display, parent, source, None);
+}
+
+fn request_from_source(
+    app: &AppHandle,
+    service: &ServiceConfig,
+    target: &url::Url,
+    display: navigation::ExternalTarget,
+    parent: tauri::Window,
+    source: tauri::Webview,
+    source_bridge: Option<u64>,
+) {
+    if !permitted(&state::current(app), service, target) {
+        return;
+    }
     let Ok(source_url) = source.url() else {
         return;
     };
@@ -178,6 +197,7 @@ pub fn request(app: &AppHandle, service: &ServiceConfig, target: &url::Url, sour
         parent,
         source,
         source_url,
+        source_bridge,
     };
     if !context_live(app, &context) {
         return;
@@ -249,6 +269,9 @@ fn failed(app: &AppHandle) {
 
 fn context_live(app: &AppHandle, context: &Context) -> bool {
     permitted(&state::current(app), &context.service, &context.target)
+        && context
+            .source_bridge
+            .is_none_or(|bridge| current_source_bridge(app, context.source.label(), bridge))
         && context.parent.is_visible().unwrap_or(false)
         && !context.parent.is_minimized().unwrap_or(true)
         && context.source.url().is_ok_and(|source| {
@@ -259,6 +282,149 @@ fn context_live(app: &AppHandle, context: &Context) -> bool {
                 &source,
             )
         })
+}
+
+fn current_source_bridge(app: &AppHandle, label: &str, bridge: u64) -> bool {
+    app.state::<Service>()
+        .1
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .get(label)
+        .is_some_and(|current| *current == bridge)
+}
+
+#[cfg(windows)]
+pub fn initialization_script(service: &ServiceConfig) -> String {
+    let origin = url::Url::parse(&service.url)
+        .map(|url| url.origin().ascii_serialization())
+        .unwrap_or_default();
+    format!(
+        "window.__chatplusExternalLinkPolicy = {};\n{}",
+        serde_json::json!({"provider": service.provider, "origin": origin}),
+        include_str!("../external-links-bootstrap.js"),
+    )
+}
+
+#[cfg(not(windows))]
+pub fn initialization_script(_: &ServiceConfig) -> String {
+    String::new()
+}
+
+#[cfg(any(windows, test))]
+fn anchor_message_target(
+    service: &ServiceConfig,
+    source: &url::Url,
+    current: &url::Url,
+    json: &str,
+) -> Option<url::Url> {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct Intent {
+        chatplus_external_link: u8,
+        href: String,
+    }
+    if json.len() > 64 * 1024
+        || source != current
+        || !navigation::provider_document(service, source)
+    {
+        return None;
+    }
+    let intent: Intent = serde_json::from_str(json).ok()?;
+    if intent.chatplus_external_link != 1 || intent.href.len() > 16_384 {
+        return None;
+    }
+    let target = url::Url::parse(&intent.href).ok()?;
+    navigation::external_anchor_target(service, &target)?;
+    Some(target)
+}
+
+#[cfg(windows)]
+pub fn attach(
+    app: &AppHandle,
+    view: &tauri::Webview,
+    service: &ServiceConfig,
+) -> tauri::Result<()> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use webview2_com::{CoTaskMemPWSTR, WebMessageReceivedEventHandler};
+    use windows::core::PWSTR;
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    let bridge = NEXT.fetch_add(1, Ordering::Relaxed);
+    let label = view.label().to_owned();
+    {
+        let settings = state::current(app);
+        let host = app.state::<Service>();
+        let mut bridges = host.1.lock().unwrap_or_else(|error| error.into_inner());
+        bridges.retain(|label, _| {
+            settings
+                .services
+                .iter()
+                .any(|service| service.enabled && crate::services::label(&service.id) == *label)
+        });
+        bridges.insert(label.clone(), bridge);
+    }
+    let app = app.clone();
+    let source_view = view.clone();
+    let service = service.clone();
+    view.with_webview(move |view| unsafe {
+        let Ok(core) = view.controller().CoreWebView2() else {
+            return;
+        };
+        let _ = core.add_WebMessageReceived(
+            &WebMessageReceivedEventHandler::create(Box::new(move |_, args| {
+                let Some(args) = args else {
+                    return Ok(());
+                };
+                let settings = state::current(&app);
+                if settings.active_service.as_deref() != Some(service.id.as_str())
+                    || !crate::services::configured(&app, &service)
+                    || !current_source_bridge(&app, &label, bridge)
+                {
+                    return Ok(());
+                }
+                let mut source = PWSTR::null();
+                args.Source(&mut source)?;
+                let source = CoTaskMemPWSTR::from(source).to_string();
+                let Ok(source) = url::Url::parse(&source) else {
+                    return Ok(());
+                };
+                let Ok(current) = source_view.url() else {
+                    return Ok(());
+                };
+                let mut json = PWSTR::null();
+                if args.TryGetWebMessageAsString(&mut json).is_err() {
+                    return Ok(());
+                }
+                let json = CoTaskMemPWSTR::from(json).to_string();
+                let Some(target) = anchor_message_target(&service, &source, &current, &json) else {
+                    return Ok(());
+                };
+                let Some(display) = navigation::external_anchor_target(&service, &target) else {
+                    return Ok(());
+                };
+                let Some(parent) = app.get_window("main") else {
+                    return Ok(());
+                };
+                // Swiph3l: Keep this exact session's view and registration. A queued
+                // click from a removed/replaced account cannot borrow its successor.
+                request_from_source(
+                    &app,
+                    &service,
+                    &target,
+                    display,
+                    parent,
+                    source_view.clone(),
+                    Some(bridge),
+                );
+                Ok(())
+            })),
+            &mut 0,
+        );
+    })
+}
+
+#[cfg(not(windows))]
+pub fn attach(_: &AppHandle, _: &tauri::Webview, _: &ServiceConfig) -> tauri::Result<()> {
+    Ok(())
 }
 
 fn source_matches(
@@ -710,6 +876,84 @@ mod tests {
             service,
             "https://example.com/path?value=1".parse().unwrap(),
         )
+    }
+
+    #[test]
+    fn anchor_bridge_accepts_only_the_exact_live_provider_document_and_external_url() {
+        let (_, service, target) = fixture();
+        let source: url::Url = "https://web.whatsapp.com/app/#conversation"
+            .parse()
+            .unwrap();
+        let json = serde_json::json!({"chatplusExternalLink":1,"href":target.as_str()}).to_string();
+        assert_eq!(
+            anchor_message_target(&service, &source, &source, &json),
+            Some(target)
+        );
+        let changed: url::Url = "https://web.whatsapp.com/app/#other".parse().unwrap();
+        assert!(anchor_message_target(&service, &source, &changed, &json).is_none());
+        for rejected in [
+            "https://web.whatsapp.com.evil.test/app/#conversation",
+            "http://web.whatsapp.com/app/#conversation",
+            "https://user:secret@web.whatsapp.com/app/#conversation",
+        ] {
+            let current = rejected.parse().unwrap();
+            assert!(anchor_message_target(&service, &source, &current, &json).is_none());
+            assert!(anchor_message_target(&service, &current, &current, &json).is_none());
+        }
+    }
+
+    #[test]
+    fn anchor_bridge_cannot_open_provider_routes_attachments_or_non_web_targets() {
+        let (_, mut service, _) = fixture();
+        let source: url::Url = service.url.parse().unwrap();
+        for href in [
+            "https://web.whatsapp.com/app/?state=opaque",
+            "blob:https://web.whatsapp.com/attachment-id",
+            "about:blank",
+            "javascript:alert(1)",
+            "file:///C:/fixture.pdf",
+            "https://user:secret@example.test/",
+        ] {
+            let json = serde_json::json!({"chatplusExternalLink":1,"href":href}).to_string();
+            assert!(
+                anchor_message_target(&service, &source, &source, &json).is_none(),
+                "{href}"
+            );
+        }
+        service.provider = crate::providers::ProviderId::Discord;
+        service.url = "https://discord.com/app/".into();
+        let source: url::Url = service.url.parse().unwrap();
+        let json = serde_json::json!({"chatplusExternalLink":1,"href":"https://cdn.discordapp.com/attachments/1/2/report.pdf?signature=opaque"}).to_string();
+        assert!(anchor_message_target(&service, &source, &source, &json).is_none());
+        service.provider = crate::providers::ProviderId::Slack;
+        service.url = "https://work.slack.com/".into();
+        let source: url::Url = service.url.parse().unwrap();
+        let json =
+            serde_json::json!({"chatplusExternalLink":1,"href":"https://other.slack.com/client/"})
+                .to_string();
+        assert!(anchor_message_target(&service, &source, &source, &json).is_none());
+    }
+
+    #[test]
+    fn anchor_bridge_payload_is_closed_bounded_and_does_not_accept_relative_or_replacement_fields()
+    {
+        let (_, service, _) = fixture();
+        let source: url::Url = service.url.parse().unwrap();
+        for value in [
+            serde_json::json!({"chatplusExternalLink":0,"href":"https://example.test/"}),
+            serde_json::json!({"chatplusExternalLink":"1","href":"https://example.test/"}),
+            serde_json::json!({"chatplusExternalLink":1,"href":"/internal"}),
+            serde_json::json!({"chatplusExternalLink":1,"href":null}),
+            serde_json::json!({"chatplusExternalLink":1,"href":"https://example.test/","accepted":true}),
+            serde_json::json!({"chatplusExternalLink":1,"href":"https://example.test/","source":"https://web.whatsapp.com/"}),
+            serde_json::json!({"chatplusExternalLink":1,"href":format!("https://example.test/{}", "x".repeat(16_384))}),
+        ] {
+            assert!(
+                anchor_message_target(&service, &source, &source, &value.to_string()).is_none()
+            );
+        }
+        assert!(anchor_message_target(&service, &source, &source, &" ".repeat(65_537)).is_none());
+        assert!(anchor_message_target(&service, &source, &source, "not JSON").is_none());
     }
 
     #[test]

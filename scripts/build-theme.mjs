@@ -26,3 +26,11 @@ await build({
   target: "es2022",
   outfile: "src-tauri/unread-bootstrap.js",
 });
+// Swiph3l: Link routing applies to every provider without injecting ChatPlus styling.
+await build({
+  entryPoints: ["src/theme/external-links-bootstrap.ts"],
+  bundle: true,
+  format: "iife",
+  target: "es2022",
+  outfile: "src-tauri/external-links-bootstrap.js",
+});

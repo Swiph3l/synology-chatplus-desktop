@@ -15,6 +15,15 @@ cookies, and completed files are never opened automatically.
 | Other credential-free HTTP(S) URL                           | Cancel embedded navigation and request local confirmation if external links are enabled.             |
 | Other scheme or URL credentials                             | Reject the provider link; never pass it to the operating-system opener.                              |
 
+On Windows, a document-start capture handler forwards a trusted, unmodified
+primary click on an external anchor directly to the native confirmation path.
+This runs before provider handlers that may cancel or defer browser navigation.
+It does not intercept downloads, editable or disabled links, provider routes,
+Slack workspace navigation or authenticated Discord attachments. Modified clicks
+and ordinary navigation retain the native navigation/popup fallback. The bridge
+is separate from provider theming and checks the exact live document, configured
+service and WebView registration before requesting a prompt.
+
 The bundled `external-link` window uses the saved shell theme and language. It displays
 the complete serialized ASCII URI as selectable, read-only text, the destination
 origin and an additional warning for HTTP. Internationalized hostnames use punycode
