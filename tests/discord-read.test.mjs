@@ -79,6 +79,26 @@ test("Discord reads through the unique public Inbox and selected Unreads action,
   assert.deepEqual(f.clicks, ["open", "unreads", "mark"]);
 });
 
+test("observed Polish Inbox controls use the full unread-tab and mark-all names", () => {
+  const f = fixture();
+  const inbox = f.document.getElementById("inbox");
+  inbox.removeAttribute("class");
+  inbox.setAttribute("role", "dialog");
+  inbox.setAttribute("aria-label", "Skrzynka odbiorcza");
+  f.document
+    .getElementById("open")
+    .setAttribute("aria-label", "Skrzynka odbiorcza");
+  const tab = f.document.getElementById("unreads-tab");
+  tab.id = "localized-unread-tab";
+  tab.textContent = "Nieprzeczytane wiadomości";
+  f.document
+    .getElementById("mark")
+    .setAttribute("aria-label", "Oznacz wszystko jako przeczytane");
+  for (let i = 0; i < 4; i++) assert.equal(f.step("1"), "waiting");
+  assert.equal(f.step("1"), "submitted");
+  assert.deepEqual(f.clicks, ["open", "unreads", "mark"]);
+});
+
 test("an unchanged read-all control is never clicked repeatedly or treated as completed", () => {
   const f = fixture({ consume: false });
   for (let i = 0; i < 20; i++) assert.equal(f.step("1"), "waiting");

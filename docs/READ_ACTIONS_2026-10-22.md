@@ -39,3 +39,22 @@ Discord documents Escape for the current channel and an Inbox-wide UI action:
 Escape can also dismiss editing/dialogs and Inbox markup is not authenticated in
 this environment. Consequently no synthetic hotkey, guessed menu label, mass
 sidebar click or private API is used to claim remote acknowledgement.
+
+## Follow-up, 23 October 2026
+
+The preceding sections record the initial implementation boundary. Current service
+menus group supported read commands under More and hide unsupported WhatsApp and
+Messenger commands. Synology all-read remains explicitly local. Discord now has a
+bounded public Inbox/Unreads read flow, scoped to the captured configured instance;
+it never iterates channels or calls private APIs. The current Polish control names
+were inspected in the authenticated Windows interface and have a dedicated regression.
+The helper does not accept a disabled control alone as completed read: fresh complete
+provider-zero evidence is required before acknowledging its captured local arrivals.
+Ambiguity, provider confirmation, timeout or changed source identity preserves unread.
+
+The latest milestone also removes the intervening exact local toast-click
+acknowledgement. A toast click only restores the original instance and delegates
+its provider's public click handler. Real provider/view proof or a separate explicit
+read action remains necessary. [Current notification rules](NOTIFICATIONS.md) and
+[the milestone report](MILESTONE_RELIABILITY_2026-10-23.md) distinguish automated
+coverage from account-dependent Windows acceptance.

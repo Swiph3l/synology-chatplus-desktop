@@ -13,6 +13,7 @@ const inboxNames = new Set([
 const unreadNames = new Set([
   "Unreads",
   "Nieprzeczytane",
+  "Nieprzeczytane wiadomości",
   "Ungelesen",
   "Sin leer",
   "Non lus",
@@ -23,6 +24,7 @@ const markNames = new Set([
   "Mark Inbox As Read",
   "Mark Inbox as Read",
   "Oznacz skrzynkę odbiorczą jako przeczytaną",
+  "Oznacz wszystko jako przeczytane",
   "Posteingang als gelesen markieren",
   "Marcar bandeja de entrada como leída",
   "Marquer la boîte de réception comme lue",
