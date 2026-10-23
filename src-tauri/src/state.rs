@@ -135,8 +135,8 @@ impl Theme {
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum NotificationPreview {
-    Full,
     #[default]
+    Full,
     Sender,
     Generic,
 }
@@ -197,7 +197,9 @@ impl Default for Settings {
             automatic_updates: false,
             include_beta_updates: false,
             desktop_notifications: false,
-            notification_preview: NotificationPreview::Sender,
+            // Swiph3l: New profiles show who wrote and the message excerpt. Serde
+            // still preserves an explicitly saved Sender/Generic privacy choice.
+            notification_preview: NotificationPreview::Full,
             notification_cooldown: default_notification_cooldown_seconds(),
             notification_sound: true,
             unread_title: true,
@@ -514,6 +516,32 @@ fn to_utf16le(value: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_notification_previews_show_content_but_saved_privacy_choices_survive() {
+        let fresh: Settings = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert!(matches!(
+            fresh.notification_preview,
+            NotificationPreview::Full
+        ));
+        assert!(matches!(
+            NotificationPreview::default(),
+            NotificationPreview::Full
+        ));
+        for choice in ["full", "sender", "generic"] {
+            let saved: Settings = serde_json::from_value(serde_json::json!({
+                "notificationPreview": choice,
+                "desktopNotifications": true
+            }))
+            .unwrap();
+            let reopened: Settings =
+                serde_json::from_value(serde_json::to_value(saved).unwrap()).unwrap();
+            assert_eq!(
+                serde_json::to_value(reopened).unwrap()["notificationPreview"],
+                choice
+            );
+        }
+    }
     #[test]
     fn fresh_onboarding_survives_restart_and_skip_stays_complete_without_services() {
         let (mut fresh, _) = load_preferences(&mut None, false).unwrap();

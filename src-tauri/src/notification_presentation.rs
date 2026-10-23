@@ -306,6 +306,48 @@ mod tests {
         assert!(!view.body.contains('\n'));
     }
     #[test]
+    fn full_message_previews_keep_provider_sender_and_text_for_every_messenger() {
+        for (provider, url, name) in [
+            (ProviderId::Discord, "https://discord.com/app/", "Discord"),
+            (
+                ProviderId::Whatsapp,
+                "https://web.whatsapp.com/",
+                "WhatsApp",
+            ),
+            (
+                ProviderId::Messenger,
+                "https://www.facebook.com/messages/",
+                "Messenger",
+            ),
+        ] {
+            let mut configured = service("Personal");
+            configured.provider = provider;
+            configured.url = url.into();
+            let view = prepare(
+                Some(&configured),
+                &NotificationPreview::default(),
+                "Alice",
+                "Can we talk? 🙂",
+                &Language::Pl,
+            );
+            assert_eq!(view.title, "Alice");
+            assert_eq!(view.body, "Can we talk? 🙂");
+            assert_eq!(view.attribution, format!("Personal · {name}"));
+            let private = prepare(
+                Some(&configured),
+                &NotificationPreview::Sender,
+                "Alice",
+                "Can we talk? 🙂",
+                &Language::Pl,
+            );
+            assert_eq!(private.title, "Alice");
+            assert_eq!(
+                private.body,
+                crate::i18n::text(&Language::Pl, "notification.newMessage")
+            );
+        }
+    }
+    #[test]
     fn private_preview_modes_never_expose_message_body_or_hidden_sender() {
         for mode in [NotificationPreview::Sender, NotificationPreview::Generic] {
             let view = prepare(
