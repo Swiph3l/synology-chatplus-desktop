@@ -9,8 +9,10 @@ it is not a plugin framework or general browser.
 ## Desktop boundaries
 
 The local `main` view renders a 56-pixel rail. Each service uses a `service-<id>`
-child WebView, created lazily on activation. Previously activated views remain
-alive while hidden. Never-activated services cannot report unread or notify.
+child WebView. The selected service opens first; a background queue starts the
+remaining enabled services in rail order. Loaded views remain alive while hidden
+and can report unread or native notifications without a first rail click. See
+[startup behavior](SERVICE_STARTUP.md) for load bounds and cancellation.
 Tauri's `unstable` feature enables child views; native layout/DPI testing remains
 required before release.
 
@@ -40,22 +42,26 @@ informational Experimental badges. Removal is confirmed and persisted immediatel
 it retains the stored profile and does not save unrelated form edits.
 
 The external rail's context menu reuses the desktop's native Tauri menu system.
-It offers Open, local Rename/Service settings, and confirmed Remove service.
-ChatPlus, Synology Chat and Discord additionally offer per-service desktop notification
-mute/unmute and the notification settings control. These are desktop preferences, not provider
-server administration. Mark-read, provider-side mute, members/invitations and leaving
-a remote server have no API here and are omitted. Provider administration and
+It offers Open, supported mute/unmute, Service settings and confirmed Remove.
+Rename is available in Service settings. The More submenu contains only supported
+read actions, browser permission repair and desktop notification settings. Local
+acknowledgements are labelled local; Discord's Inbox action uses its public UI and
+requires verified completion evidence. See [read actions](NOTIFICATIONS.md#explicit-service-read-actions).
+These desktop controls do not expose provider-side mute, members/invitations or
+leaving a remote server. Provider administration and
 provider-side notification preferences remain in the embedded application.
 
 ## Unread and notification capabilities
 
-| Provider          | Unread adapter | Native browser-notification bridge | ChatPlus theme injection |
-| ----------------- | -------------- | ---------------------------------- | ------------------------ |
-| Synology ChatPlus | Enabled        | Enabled                            | Enabled                  |
-| Synology Chat     | Enabled        | Enabled                            | Disabled                 |
-| Discord           | Enabled        | Enabled                            | Disabled                 |
-| Slack             | Disabled       | Disabled                           | Disabled                 |
-| Mattermost        | Disabled       | Disabled                           | Disabled                 |
+| Provider                 | Unread adapter      | Native browser-notification bridge | ChatPlus theme injection |
+| ------------------------ | ------------------- | ---------------------------------- | ------------------------ |
+| Synology ChatPlus        | Enabled             | Enabled                            | Enabled                  |
+| Synology Chat            | Enabled             | Enabled                            | Disabled                 |
+| Discord                  | Enabled             | Enabled                            | Disabled                 |
+| WhatsApp (Experimental)  | Positive-only       | Enabled                            | Disabled                 |
+| Messenger (Experimental) | Browser events only | Enabled                            | Disabled                 |
+| Slack                    | Disabled            | Disabled                           | Disabled                 |
+| Mattermost               | Disabled            | Disabled                           | Disabled                 |
 
 Enabled capabilities describe implemented Windows integration, not completed live
 acceptance. Each service still needs its own saved notification preference and the
