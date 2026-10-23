@@ -789,7 +789,11 @@ mod tests {
         service.notifications = false;
         assert!(visible_actions(&service).contains(&ServiceAction::Unmute));
         assert!(!visible_actions(&service).contains(&ServiceAction::Mute));
-        for provider in [ProviderId::SynologyChat, ProviderId::Discord] {
+        for provider in [
+            ProviderId::SynologyChat,
+            ProviderId::Discord,
+            ProviderId::Mattermost,
+        ] {
             service.provider = provider;
             assert!(visible_actions(&service).contains(&ServiceAction::Unmute));
             assert!(ServiceAction::Notifications.allowed(&service));
@@ -797,7 +801,7 @@ mod tests {
             assert!(visible_actions(&service).contains(&ServiceAction::Mute));
             service.notifications = false;
         }
-        for provider in [ProviderId::Slack, ProviderId::Mattermost] {
+        for provider in [ProviderId::Slack] {
             service.provider = provider;
             assert_eq!(
                 service_actions(&service),
@@ -978,13 +982,26 @@ mod tests {
                 Some((action, "mattermost-private"))
             );
         }
+        let mut advanced = vec![ServiceAction::MarkAllRead];
+        if cfg!(windows) {
+            advanced.push(ServiceAction::AllowProviderNotifications);
+        }
+        advanced.push(ServiceAction::Notifications);
         assert_eq!(
             service_actions(&clicked),
             vec![
                 ServiceMenuEntry::Action(ServiceAction::Open),
+                ServiceMenuEntry::Action(ServiceAction::Mute),
                 ServiceMenuEntry::Action(ServiceAction::Settings),
+                ServiceMenuEntry::More(advanced),
                 ServiceMenuEntry::Action(ServiceAction::Remove)
             ]
+        );
+        assert!(!visible_actions(&clicked).contains(&ServiceAction::MarkCurrentRead));
+        assert!(visible_actions(&clicked).contains(&ServiceAction::MarkAllRead));
+        assert_eq!(
+            crate::provider_read::all_label(&clicked),
+            "rail.markAllReadLocal"
         );
     }
 }

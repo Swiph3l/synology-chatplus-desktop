@@ -1357,6 +1357,63 @@ mod tests {
         }
     }
 
+    #[test]
+    fn mattermost_browser_permission_is_bound_to_clicked_server_profile_and_origin() {
+        use crate::providers::ProviderId;
+        let mut settings = whatsapp_permission_settings();
+        for service in &mut settings.services {
+            service.provider = ProviderId::Mattermost;
+            service.url = "https://mattermost.example.com:8443/team/".into();
+        }
+        let saved = serde_json::to_value(&settings).unwrap();
+        let target = permission_service(&settings, "whatsapp-work").unwrap();
+        assert_eq!(target.provider, ProviderId::Mattermost);
+        assert_ne!(Some(target.id.as_str()), settings.active_service.as_deref());
+        assert!(permission_scope_valid(
+            &settings,
+            &target,
+            22,
+            Some((22, true)),
+            "https://mattermost.example.com:8443/team/channels/town-square"
+        ));
+        for source in [
+            "https://mattermost.example.com/team/",
+            "http://mattermost.example.com:8443/team/",
+            "https://mattermost.example.com.evil.invalid:8443/team/",
+            "https://other.example.com:8443/team/",
+            "https://user@mattermost.example.com:8443/team/",
+            "about:blank",
+        ] {
+            assert!(
+                !permission_scope_valid(&settings, &target, 22, Some((22, true)), source),
+                "{source}"
+            );
+        }
+        assert!(!permission_scope_valid(
+            &settings,
+            &target,
+            22,
+            Some((23, true)),
+            &target.url
+        ));
+        assert_eq!(
+            serde_json::to_value(&settings).unwrap(),
+            saved,
+            "permission inspection cannot unmute services or enable global delivery"
+        );
+        settings.services[1].url = "https://replacement.example.com/".into();
+        assert!(!permission_scope_valid(
+            &settings,
+            &target,
+            22,
+            Some((22, true)),
+            &target.url
+        ));
+        settings.services[1] = target.clone();
+        settings.services[1].enabled = false;
+        assert!(permission_service(&settings, &target.id).is_err());
+    }
+
     fn whatsapp_permission_settings() -> crate::state::Settings {
         use crate::providers::{NotificationColor, ProviderId, ServiceConfig};
         crate::state::Settings {

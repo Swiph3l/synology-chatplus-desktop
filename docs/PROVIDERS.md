@@ -18,7 +18,7 @@ Web UI and may have account, browser or server-version compatibility limits.
 | WhatsApp          | Experimental | Positive badges only; otherwise unknown  | Yes                          | No             |
 | Messenger         | Experimental | Browser notification arrivals only       | Yes                          | No             |
 | Slack             | Experimental | Unavailable                              | No                           | No             |
-| Mattermost        | Experimental | Unavailable                              | No                           | No             |
+| Mattermost        | Experimental | Browser notification arrivals only       | Yes                          | No             |
 
 Unread support does not imply read-action support. Current adapters report boolean
 unread or unknown, not an account-wide message total. Read capabilities and native
@@ -174,12 +174,34 @@ the user's control. No contacts, history, profile data or hidden API is scraped.
 The integration remains Experimental. ChatPlus Desktop is independent of Messenger
 and Meta.
 
-### Slack and Mattermost
+### Mattermost
 
-Both use normal Web login and isolated profiles, with no unread or native
-notification adapter. Slack accepts a workspace URL; Mattermost requires an
-explicit server URL. Provider policies and external SSO can limit embedded login.
-They do not inherit ChatPlus selectors or theme CSS.
+Mattermost requires an explicit server URL and uses its normal Web login in an
+isolated profile. Standard browser `Notification` events pass through the shared
+native bridge, validated against that instance's exact configured origin and live
+session. Notification support does not install a Mattermost DOM adapter: no chat
+content, sidebar labels or hidden store is inspected. Browser arrivals can latch
+native unread; aggregate counts, provider-wide zero, exact conversation mapping
+and current-conversation read actions remain unavailable. **Mark all as read
+(local)** explicitly clears only that instance's ChatPlus state, without changing
+Mattermost's server state. Later arrivals restore unread. ChatPlus theme CSS is
+not injected.
+
+Browser permission, ChatPlus global delivery, the instance's notification toggle
+and Mattermost's own **Desktop and mobile notifications** preference must allow
+delivery. Existing saved mute preferences remain unchanged. Use the rail menu's
+**More > Allow provider notifications** for the exact instance, then reload if
+Mattermost still shows a cached permission prompt. HTTPS is recommended; browser
+security requirements can prevent notifications on insecure servers. Provider
+policies and external SSO can also limit embedded login. See Mattermost's
+[Web notification requirements](https://docs.mattermost.com/end-user-guide/preferences/manage-your-web-notifications)
+and [troubleshooting guide](https://docs.mattermost.com/end-user-guide/preferences/troubleshoot-notifications).
+
+### Slack
+
+Slack accepts a workspace URL and uses normal Web login in an isolated profile.
+It has no unread or native notification adapter and does not inherit ChatPlus
+selectors or theme CSS. Provider policies and external SSO can limit embedded login.
 
 ## Migration
 

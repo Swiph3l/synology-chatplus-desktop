@@ -100,7 +100,7 @@
   "notifications.testSent": "Notificación de prueba enviada. Si no aparece el aviso, comprueba las notificaciones de Windows.",
   "notifications.testError": "No se pudo enviar la notificación de prueba.",
   "notifications.notRegistered": "Sin registrar",
-  "notifications.permissionSummary": "Notificaciones de escritorio: {desktop}. {message} Notificaciones de WebView de ChatPlus: {webview}.",
+  "notifications.permissionSummary": "Notificaciones de escritorio: {desktop}. {message} Permiso del navegador para el servicio seleccionado: {webview}.",
   "notifications.permissionError": "No se pudo comprobar el permiso de notificaciones.",
   "notifications.permissionAvailable": "El permiso de notificaciones de escritorio está disponible. Guarda para aplicar las preferencias.",
   "notifications.enableError": "No se pudieron activar las notificaciones.",

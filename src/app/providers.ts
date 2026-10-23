@@ -96,7 +96,7 @@ export const providers = {
     name: "Mattermost",
     icon: "M",
     experimental: true,
-    notifications: false,
+    notifications: true,
     urlMode: "server",
     urlLabel: "Server URL",
     defaultUrl: "",

@@ -100,7 +100,7 @@
   "notifications.testSent": "テスト通知を送信しました。バナーが表示されない場合は Windows の通知を確認してください。",
   "notifications.testError": "テスト通知を送信できませんでした。",
   "notifications.notRegistered": "未登録",
-  "notifications.permissionSummary": "デスクトップ通知: {desktop}。{message} ChatPlus WebView 通知: {webview}。",
+  "notifications.permissionSummary": "デスクトップ通知: {desktop}。{message} 選択したサービスのブラウザー通知の許可: {webview}。",
   "notifications.permissionError": "通知の許可を確認できませんでした。",
   "notifications.permissionAvailable": "デスクトップ通知を利用できます。設定を保存すると適用されます。",
   "notifications.enableError": "通知を有効にできませんでした。",

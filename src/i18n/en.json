@@ -100,7 +100,7 @@
   "notifications.testSent": "Test notification sent. Check Windows notifications if no banner appears.",
   "notifications.testError": "Could not send the test notification.",
   "notifications.notRegistered": "Not registered",
-  "notifications.permissionSummary": "Desktop notifications: {desktop}. {message} ChatPlus WebView notifications: {webview}.",
+  "notifications.permissionSummary": "Desktop notifications: {desktop}. {message} Browser permission for the selected service: {webview}.",
   "notifications.permissionError": "Could not check notification permission.",
   "notifications.permissionAvailable": "Desktop notification permission is available. Save to apply preferences.",
   "notifications.enableError": "Could not enable notifications.",

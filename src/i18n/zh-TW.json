@@ -100,7 +100,7 @@
   "notifications.testSent": "已傳送測試通知。若未出現橫幅，請檢查 Windows 通知。",
   "notifications.testError": "無法傳送測試通知。",
   "notifications.notRegistered": "尚未註冊",
-  "notifications.permissionSummary": "桌面通知：{desktop}。{message} ChatPlus WebView 通知：{webview}。",
+  "notifications.permissionSummary": "桌面通知：{desktop}。{message} 所選服務的瀏覽器通知權限：{webview}。",
   "notifications.permissionError": "無法檢查通知權限。",
   "notifications.permissionAvailable": "可使用桌面通知。請儲存以套用偏好設定。",
   "notifications.enableError": "無法啟用通知。",

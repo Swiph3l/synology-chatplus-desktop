@@ -94,7 +94,7 @@ mod tests {
     }
 
     #[test]
-    fn production_mattermost_capabilities_and_source_identity_remain_unsupported() {
+    fn production_mattermost_notifications_do_not_enable_synthetic_unread_identity() {
         let service = ServiceConfig {
             id: "production-mattermost".into(),
             provider: ProviderId::Mattermost,
@@ -105,11 +105,11 @@ mod tests {
             notification_color: Default::default(),
         };
         assert!(!mattermost(&service));
-        assert!(!service.supports_notifications());
+        assert!(service.supports_notifications());
         assert!(!service.supports_unread());
         assert_eq!(service.unread_source_provider(), ProviderId::Mattermost);
         assert!(!crate::unread::Source::ChatPlusDom.accepts(service.unread_source_provider()));
-        assert!(!ProviderId::Mattermost.definition().notifications);
+        assert!(ProviderId::Mattermost.definition().notifications);
         assert!(!ProviderId::Mattermost.definition().unread);
     }
 }

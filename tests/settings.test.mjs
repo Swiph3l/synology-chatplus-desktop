@@ -587,7 +587,7 @@ test("onboarding saves two different providers before Continue and preserves sep
   );
   assert.equal(f.settings.services[0].id, firstId);
   assert.notEqual(f.settings.services[1].id, firstId);
-  assert.equal(f.settings.services[1].notifications, false);
+  assert.equal(f.settings.services[1].notifications, true);
   assert.equal(
     f.calls.some((call) => call.command === "complete_onboarding"),
     false,
@@ -941,7 +941,7 @@ test("ordinary Settings Save preserves authorized fixture notification preferenc
   assert.equal(f.settings.services[0].notifications, false);
 });
 
-test("Settings fixture metadata never enables production Mattermost or an unauthorized local service", async () => {
+test("Mattermost notifications are available without fixture metadata and preserve saved mute until explicitly enabled", async () => {
   for (const [url, fixtureServiceIds] of [
     ["https://mattermost.example.com/", ["mm"]],
     ["http://127.0.0.1:17830/mm/", []],
@@ -952,7 +952,7 @@ test("Settings fixture metadata never enables production Mattermost or an unauth
       name: "Mattermost",
       url,
       enabled: true,
-      notifications: true,
+      notifications: false,
     };
     const f = await fixture({
       settings: { services: [mm], activeService: mm.id },
@@ -961,17 +961,23 @@ test("Settings fixture metadata never enables production Mattermost or an unauth
     openEdit(f, mm.id);
     assert.equal(
       f.document.getElementById("service-dialog-notifications").disabled,
-      true,
+      false,
     );
     f.document.querySelector(".service-dialog-footer .secondary").click();
     f.document.getElementById("theme").value = "dark";
     submitSettings(f);
     await f.flush();
     assert.equal(f.settings.services[0].notifications, false);
+    openEdit(f, mm.id);
+    setServiceField(f, "notifications", true);
+    applyServiceDialog(f);
+    submitSettings(f);
+    await f.flush();
+    assert.equal(f.settings.services[0].notifications, true);
   }
 });
 
-test("fresh native fixture metadata updates an open editor without changing its mute preference", async () => {
+test("fixture metadata refresh cannot override an existing Mattermost mute preference", async () => {
   const mm = {
     id: "mm",
     provider: "mattermost",
@@ -987,7 +993,7 @@ test("fresh native fixture metadata updates an open editor without changing its 
   });
   openEdit(f, mm.id);
   const toggle = f.document.getElementById("service-dialog-notifications");
-  assert.equal(toggle.disabled, true);
+  assert.equal(toggle.disabled, false);
   fixtureServiceIds.push(mm.id);
   f.listeners.get("settings-changed")({ payload: structuredClone(f.settings) });
   await f.flush();

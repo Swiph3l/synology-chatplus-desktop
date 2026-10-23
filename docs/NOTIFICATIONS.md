@@ -90,7 +90,8 @@ makes no server-side read claim.
 | Synology ChatPlus / Synology Chat | Unavailable without exact message mapping                | Local acknowledgement for that instance |
 | Discord                           | Local acknowledgement of proven visible message arrivals | Bounded public Inbox action             |
 | WhatsApp / Messenger              | Unavailable                                              | Unavailable                             |
-| Slack / Mattermost                | Unavailable                                              | Unavailable                             |
+| Mattermost                        | Unavailable                                              | Local acknowledgement for that instance |
+| Slack                             | Unavailable                                              | Unavailable                             |
 
 Discord current read additionally requires the service to be active in the native
 foreground. It acknowledges only exact arrivals visible in that channel/thread;
@@ -186,6 +187,25 @@ WhatsApp has no exact chat/message correlation for foreground suppression.
 Messenger browser events come from the whole Facebook origin and may include
 non-messaging notifications; provider-side categories remain authoritative. See
 [Provider adapter contracts](PROVIDERS.md#adapter-contracts).
+
+### Mattermost
+
+Mattermost uses standard browser notifications through the same origin- and
+profile-scoped native bridge. Its own **Desktop and mobile notifications** setting
+controls which activity produces browser events. Browser permission and ChatPlus
+global/per-service delivery settings are separate requirements; enabling support
+does not change a saved mute preference. An existing **Permission required** prompt
+can be repaired with **More > Allow provider notifications** for that instance,
+followed by reload if the provider caches its permission state. See
+[Mattermost Web notification settings](https://docs.mattermost.com/end-user-guide/preferences/manage-your-web-notifications).
+
+Real arrivals can latch unread. There is no Mattermost DOM adapter or verified
+conversation/read proof, so counts, aggregate zero, foreground conversation
+suppression and current-conversation acknowledgement are unavailable. **Mark all
+as read (local)** clears only the clicked instance's captured native unread;
+later arrivals remain eligible and restore the dot. This does not mark Mattermost
+messages read on the server. Toast clicks and dismissal remain unrelated to unread
+acknowledgement.
 
 ## Toast activation
 

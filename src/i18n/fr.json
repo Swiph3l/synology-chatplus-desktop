@@ -100,7 +100,7 @@
   "notifications.testSent": "Notification de test envoyée. Si aucune bannière n’apparaît, vérifiez les notifications de Windows.",
   "notifications.testError": "Impossible d’envoyer la notification de test.",
   "notifications.notRegistered": "Non enregistré",
-  "notifications.permissionSummary": "Notifications de bureau : {desktop}. {message} Notifications WebView de ChatPlus : {webview}.",
+  "notifications.permissionSummary": "Notifications du bureau : {desktop}. {message} Autorisation du navigateur pour le service sélectionné : {webview}.",
   "notifications.permissionError": "Impossible de vérifier l’autorisation des notifications.",
   "notifications.permissionAvailable": "Les notifications de bureau sont autorisées. Enregistrez pour appliquer vos préférences.",
   "notifications.enableError": "Impossible d’activer les notifications.",

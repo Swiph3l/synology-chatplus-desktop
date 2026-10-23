@@ -29,7 +29,7 @@ Tauri application.
 | Discord           | Dedicated unread/notification integration; Experimental service UI                                                          |
 | WhatsApp          | Experimental Web integration; positive unread evidence/native notifications; no read actions or unread totals               |
 | Messenger         | Experimental Facebook messages integration; browser-event unread/native notifications; no read actions or DOM unread totals |
-| Mattermost        | Experimental web sessions; desktop unread/notifications disabled                                                            |
+| Mattermost        | Experimental browser notifications; unread from incoming notification events, explicit local acknowledgement only           |
 | Slack             | Experimental web sessions; desktop unread/notifications disabled                                                            |
 
 Synology Chat and Discord still carry Experimental badges in the general service UI.

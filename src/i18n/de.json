@@ -100,7 +100,7 @@
   "notifications.testSent": "Testbenachrichtigung gesendet. Falls kein Banner erscheint, Windows-Benachrichtigungen prüfen.",
   "notifications.testError": "Testbenachrichtigung konnte nicht gesendet werden.",
   "notifications.notRegistered": "Nicht registriert",
-  "notifications.permissionSummary": "Desktop-Benachrichtigungen: {desktop}. {message} ChatPlus-WebView-Benachrichtigungen: {webview}.",
+  "notifications.permissionSummary": "Desktop-Benachrichtigungen: {desktop}. {message} Browser-Berechtigung des ausgewählten Dienstes: {webview}.",
   "notifications.permissionError": "Benachrichtigungsberechtigung konnte nicht geprüft werden.",
   "notifications.permissionAvailable": "Desktop-Benachrichtigungen sind erlaubt. Zum Übernehmen der Einstellungen speichern.",
   "notifications.enableError": "Benachrichtigungen konnten nicht aktiviert werden.",

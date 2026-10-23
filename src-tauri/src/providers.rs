@@ -80,7 +80,9 @@ impl ProviderId {
                 icon: "M",
                 experimental: true,
                 unread: false,
-                notifications: false,
+                // Swiph3l: Standard browser events use the origin/profile-scoped bridge;
+                // notification support does not imply a Mattermost DOM/read adapter.
+                notifications: true,
                 theme: false,
             },
         }
@@ -564,7 +566,10 @@ mod tests {
         }
         for provider in [ProviderId::Slack, ProviderId::Mattermost] {
             assert!(!provider.definition().unread);
-            assert!(!provider.definition().notifications);
+            assert_eq!(
+                provider.definition().notifications,
+                provider == ProviderId::Mattermost
+            );
             assert!(!provider.definition().theme);
         }
         assert!(serde_json::from_str::<ProviderId>("\"browser\"").is_err());
@@ -577,6 +582,7 @@ mod tests {
             ProviderId::SynologyChatplus,
             ProviderId::SynologyChat,
             ProviderId::Discord,
+            ProviderId::Mattermost,
         ] {
             let mut service = profile_service("muted-profile");
             service.provider = provider;
@@ -843,7 +849,7 @@ mod tests {
         assert_eq!(definition.display_name, "Mattermost");
         assert!(definition.experimental);
         assert!(!definition.unread);
-        assert!(!definition.notifications);
+        assert!(definition.notifications);
         assert!(!definition.theme);
         for unknown in ["mattermost-cloud", "Mattermost", "unknown"] {
             assert!(serde_json::from_value::<ProviderId>(serde_json::json!(unknown)).is_err());
@@ -933,12 +939,13 @@ mod tests {
                 // Same server, distinct accounts: isolation must use service ID.
                 url: "https://chat.example.com/".into(),
                 enabled: true,
-                notifications: true,
+                notifications: id == "company",
                 notification_color: NotificationColor::Auto,
             })
             .collect();
         normalize_services(&mut services).unwrap();
-        assert!(services.iter().all(|s| !s.notifications));
+        assert!(services[0].notifications);
+        assert!(!services[1].notifications);
         let root = std::path::Path::new("profiles");
         let profiles = services
             .iter()

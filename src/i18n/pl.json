@@ -100,7 +100,7 @@
   "notifications.testSent": "Wysłano powiadomienie testowe. Jeśli baner nie jest widoczny, sprawdź powiadomienia Windows.",
   "notifications.testError": "Nie udało się wysłać powiadomienia testowego.",
   "notifications.notRegistered": "Niezarejestrowane",
-  "notifications.permissionSummary": "Powiadomienia na pulpicie: {desktop}. {message} Powiadomienia WebView ChatPlus: {webview}.",
+  "notifications.permissionSummary": "Powiadomienia na pulpicie: {desktop}. {message} Uprawnienie strony wybranej usługi: {webview}.",
   "notifications.permissionError": "Nie udało się sprawdzić uprawnień powiadomień.",
   "notifications.permissionAvailable": "Uprawnienia powiadomień na pulpicie są dostępne. Zapisz, aby zastosować ustawienia.",
   "notifications.enableError": "Nie udało się włączyć powiadomień.",

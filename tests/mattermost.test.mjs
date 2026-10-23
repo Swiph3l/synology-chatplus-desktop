@@ -98,6 +98,7 @@ test("Mattermost registers as Experimental with a required custom server URL", (
   const provider = context.registry.providers.mattermost;
   assert.equal(provider.name, "Mattermost");
   assert.equal(provider.experimental, true);
+  assert.equal(provider.notifications, true);
   assert.equal(provider.urlMode, "server");
   assert.equal(provider.defaultUrl, "");
   const f = formFixture();
@@ -122,7 +123,7 @@ test("Mattermost registers as Experimental with a required custom server URL", (
     assert.equal(url.closest(".service-field").hidden, false);
     assert.equal(
       f.document.getElementById("service-dialog-notifications").disabled,
-      true,
+      false,
     );
     f.document.querySelector(".service-dialog-footer .secondary").click();
   }
@@ -141,7 +142,7 @@ test("Mattermost manager adds, edits and removes the correct independent instanc
   applyServiceDialog(f);
   assert.equal(f.services[2].id, "service-new-account");
   assert.equal(f.services[2].provider, "mattermost");
-  assert.equal(f.services[2].notifications, false);
+  assert.equal(f.services[2].notifications, true);
   const removal = f.manager.remove("mattermost-company");
   assert.match(f.document.querySelector("dialog").textContent, /company/);
   f.document.querySelector("dialog .danger").click();

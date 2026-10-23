@@ -38,7 +38,7 @@ function service(id = "first", provider = "synology-chatplus") {
         ? "https://discord.com/app/"
         : "https://example.com/",
     enabled: true,
-    notifications: provider !== "slack" && provider !== "mattermost",
+    notifications: provider !== "slack",
   };
 }
 
@@ -159,31 +159,35 @@ test("authorized Mattermost fixture edits keep notifications and allow explicit 
   assert.equal(f.services[0].notifications, false);
 });
 
-test("fixture notification capability cannot follow a draft onto another origin or service ID", () => {
+test("Mattermost server edits preserve each instance's explicit notification preference", () => {
   const mm = {
     ...service("mm", "mattermost"),
     url: "http://127.0.0.1:17830/mm/",
     notifications: true,
   };
-  const f = fixture([mm], ["mm"]);
+  const other = { ...mm, id: "other", notifications: false };
+  const f = fixture([mm, other]);
   f.manager.edit("mm");
   const toggle = f.document.getElementById("service-dialog-notifications");
   setServiceField(f, "url", "https://mattermost.example.com/");
-  assert.equal(toggle.disabled, true);
-  assert.equal(toggle.checked, false);
-  setServiceField(f, "url", mm.url);
   assert.equal(toggle.disabled, false);
   assert.equal(toggle.checked, true);
-  f.cancel();
-  const ordinary = fixture([mm]);
-  ordinary.manager.edit("mm");
+  applyServiceDialog(f);
+  assert.equal(f.services[0].notifications, true);
+  assert.equal(f.services[0].url, "https://mattermost.example.com/");
+  assert.equal(f.services[1].notifications, false);
+  f.manager.edit("other");
   assert.equal(
-    ordinary.document.getElementById("service-dialog-notifications").disabled,
-    true,
+    f.document.getElementById("service-dialog-notifications").disabled,
+    false,
   );
-  setServiceField(ordinary, "name", "Still unsupported");
-  applyServiceDialog(ordinary);
-  assert.equal(ordinary.services[0].notifications, false);
+  assert.equal(
+    f.document.getElementById("service-dialog-notifications").checked,
+    false,
+  );
+  setServiceField(f, "notifications", true);
+  applyServiceDialog(f);
+  assert.equal(f.services[1].notifications, true);
 });
 
 test("modal fields use full-width controls with labels and explicit Cancel/Apply", async () => {
@@ -230,7 +234,7 @@ test("provider choices control URL visibility and supported notifications withou
     assert.equal(url.required, provider !== "discord");
     assert.equal(
       f.document.getElementById("service-dialog-notifications").disabled,
-      provider === "slack" || provider === "mattermost",
+      provider === "slack",
     );
     chooseProvider(f, provider === "discord" ? "slack" : "discord");
     assert.equal(

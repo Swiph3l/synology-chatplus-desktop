@@ -27,7 +27,10 @@ pub fn capabilities(service: &ServiceConfig) -> Capabilities {
         );
     Capabilities {
         current_local: supported && service.provider == crate::providers::ProviderId::Discord,
-        all_local: supported && service.provider != crate::providers::ProviderId::Discord,
+        // Swiph3l: Mattermost has native arrival evidence but no DOM read proof.
+        // Its explicit local clear must not depend on a nonexistent DOM adapter.
+        all_local: (supported && service.provider != crate::providers::ProviderId::Discord)
+            || (service.enabled && service.provider == crate::providers::ProviderId::Mattermost),
         all_provider: supported && service.provider == crate::providers::ProviderId::Discord,
     }
 }
@@ -263,6 +266,43 @@ mod tests {
         }
     }
     #[test]
+    fn mattermost_local_all_is_explicit_and_independent_of_delivery_preferences() {
+        let mut service = ServiceConfig {
+            id: "mattermost-work".into(),
+            provider: ProviderId::Mattermost,
+            name: "Work".into(),
+            url: "https://mattermost.example.com/".into(),
+            enabled: true,
+            notifications: false,
+            notification_color: NotificationColor::Auto,
+        };
+        assert!(
+            !service.supports_unread(),
+            "no DOM adapter or provider read proof is implied"
+        );
+        assert_eq!(
+            capabilities(&service),
+            Capabilities {
+                current_local: false,
+                all_local: true,
+                all_provider: false,
+            }
+        );
+        assert_eq!(all_label(&service), "rail.markAllReadLocal");
+        service.notifications = true;
+        assert!(capabilities(&service).all_local);
+        service.enabled = false;
+        assert_eq!(
+            capabilities(&service),
+            Capabilities {
+                current_local: false,
+                all_local: false,
+                all_provider: false,
+            }
+        );
+    }
+
+    #[test]
     fn read_capabilities_distinguish_local_acknowledgement_and_unsupported() {
         for provider in [
             ProviderId::SynologyChatplus,
@@ -290,7 +330,8 @@ mod tests {
                 capabilities(&service),
                 Capabilities {
                     current_local: provider == ProviderId::Discord,
-                    all_local: supported && provider != ProviderId::Discord,
+                    all_local: (supported && provider != ProviderId::Discord)
+                        || provider == ProviderId::Mattermost,
                     all_provider: provider == ProviderId::Discord,
                 }
             );
