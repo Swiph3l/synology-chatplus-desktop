@@ -562,6 +562,9 @@ export function installUnreadAdapter(
         retain(arrival!, notification);
     }
     // Swiph3l: Renderer visibility may be stale by native callback time. This query only retains tags/returns evidence; it cannot mint a lasting read proof.
+    // Swiph3l: Observation may capture QA metadata while backgrounded; it does
+    // not supply view/read proof or bypass the native foreground requirement.
+    adapter.onNotificationObserved?.(notification);
     return visible() && adapter.isViewingNotification(notification);
   };
   host.__chatplusAcceptRead = (arrivals, completeThrough) => {

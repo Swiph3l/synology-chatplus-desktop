@@ -177,6 +177,13 @@ handler without guessing a conversation URL or acknowledging unread.
 The integration remains Experimental. ChatPlus Desktop is independent of WhatsApp
 and Meta.
 
+Opt-in notification diagnostics can observe fixed structural flags and compare
+the incoming opaque tag with public message-key metadata in the unique visible
+main pane. No phone component, message text or contact label is extracted or
+exported. This diagnostic-only probe does not grant current-chat read capability,
+provide account-wide zero or change unread state. See
+[Diagnostics and verification](NOTIFICATIONS.md#diagnostics-and-verification).
+
 ### Messenger
 
 The entry URL is `https://www.facebook.com/messages/`. Normal Facebook login and

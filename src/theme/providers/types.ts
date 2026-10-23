@@ -34,6 +34,7 @@ export interface ProviderUnreadAdapter {
   providerAllUnreadZero?(): boolean;
   tracksNotificationArrivals?: boolean;
   onReadAccepted?(arrivals: number[], completeThrough?: number): void;
+  onNotificationObserved?(notification: ProviderNotification): void;
   isViewingNotification(notification: ProviderNotification): boolean;
   onHostForegroundChanged?(
     foreground: boolean,

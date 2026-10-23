@@ -1435,6 +1435,109 @@ struct RendererDiagnostic {
     generation: u64,
 }
 
+const WHATSAPP_READ_STRUCTURE_REASONS: &[(&str, crate::diagnostics::NotificationReason)] = &[
+    (
+        "whatsapp-chat-tag-recognized",
+        crate::diagnostics::NotificationReason::WhatsappChatTagRecognized,
+    ),
+    (
+        "whatsapp-message-key-tag-recognized",
+        crate::diagnostics::NotificationReason::WhatsappMessageKeyTagRecognized,
+    ),
+    (
+        "whatsapp-tag-unrecognized",
+        crate::diagnostics::NotificationReason::WhatsappTagUnrecognized,
+    ),
+    (
+        "whatsapp-main-recognized",
+        crate::diagnostics::NotificationReason::WhatsappMainRecognized,
+    ),
+    (
+        "whatsapp-main-missing",
+        crate::diagnostics::NotificationReason::WhatsappMainMissing,
+    ),
+    (
+        "whatsapp-main-ambiguous",
+        crate::diagnostics::NotificationReason::WhatsappMainAmbiguous,
+    ),
+    (
+        "whatsapp-chat-list-recognized",
+        crate::diagnostics::NotificationReason::WhatsappChatListRecognized,
+    ),
+    (
+        "whatsapp-chat-list-missing",
+        crate::diagnostics::NotificationReason::WhatsappChatListMissing,
+    ),
+    (
+        "whatsapp-chat-list-ambiguous",
+        crate::diagnostics::NotificationReason::WhatsappChatListAmbiguous,
+    ),
+    (
+        "whatsapp-selected-row-recognized",
+        crate::diagnostics::NotificationReason::WhatsappSelectedRowRecognized,
+    ),
+    (
+        "whatsapp-selected-row-missing",
+        crate::diagnostics::NotificationReason::WhatsappSelectedRowMissing,
+    ),
+    (
+        "whatsapp-selected-row-ambiguous",
+        crate::diagnostics::NotificationReason::WhatsappSelectedRowAmbiguous,
+    ),
+    (
+        "whatsapp-unread-badge-present",
+        crate::diagnostics::NotificationReason::WhatsappUnreadBadgePresent,
+    ),
+    (
+        "whatsapp-unread-badge-missing",
+        crate::diagnostics::NotificationReason::WhatsappUnreadBadgeMissing,
+    ),
+    (
+        "whatsapp-selected-unread-badge-present",
+        crate::diagnostics::NotificationReason::WhatsappSelectedUnreadBadgePresent,
+    ),
+    (
+        "whatsapp-selected-unread-badge-missing",
+        crate::diagnostics::NotificationReason::WhatsappSelectedUnreadBadgeMissing,
+    ),
+    (
+        "whatsapp-main-message-key-recognized",
+        crate::diagnostics::NotificationReason::WhatsappMainMessageKeyRecognized,
+    ),
+    (
+        "whatsapp-main-message-key-missing",
+        crate::diagnostics::NotificationReason::WhatsappMainMessageKeyMissing,
+    ),
+    (
+        "whatsapp-tag-matches-main-message",
+        crate::diagnostics::NotificationReason::WhatsappTagMatchesMainMessage,
+    ),
+    (
+        "whatsapp-tag-unmatched-main-message",
+        crate::diagnostics::NotificationReason::WhatsappTagUnmatchedMainMessage,
+    ),
+    (
+        "whatsapp-scroll-node-recognized",
+        crate::diagnostics::NotificationReason::WhatsappScrollNodeRecognized,
+    ),
+    (
+        "whatsapp-scroll-node-missing",
+        crate::diagnostics::NotificationReason::WhatsappScrollNodeMissing,
+    ),
+    (
+        "whatsapp-scroll-node-ambiguous",
+        crate::diagnostics::NotificationReason::WhatsappScrollNodeAmbiguous,
+    ),
+    (
+        "whatsapp-latest-candidate-visible",
+        crate::diagnostics::NotificationReason::WhatsappLatestCandidateVisible,
+    ),
+    (
+        "whatsapp-latest-candidate-unavailable",
+        crate::diagnostics::NotificationReason::WhatsappLatestCandidateUnavailable,
+    ),
+];
+
 fn parse_diagnostic(json: &str) -> Option<RendererDiagnostic> {
     #[derive(serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
@@ -1492,6 +1595,12 @@ fn parse_diagnostic(json: &str) -> Option<RendererDiagnostic> {
             if source == crate::unread::Source::DiscordDom =>
         {
             (Event::ReadContextChecked, Reason::ConversationReady)
+        }
+        ("read-structure-checked", reason) if source == crate::unread::Source::WhatsappDom => {
+            let (_, reason) = WHATSAPP_READ_STRUCTURE_REASONS
+                .iter()
+                .find(|(code, _)| *code == reason)?;
+            (Event::ReadStructureChecked, *reason)
         }
         _ => return None,
     };
@@ -1713,6 +1822,31 @@ pub fn attach(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn whatsapp_structure_probe_accepts_only_fixed_metadata_for_its_own_source() {
+        for (reason, expected) in WHATSAPP_READ_STRUCTURE_REASONS {
+            let mut value = serde_json::json!({
+                "chatplusUnreadDiagnostic": 1, "source": "whatsapp-dom",
+                "event": "read-structure-checked", "reason": reason, "generation": 11
+            });
+            let parsed = parse_diagnostic(&value.to_string()).unwrap();
+            assert_eq!(
+                serde_json::to_value(parsed.event).unwrap(),
+                "read_structure_checked"
+            );
+            assert_eq!(
+                serde_json::to_value(parsed.reason).unwrap(),
+                serde_json::to_value(expected).unwrap()
+            );
+            assert_eq!(parsed.generation, 11);
+            value["source"] = "discord-dom".into();
+            assert!(parse_diagnostic(&value.to_string()).is_none());
+            value["source"] = "whatsapp-dom".into();
+            value["reason"] = "private unrecognized payload".into();
+            assert!(parse_diagnostic(&value.to_string()).is_none());
+        }
+    }
     #[test]
     fn provider_closed_notifications_cannot_be_shown_or_activated_again() {
         let mut lifecycle = NotificationLifetime::default();
