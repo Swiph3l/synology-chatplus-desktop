@@ -459,5 +459,9 @@
   "rail.discordReadAllSubmitted": "L’action de lecture de la boîte Discord a été envoyée. Les nouvelles notifications ChatPlus restent non lues.",
   "rail.discordReadAllConfirm": "Confirmez l’action dans Discord. ChatPlus n’a pas effacé les notifications locales.",
   "rail.discordReadAllUnavailable": "Impossible de vérifier l’action. Dans Discord, utilisez Boîte de réception → Non lus → Marquer la boîte de réception comme lue. ChatPlus n’a pas effacé les notifications locales.",
+  "externalLink.description": "Ce lien s’ouvrira dans votre navigateur par défaut, en dehors de ChatPlus. Ouvrez-le uniquement si vous faites confiance à sa destination.",
+  "externalLink.destination": "Adresse de destination",
+  "externalLink.origin": "Site web",
+  "externalLink.unavailable": "Cette demande de lien n’est plus disponible. Fermez cette fenêtre et réessayez.",
   "window.attachmentTitle": "ChatPlus Desktop — Pièce jointe"
 }

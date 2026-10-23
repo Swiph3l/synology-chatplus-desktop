@@ -384,5 +384,9 @@
   "rail.discordReadAllSubmitted": "Se envió la acción de lectura de la bandeja de Discord. Las notificaciones más recientes de ChatPlus siguen sin leer.",
   "rail.discordReadAllConfirm": "Confirma la acción en Discord. ChatPlus no ha borrado las notificaciones locales.",
   "rail.discordReadAllUnavailable": "No se pudo verificar la acción. Usa en Discord Bandeja de entrada → Sin leer → Marcar bandeja de entrada como leída. ChatPlus no ha borrado las notificaciones locales.",
+  "externalLink.description": "Este enlace se abrirá en tu navegador predeterminado fuera de ChatPlus. Ábrelo solo si confías en el destino.",
+  "externalLink.destination": "Dirección de destino",
+  "externalLink.origin": "Sitio web",
+  "externalLink.unavailable": "Esta solicitud de enlace ya no está disponible. Cierra esta ventana e inténtalo de nuevo.",
   "window.attachmentTitle": "ChatPlus Desktop — Adjunto"
 }

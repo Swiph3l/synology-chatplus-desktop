@@ -12,21 +12,34 @@ cookies, and completed files are never opened automatically.
 | Allowed provider document                                   | Keep the configured provider's navigation policy.                                                    |
 | Exact configured-origin blob                                | Allow the browser attachment path; reject opaque, foreign-origin or credential-bearing blob targets. |
 | Allowed provider, attachment or initial `about:blank` popup | Create a related popup using the opener's environment/profile.                                       |
-| Other credential-free HTTP(S) URL                           | Cancel embedded navigation and request native confirmation if external links are enabled.            |
+| Other credential-free HTTP(S) URL                           | Cancel embedded navigation and request local confirmation if external links are enabled.             |
 | Other scheme or URL credentials                             | Reject the provider link; never pass it to the operating-system opener.                              |
 
-The native warning displays the complete serialized ASCII URI and destination
-origin. Internationalized hostnames use punycode, percent escapes remain intact and
-HTTP receives an additional warning. Do not decode or reconstruct signed query
-strings. Full destinations may contain sensitive values and must not be logged.
+The bundled `external-link` window uses the saved shell theme and language. It displays
+the complete serialized ASCII URI as selectable, read-only text, the destination
+origin and an additional warning for HTTP. Internationalized hostnames use punycode
+and percent escapes remain intact. Do not decode or reconstruct signed query
+strings. Full destinations may contain sensitive values and must not be logged or
+placed in the local page's query string.
 
-Confirmation is queued after the WebView callback returns and belongs to the
-originating native window. Cancel is the default; closing or Escape does not open a
-browser. Open authorizes only that retained URL. Recheck the external-link preference
-and enabled service identity after the dialog; a removed/reconfigured service or
-changed preference invalidates the request. Approval is never cached, and failures
-are reported in the local shell. Confirmation does not scan or guarantee the safety
-of the destination.
+Rust retains the exact URL, originating service/view and a fresh one-time request
+ID. The frontend receives only the display payload and returns the request ID plus
+an approval or cancellation; it cannot choose a replacement URL. The prompt's IPC
+commands accept only the bundled local `external-link` view, and provider pages gain
+no native permissions.
+
+Creation is queued after the WebView callback returns. The owned window stays hidden
+until its controls and safe default focus are ready, then disables its parent while
+leaving the event loop responsive. Cancel is the default; closing or Escape never
+opens a browser. An optional gentle chime plays once after display and respects the
+saved notification-sound mute preference, without a stock warning-sound fallback.
+
+Open requires the active, visible prompt. Recheck the external-link preference,
+enabled service identity and original source document before opening the retained
+destination. A changed source document, hidden parent, stale response or bounded
+timeout cancels the request and restores the parent. Consume approval once; never
+cache it for another click. Failures are reported in the local shell. Confirmation
+does not scan or guarantee the safety of the destination.
 
 ## Related popups and attachments
 
@@ -36,6 +49,13 @@ authentication and blob semantics. Validate every later navigation against the
 captured service configuration; remote popup pages receive no Tauri capabilities.
 Nested allowed windows reuse the attachment view instead of recursively creating
 blank windows. Unrelated external targets still require confirmation.
+
+Attachment windows use the shell theme for their native frame and default loading
+canvas, with a localized title and no inherited desktop menu. Configure these
+surfaces before showing the initial blank view, while preserving the opener's
+explicit size/position. Live appearance updates target only app-owned chrome and
+the default background; do not inject theme CSS into remote attachments or PDF
+documents.
 
 Discord attachment exceptions are limited to credential-free HTTPS on port 443 at
 `cdn.discordapp.com` or `media.discordapp.net`, under a populated
@@ -76,8 +96,8 @@ or a different destination.
 
 ## Platform and validation boundaries
 
-These confirmation and Save As implementations target Windows. Linux/macOS remain
-experimental; the Windows dialogs are unavailable and external links have no
+The owned confirmation and native Save As integrations target Windows. Linux/macOS
+remain experimental; these integrations are unavailable and external links have no
 unconfirmed fallback. Provider behavior still determines whether a click creates a
 browser download, popup or notification; a public `window.open` override can also
 prevent an attachment popup.
@@ -91,6 +111,7 @@ appearance, authenticated transfers and provider popup behavior also require
 Source: [`navigation.rs`](../src-tauri/src/navigation.rs),
 [`external_links.rs`](../src-tauri/src/external_links.rs),
 [`downloads.rs`](../src-tauri/src/downloads.rs),
-[`services.rs`](../src-tauri/src/services.rs) and
-[`src/app`](../src/app). Theme injection must preserve these navigation semantics;
-see [theming](THEMING.md).
+[`services.rs`](../src-tauri/src/services.rs),
+[`platform.rs`](../src-tauri/src/platform.rs) and
+[`external-link.ts`](../src/ui/external-link.ts). Theme injection must preserve these
+navigation semantics; see [theming](THEMING.md).

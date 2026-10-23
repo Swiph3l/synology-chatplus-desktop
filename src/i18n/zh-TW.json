@@ -459,5 +459,9 @@
   "rail.discordReadAllSubmitted": "已送出 Discord 收件匣的已讀操作。較新的 ChatPlus 通知仍維持未讀。",
   "rail.discordReadAllConfirm": "請在 Discord 確認已讀操作。ChatPlus 尚未清除本機通知。",
   "rail.discordReadAllUnavailable": "無法確認 Discord 的已讀操作。請在 Discord 使用收件匣 → 未讀 → 將收件匣標記為已讀。ChatPlus 尚未清除本機通知。",
+  "externalLink.description": "此連結會在 ChatPlus 外部的預設瀏覽器中開啟。請確認您信任此網站後再開啟。",
+  "externalLink.destination": "目的地位址",
+  "externalLink.origin": "網站",
+  "externalLink.unavailable": "此開啟連結要求已失效。請關閉此視窗後再試一次。",
   "window.attachmentTitle": "ChatPlus Desktop — 附件"
 }

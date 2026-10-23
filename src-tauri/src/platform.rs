@@ -1,3 +1,26 @@
+pub fn gentle_prompt_sound() {
+    #[cfg(windows)]
+    {
+        use windows::{
+            core::PCWSTR,
+            Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_MEMORY, SND_NODEFAULT, SND_NOSTOP},
+        };
+        // Swiph3l: Original low-level 200 ms PCM chime with a smooth attack/release.
+        // Static aligned storage outlives asynchronous playback; never fall back
+        // to the system warning sound or interrupt another sound from this process.
+        #[repr(align(4))]
+        struct AlignedSound([u8; 9_644]);
+        static SOUND: AlignedSound = AlignedSound(*include_bytes!("../sounds/link-prompt.wav"));
+        let _ = unsafe {
+            PlaySoundW(
+                PCWSTR(SOUND.0.as_ptr().cast()),
+                None,
+                SND_MEMORY | SND_ASYNC | SND_NODEFAULT | SND_NOSTOP,
+            )
+        };
+    }
+}
+
 /// WebView2 provides reliable transport completion; generic Tauri page-finished
 /// events on other platforms cannot distinguish a server document from an error page.
 #[cfg(windows)]

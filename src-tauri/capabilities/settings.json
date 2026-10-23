@@ -1,6 +1,13 @@
 {
   "identifier": "settings",
-  "description": "Bundled settings and About pages only. Remote ChatPlus receives no native permissions.",
-  "webviews": ["main", "settings", "about", "license", "update"],
+  "description": "Bundled local shell pages only. Remote provider pages receive no native permissions.",
+  "webviews": [
+    "main",
+    "settings",
+    "about",
+    "license",
+    "update",
+    "external-link"
+  ],
   "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
 }

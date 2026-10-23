@@ -459,5 +459,9 @@
   "rail.discordReadAllSubmitted": "Die Leseaktion für den Discord-Posteingang wurde übermittelt. Neuere ChatPlus-Benachrichtigungen bleiben ungelesen.",
   "rail.discordReadAllConfirm": "Bestätige die Leseaktion in Discord. ChatPlus hat lokale Benachrichtigungen nicht gelöscht.",
   "rail.discordReadAllUnavailable": "Die Leseaktion konnte nicht bestätigt werden. Verwende in Discord Posteingang → Ungelesen → Posteingang als gelesen markieren. ChatPlus hat lokale Benachrichtigungen nicht gelöscht.",
+  "externalLink.description": "Dieser Link wird außerhalb von ChatPlus in deinem Standardbrowser geöffnet. Öffne ihn nur, wenn du dem Ziel vertraust.",
+  "externalLink.destination": "Zieladresse",
+  "externalLink.origin": "Website",
+  "externalLink.unavailable": "Diese Linkanfrage ist nicht mehr verfügbar. Schließe das Fenster und versuche es erneut.",
   "window.attachmentTitle": "ChatPlus Desktop — Anhang"
 }

@@ -459,5 +459,9 @@
   "rail.discordReadAllSubmitted": "Discordの受信トレイの既読操作を送信しました。新しいChatPlus通知は未読のままです。",
   "rail.discordReadAllConfirm": "Discordで既読操作を確認してください。ChatPlusのローカル通知は消去していません。",
   "rail.discordReadAllUnavailable": "Discordの既読操作を確認できませんでした。Discordで受信トレイ → 未読 → 受信トレイを既読にするを使用してください。ChatPlusのローカル通知は消去していません。",
+  "externalLink.description": "このリンクは ChatPlus の外部の既定のブラウザーで開かれます。リンク先が信頼できる場合にのみ開いてください。",
+  "externalLink.destination": "リンク先のアドレス",
+  "externalLink.origin": "ウェブサイト",
+  "externalLink.unavailable": "このリンクを開くリクエストは無効になりました。ウィンドウを閉じて、もう一度お試しください。",
   "window.attachmentTitle": "ChatPlus Desktop — 添付ファイル"
 }

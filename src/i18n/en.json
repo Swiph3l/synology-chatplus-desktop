@@ -384,5 +384,9 @@
   "rail.discordReadAllSubmitted": "Discord’s Inbox read action was submitted. Newer ChatPlus notifications stay unread.",
   "rail.discordReadAllConfirm": "Confirm the read action in Discord. ChatPlus has not cleared local notifications.",
   "rail.discordReadAllUnavailable": "Could not verify Discord’s Inbox read action. Use Inbox → Unreads → Mark Inbox As Read in Discord; ChatPlus has not cleared local notifications.",
+  "externalLink.description": "This link opens in your default browser outside ChatPlus. Only open it if you trust the destination.",
+  "externalLink.destination": "Destination address",
+  "externalLink.origin": "Website",
+  "externalLink.unavailable": "This link request is no longer available. Close this window and try again.",
   "window.attachmentTitle": "ChatPlus Desktop — Attachment"
 }

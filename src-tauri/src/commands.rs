@@ -18,6 +18,33 @@ fn local_view(view: &tauri::Webview, labels: &[&str]) -> Result<(), String> {
     Ok(())
 }
 #[tauri::command]
+pub fn get_external_link_prompt(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+) -> Result<crate::external_links::PromptPayload, String> {
+    local(&window, &["external-link"])?;
+    crate::external_links::prompt(&app)
+}
+#[tauri::command]
+pub fn external_link_prompt_ready(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    request_id: String,
+) -> Result<(), String> {
+    local(&window, &["external-link"])?;
+    crate::external_links::ready(&app, &request_id)
+}
+#[tauri::command]
+pub fn respond_external_link_prompt(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    request_id: String,
+    accepted: bool,
+) -> Result<(), String> {
+    local(&window, &["external-link"])?;
+    crate::external_links::respond(&app, &request_id, accepted)
+}
+#[tauri::command]
 pub async fn get_notification_permission(
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,

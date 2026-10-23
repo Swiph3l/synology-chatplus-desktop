@@ -8,6 +8,7 @@ pub fn broadcast_settings(app: &AppHandle) {
     let _ = app.emit_to("about", "theme-changed", &settings.theme);
     let _ = app.emit_to("license", "theme-changed", &settings.theme);
     let _ = app.emit_to("update", "theme-changed", &settings.theme);
+    let _ = app.emit_to("external-link", "theme-changed", &settings.theme);
     for label in ["about", "license", "update"] {
         let _ = app.emit_to(label, "settings-changed", &settings);
     }

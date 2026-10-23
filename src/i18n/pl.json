@@ -384,5 +384,9 @@
   "rail.discordReadAllSubmitted": "Wysłano polecenie oznaczenia skrzynki Discorda jako przeczytanej. Nowsze powiadomienia ChatPlus pozostają nieprzeczytane.",
   "rail.discordReadAllConfirm": "Potwierdź operację w Discordzie. ChatPlus nie wyczyścił lokalnych powiadomień.",
   "rail.discordReadAllUnavailable": "Nie udało się potwierdzić operacji w Discordzie. Użyj Skrzynka odbiorcza → Nieprzeczytane → Oznacz skrzynkę jako przeczytaną. ChatPlus nie wyczyścił lokalnych powiadomień.",
+  "externalLink.description": "Ten link otworzy się poza ChatPlus w domyślnej przeglądarce. Otwórz go tylko wtedy, gdy ufasz stronie docelowej.",
+  "externalLink.destination": "Adres docelowy",
+  "externalLink.origin": "Witryna",
+  "externalLink.unavailable": "To żądanie otwarcia linku nie jest już dostępne. Zamknij okno i spróbuj ponownie.",
   "window.attachmentTitle": "ChatPlus Desktop — Załącznik"
 }

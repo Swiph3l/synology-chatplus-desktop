@@ -1,7 +1,10 @@
 import "./ui/shell.css";
 import "./settings/settings.css";
 const page = new URLSearchParams(location.search).get("page");
-if (page === "services") {
+if (page === "external-link") {
+  const { renderExternalLink } = await import("./ui/external-link");
+  await renderExternalLink();
+} else if (page === "services") {
   const { renderServices } = await import("./ui/services");
   await renderServices();
 } else if (page === "update") {
