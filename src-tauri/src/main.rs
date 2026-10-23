@@ -59,7 +59,7 @@ fn main() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(
             tauri_plugin_autostart::Builder::new()
-                .app_name(state::AUTOSTART_ENTRY_NAME)
+                .app_name(state::autostart_entry_name(&context.config().identifier))
                 .build(),
         )
         .plugin(

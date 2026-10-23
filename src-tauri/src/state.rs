@@ -6,6 +6,16 @@ use tauri_plugin_store::StoreExt;
 
 pub const AUTOSTART_ENTRY_NAME: &str = "ChatPlus Desktop";
 
+pub fn autostart_entry_name(identifier: &str) -> String {
+    // Swiph3l: Alternate builds must not read or repair production's Run entry.
+    // Keep the established production name so existing user preferences survive.
+    if identifier == "io.github.swiph3l.chatplus-desktop" {
+        AUTOSTART_ENTRY_NAME.into()
+    } else {
+        format!("{AUTOSTART_ENTRY_NAME} ({identifier})")
+    }
+}
+
 static SETTINGS_STORE_WRITE: Mutex<()> = Mutex::new(());
 
 struct SettingsStore(std::sync::Arc<tauri_plugin_store::Store<tauri::Wry>>);
@@ -452,7 +462,7 @@ pub fn persist(app: &AppHandle, mut settings: Settings) -> Result<(), String> {
 }
 
 #[cfg(windows)]
-fn reconcile_windows_autostart(_app: &AppHandle, enforce_enabled: bool) -> Result<(), String> {
+fn reconcile_windows_autostart(app: &AppHandle, enforce_enabled: bool) -> Result<(), String> {
     use std::env;
     use winreg::{
         enums::{HKEY_CURRENT_USER, REG_BINARY, REG_SZ},
@@ -466,16 +476,17 @@ fn reconcile_windows_autostart(_app: &AppHandle, enforce_enabled: bool) -> Resul
 
     let exe = env::current_exe().map_err(|_| "Could not resolve executable path.")?;
     let command = format!("\"{}\"", exe.display());
+    let entry_name = autostart_entry_name(&app.config().identifier);
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let (run, _) = hkcu
         .create_subkey(RUN_KEY)
         .map_err(|_| "Could not open autostart registry key.")?;
 
-    let current = run.get_value::<String, _>(AUTOSTART_ENTRY_NAME).ok();
+    let current = run.get_value::<String, _>(&entry_name).ok();
     if current.as_deref() != Some(command.as_str()) {
         run.set_raw_value(
-            AUTOSTART_ENTRY_NAME,
+            &entry_name,
             &RegValue {
                 vtype: REG_SZ,
                 bytes: to_utf16le(&command).into(),
@@ -487,12 +498,12 @@ fn reconcile_windows_autostart(_app: &AppHandle, enforce_enabled: bool) -> Resul
     let (startup, _) = hkcu
         .create_subkey(STARTUP_APPROVED_KEY)
         .map_err(|_| "Could not open startup status registry key.")?;
-    let has_value = startup.get_raw_value(AUTOSTART_ENTRY_NAME).is_ok();
+    let has_value = startup.get_raw_value(&entry_name).is_ok();
 
     if enforce_enabled || !has_value {
         startup
             .set_raw_value(
-                AUTOSTART_ENTRY_NAME,
+                &entry_name,
                 &RegValue {
                     vtype: REG_BINARY,
                     bytes: STARTUP_ENABLED_BYTES.to_vec().into(),
@@ -516,6 +527,31 @@ fn to_utf16le(value: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn autostart_preserves_production_and_isolates_alternate_identifiers() {
+        let production = "io.github.swiph3l.chatplus-desktop";
+        assert_eq!(autostart_entry_name(production), AUTOSTART_ENTRY_NAME);
+        let alternate = "io.github.swiph3l.chatplus-desktop.milestoneqa-20261023";
+        let second = "io.github.swiph3l.chatplus-desktop.services-validation";
+        assert_eq!(
+            autostart_entry_name(alternate),
+            format!("{AUTOSTART_ENTRY_NAME} ({alternate})")
+        );
+        assert_ne!(
+            autostart_entry_name(alternate),
+            autostart_entry_name(second)
+        );
+        for lookalike in [
+            "io.github.swiph3l.chatplus-desktop-extra",
+            "io.github.swiph3l.chatplus-desktop.production",
+            "IO.GITHUB.SWIPH3L.CHATPLUS-DESKTOP",
+            "io.github.swiph3l.chatplus-desktop ",
+        ] {
+            assert_ne!(autostart_entry_name(lookalike), AUTOSTART_ENTRY_NAME);
+            assert!(autostart_entry_name(lookalike).contains(lookalike));
+        }
+    }
 
     #[test]
     fn new_notification_previews_show_content_but_saved_privacy_choices_survive() {
