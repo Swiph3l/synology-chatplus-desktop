@@ -1,108 +1,96 @@
 # Development
 
-ChatPlus Desktop uses Tauri 2, Rust and vanilla TypeScript. Synology ChatPlus is
-its primary provider; supported notification integration also covers Synology Chat
-and Discord. Keep changes focused and preserve existing working architecture.
+ChatPlus Desktop uses Tauri 2, Rust and vanilla TypeScript. The native process owns
+service sessions, unread state, Windows notifications and downloads. Local pages
+provide Settings and the service rail; remote provider pages have separate
+WebView profiles and no native IPC capabilities.
 
-## Local setup
+## Prerequisites
 
-Use Windows x64 with Microsoft C++ Build Tools (Desktop development with C++ and a
-Windows SDK), the Rust MSVC toolchain and Microsoft Edge WebView2 Runtime. The NSIS
-installer can bootstrap WebView2; developers still need an installed runtime.
-See [Tauri's prerequisites](https://v2.tauri.app/start/prerequisites/).
+For Windows x64 development, install:
 
-CI covers Node.js 22 and 24; use Node 22.12 or newer on that line, or Node 24.
-The frontend uses Vite 8 and the TypeScript 7 command-line compiler. Install Rust
-stable through rustup; the Tauri 2.12 migration requires Rust 1.90 or newer.
-The 2026-10-23 validation toolchain is Rust 1.98.1. Keep the JavaScript Tauri API
-and native Tauri minor versions synchronized, along with the Windows/WebView2
-interface family; `npm run check:dependencies` verifies these relationships.
+- Microsoft C++ Build Tools with Desktop development with C++ and a Windows SDK.
+- A stable Rust MSVC toolchain, including rustfmt.
+- Microsoft Edge WebView2 Runtime.
+- A Node.js version allowed by `package.json`: Node 22.12 or later on the 22 line,
+  or Node 24. CI exercises both supported major versions.
 
-Keep `@types/node` on the oldest supported Node major, currently 22, so typechecking
-does not admit APIs unavailable on that runtime. Dependabot ignores its major
-updates; minor and patch updates remain enabled. The dependency check validates
-the declared and locked typing major against `engines.node`. Declare supported
-lines as explicit caret ranges such as `^22.12.0 || ^24.0.0`; changing this format
-or retiring a runtime requires reviewing the typing baseline and CI together.
+See [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for native
+platform setup. Load the C++ build environment when running Cargo directly.
+
+## Run and build
 
 From the repository root:
 
 ```sh
 npm ci
-npm run tauri dev
+npm run tauri -- dev
 ```
 
-Use `npm.cmd` in PowerShell if script execution policy blocks `npm.ps1`.
-`tauri dev` builds the provider/theme bootstrap and starts Vite on loopback.
-Never commit test accounts, private server URLs, tokens or local profile contents.
+Use `npm.cmd` in PowerShell if execution policy blocks `npm.ps1`. The Tauri
+development command builds the provider/theme bootstrap and starts Vite on
+loopback. `npm run dev` starts only the frontend server.
 
-## Commands
+To build a runnable debug app with embedded production frontend assets:
 
-| Command                                                  | Purpose                                                                  |
-| -------------------------------------------------------- | ------------------------------------------------------------------------ |
-| npm run dev                                              | Frontend Vite server only                                                |
-| npm run tauri dev                                        | Native development app with frontend server                              |
-| npm run format:check / npm run format                    | Check/apply Prettier formatting                                          |
-| npm run typecheck                                        | TypeScript checking without output                                       |
-| npm test                                                 | Node test runner, provider DOM fixtures and shell/release regressions    |
-| npm run build                                            | Typecheck, production Vite assets and generated provider/theme bootstrap |
-| npm run check:release                                    | Check that debug fixture markers stay out of production assets           |
-| npm run check:dependencies                               | Verify Tauri API/native and WebView interface version alignment          |
-| cargo test --locked --manifest-path src-tauri/Cargo.toml | Rust debug tests                                                         |
-| npm run tauri -- build --debug --no-bundle               | Runnable development binary with production frontend; no installer       |
-| npm run tauri build                                      | Local package, without updater signing secrets                           |
+```sh
+npm run tauri -- build --debug --no-bundle
+```
 
-Full validation commands and the difference between automatic and native checks are
-in [TESTING.md](TESTING.md). Normal builds preserve runtime updater public-key
-configuration while forcing updater artifacts off. Signed release packaging is a
-separate maintainer operation, described in [UPDATER.md](UPDATER.md).
+`npm run build` checks TypeScript, builds Vite assets and generates both provider
+bootstrap bundles. Run it before direct Cargo builds that embed those assets.
+`npm run tauri -- build` creates a normal local package through the build wrapper;
+updater signing and publication follow the separate [release checklist](RELEASE_CHECKLIST.md).
+See [UPDATER.md](UPDATER.md) for build/signing boundaries.
 
-## Project structure
+## Source map
 
-| Path                           | Responsibility                                                                      |
-| ------------------------------ | ----------------------------------------------------------------------------------- |
-| src/app                        | Typed settings, service, notification and updater IPC contracts                     |
-| src/settings, src/ui, src/i18n | Local Settings, service rail/footer, About, updates and translations                |
-| src/theme/providers            | Independent ChatPlus, Synology Chat and Discord DOM adapters                        |
-| src/theme/provider-unread.ts   | Shared renderer observation/read lifecycle                                          |
-| src-tauri/src                  | Native service sessions, authoritative unread, notifications, downloads and updater |
-| src-tauri/capabilities         | Local-view permissions; remote provider views have no capability grants             |
-| scripts                        | Bootstrap generation, build/signing separation, release metadata and audit helpers  |
-| tests                          | Node/frontend/provider fixtures                                                     |
-| docs                           | Current technical guides plus dated investigations and acceptance evidence          |
+| Path                                           | Responsibility                                                                        |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `src/app`                                      | Settings, service, notification, download and updater IPC contracts                   |
+| `src/settings`, `src/ui`, `src/i18n`           | Local UI and seven locales                                                            |
+| `src/theme/providers`                          | Independent provider DOM adapters and read capabilities                               |
+| `src/theme/provider-unread.ts`                 | Renderer observations, trusted read evidence and arrival tokens                       |
+| `src/theme/bootstrap.ts`, `src/theme/dark.css` | Opt-in ChatPlus appearance and persistent theme lifecycle                             |
+| `src-tauri/src`                                | Native service lifecycle, authoritative unread, notifications, navigation and updater |
+| `src-tauri/capabilities`                       | Permissions granted to local views                                                    |
+| `scripts`                                      | Bootstrap generation, build validation and release helpers                            |
+| `tests`                                        | Node tests and synthetic provider fixtures                                            |
 
-The child WebViews keep persistent per-service profiles and are created lazily.
-Changing a service provider or URL recreates its view: finish drafts/calls before
-testing that transition. See [ARCHITECTURE.md](ARCHITECTURE.md) and
-[PROVIDERS.md](PROVIDERS.md) before adding an integration.
+The selected service opens first. Other enabled services start sequentially in
+saved rail order; see [SERVICE_STARTUP.md](SERVICE_STARTUP.md). Changing a service
+URL or provider recreates its view, so finish drafts and calls before testing
+that transition.
 
-## Contribution workflow
+## Profiles and isolated testing
 
-Read recent Git history and the relevant subsystem before editing. Match concise
-commit subjects such as `fix: ...`, `chore: ...` and `docs: ...`, and use small
-logical commits with actual development timestamps. Reproduce bugs, add regression
-coverage, and test each meaningful subsystem change. Preserve useful maintainer
-comments. New non-obvious constraints use `// Swiph3l: <why>` or
-`# Swiph3l: <why>`; explain why the guard is necessary.
+Use a separate application identifier and fresh profile directories for tests
+that should not affect an installed account. Never copy an authenticated profile
+into a fixture. Alternate identifiers use separate autostart entry names; the
+canonical production identifier retains its established Windows entry.
 
-Keep remote views outside native IPC permissions. Use common semantic adapter
-operations with provider-specific selectors, and avoid private APIs or generic
-message-text scraping. Notification diagnostics must omit message content,
-credentials, tokens, tags and private URLs.
+Check single-instance behavior when inspecting a build: another process with the
+same identifier receives activation instead of opening a second application.
+Debug Windows toasts use the existing PowerShell sender fallback, so they do not
+establish production sender registration or its notification permission.
 
-Before review, run `git diff --check`, inspect staged/untracked files and record
-actual validation and remaining Windows tests. Do not tag, push, publish or alter
-repository settings during routine development. See [CONTRIBUTING.md](../CONTRIBUTING.md).
+Keep credentials, private server URLs, session data and message contents out of
+source, fixtures and diagnostics. Remote provider code must remain outside native
+IPC permissions. Provider integrations use public UI/browser behavior and scoped
+metadata rather than private APIs or message-history scraping.
 
-## Documentation map
+## Validation and dependencies
 
-- [Architecture](ARCHITECTURE.md), [notifications](NOTIFICATIONS.md), [providers](PROVIDERS.md).
-- [Updater](UPDATER.md), [testing](TESTING.md), [Windows acceptance](WINDOWS_ACCEPTANCE.md).
-- [Dependency policy and current audit](DEPENDENCY_POLICY.md), [release checklist](RELEASE_CHECKLIST.md).
-- Dated evidence: [development status](DEVELOPMENT_STATUS.md),
-  [maintainer follow-up](MAINTAINER_FOLLOWUP.md), [beta.4 reliability](BETA4_RELIABILITY.md)
-  and [minimized notification investigation](MINIMIZED_NOTIFICATION_REVIEW.md).
-- Current pass: [2026-10-07 reliability report](RELIABILITY_2026-10-07.md).
+Run the checks in [TESTING.md](TESTING.md) before review. Use provider-specific
+fixtures for reproduced bugs and record native acceptance separately. Formatting
+uses Prettier and rustfmt. Explain non-obvious concurrency, identity and privacy
+constraints in maintainer comments.
 
-Dated reports preserve the behavior and limitations of their original revision;
-current subsystem guides describe the latest source.
+`npm run check:dependencies` verifies Tauri API/native alignment, Windows/WebView2
+interface versions and the Node typing baseline. Keep `@types/node` on the oldest
+supported Node major; review `engines.node`, typings and CI together when changing
+runtime support. See [DEPENDENCY_POLICY.md](DEPENDENCY_POLICY.md).
+
+Further guides: [architecture](ARCHITECTURE.md), [providers](PROVIDERS.md),
+[notifications](NOTIFICATIONS.md), [Windows acceptance](WINDOWS_ACCEPTANCE.md) and
+[contributing](../CONTRIBUTING.md).

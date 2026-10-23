@@ -1,402 +1,217 @@
 # Service providers
 
-`ProviderDefinition` declares presentation, URL/origin rules and capabilities.
-`ServiceConfig` stores provider, stable ID, name, URL, enabled state and notification
-preference. `ServiceSession` binds a configuration to a native child-WebView label.
-The registry accepts only ChatPlus, Synology Chat, Slack, Discord, WhatsApp, Messenger and Mattermost;
-it is not a plugin framework or general browser.
+The Rust and TypeScript registries define each provider's entry URL, presentation
+and capabilities. `ServiceConfig` stores its stable ID, provider, display name,
+URL, enabled state, notification preference and notification color. This is a
+closed registry, not a general browser or plugin framework.
 
-## Desktop boundaries
+## Capabilities
 
-The local `main` view renders a 56-pixel rail. Each service uses a `service-<id>`
-child WebView. The selected service opens first; a background queue starts the
-remaining enabled services in rail order. Loaded views remain alive while hidden
-and can report unread or native notifications without a first rail click. See
-[startup behavior](SERVICE_STARTUP.md) for load bounds and cancellation.
-Tauri's `unstable` feature enables child views; native layout/DPI testing remains
-required before release.
+The table describes Windows integration. Experimental providers retain their own
+Web UI and may have account, browser or server-version compatibility limits.
 
-Only named local views have event listen/unlisten capability. Native commands
-also verify labels and local URLs. Remote provider views have no native IPC grants.
-The WebView2 bridge accepts bounded observations from the configured origin;
-it cannot execute desktop commands. Popups create no additional desktop windows.
+| Provider          | Status       | Unread evidence                          | Native browser notifications | ChatPlus theme |
+| ----------------- | ------------ | ---------------------------------------- | ---------------------------- | -------------- |
+| Synology ChatPlus | Primary      | Aggregate DOM                            | Yes                          | Yes            |
+| Synology Chat     | Experimental | Aggregate DOM                            | Yes                          | No             |
+| Discord           | Experimental | Aggregate DOM and exact message identity | Yes                          | No             |
+| WhatsApp          | Experimental | Positive badges only; otherwise unknown  | Yes                          | No             |
+| Messenger         | Experimental | Browser notification arrivals only       | Yes                          | No             |
+| Slack             | Experimental | Unavailable                              | No                           | No             |
+| Mattermost        | Experimental | Unavailable                              | No                           | No             |
 
-IDs reject traversal, duplicates regardless of letter case, Windows device names
-and excessive length; at most 12 services are allowed. Valid stored ID spelling
-and profile paths stay unchanged. Additional services use isolated profile
-directories under app local data.
-The migrated `chatplus` ID retains the original default directory. Removing a
-service leaves its disk profile. Installed upgrade cookie retention is untested.
+Unread support does not imply read-action support. Current adapters report boolean
+unread or unknown, not an account-wide message total. Read capabilities and native
+delivery policy are documented in [Notifications and unread](NOTIFICATIONS.md).
 
-The service ID is also its profile identity. It is independent of provider type
-and display name: multiple Discord, Slack, Mattermost or ChatPlus configurations use distinct
-`services/<id>` directories, and a rename keeps the same directory. No cookie,
-credential, token or profile-content copying is implemented. Removing one service
-does not delete any profile directory. The legacy `chatplus` ID is the only default
-profile exception; migration and repeat-start behavior are unchanged.
+## Identity and storage
 
-Provider presentation declares whether a service needs a server URL, workspace
-URL or fixed entry URL. Discord's Services form is name-only, and its General tab
-does not show an irrelevant server field. Services use common controls and
-informational Experimental badges. Removal is confirmed and persisted immediately;
-it retains the stored profile and does not save unrelated form edits.
+Each service uses a `service-<id>` child WebView. The selected enabled service loads
+first; other enabled services start in rail order and remain alive while hidden.
+They can report unread and notifications without a first rail click. See
+[Service startup](SERVICE_STARTUP.md).
 
-The external rail's context menu reuses the desktop's native Tauri menu system.
-It offers Open, supported mute/unmute, Service settings and confirmed Remove.
-Rename is available in Service settings. The More submenu contains only supported
-read actions, browser permission repair and desktop notification settings. Local
-acknowledgements are labelled local; Discord's Inbox action uses its public UI and
-requires verified completion evidence. See [read actions](NOTIFICATIONS.md#explicit-service-read-actions).
-These desktop controls do not expose provider-side mute, members/invitations or
-leaving a remote server. Provider administration and
-provider-side notification preferences remain in the embedded application.
+The stable service ID also identifies its isolated WebView profile at
+`services/<id>` under application local data. Provider type, display name and rail
+order do not determine storage identity. Renaming or reordering preserves the
+profile; removing a service closes its view and retains its profile on disk. The
+migrated `chatplus` ID is the sole exception and retains the original default
+profile. ChatPlus does not copy cookies, tokens or profile contents between services.
 
-## Unread and notification capabilities
+At most 12 services are allowed. IDs contain only ASCII letters, numbers and
+hyphens, are limited to 64 characters and must be unique regardless of letter case.
+Windows device names and path traversal are rejected without rewriting valid IDs.
 
-| Provider                 | Unread adapter      | Native browser-notification bridge | ChatPlus theme injection |
-| ------------------------ | ------------------- | ---------------------------------- | ------------------------ |
-| Synology ChatPlus        | Enabled             | Enabled                            | Enabled                  |
-| Synology Chat            | Enabled             | Enabled                            | Disabled                 |
-| Discord                  | Enabled             | Enabled                            | Disabled                 |
-| WhatsApp (Experimental)  | Positive-only       | Enabled                            | Disabled                 |
-| Messenger (Experimental) | Browser events only | Enabled                            | Disabled                 |
-| Slack                    | Disabled            | Disabled                           | Disabled                 |
-| Mattermost               | Disabled            | Disabled                           | Disabled                 |
+Remote provider views have no Tauri command capabilities. Local commands validate
+their caller's label and URL. The WebView2 observation bridge checks the configured
+service, current source origin and document/session identity before accepting
+bounded unread or notification input.
 
-Enabled capabilities describe implemented Windows integration, not completed live
-acceptance. Each service still needs its own saved notification preference and the
-global Desktop notifications preference enabled. Earlier saved `notifications: false`
-values are preserved; enabling a newly supported capability does not silently unmute
-existing configurations. Provider-side settings and Windows permission/policy still
-control whether a browser notification is emitted and displayed.
+The native rail menu targets the clicked stable ID. Open, mute/unmute, Service
+settings and Remove stay at the top level; More groups supported read actions,
+browser permission repair and desktop notification settings. Rename is available
+in Service settings. Unsupported read actions are omitted. These controls do not
+change provider-side mute, membership or server administration.
 
-Adapters supply observations to the authoritative native per-service unread model;
-rail dots and tray/title/taskbar aggregation derive from its revisioned snapshot.
-Counts remain unavailable: mention badges, duplicated rows and incomplete navigation
-do not give a trustworthy total. Missing/ambiguous UI retains the native cache.
+## URL and navigation policy
 
-A trusted current-generation interaction in the actual latest conversation/composer,
-with native foreground and service selection, can acknowledge reliable provider
-aggregate zero. This retires completed native arrivals without requiring exact tags,
-fixing the Synology sticky latch. It cannot retire an in-flight arrival; native completion can retry still-current
-trusted proof. It cannot acknowledge
-synthetic/header/sidebar input or reuse a gesture after route/content changes.
-Positive/unknown aggregates preserve service unread while permitting exact individual
-message proofs where available. See [read rules](NOTIFICATIONS.md#read-acknowledgement).
+Configured URLs reject credentials, query parameters and fragments. Provider
+navigation can use normal routes and query parameters within its allowed origin.
 
-Native foreground alone cannot suppress a toast: the provider must identify the
-originating message as currently visible at latest, and native policy rechecks that
-context. Unknown tags/DOM or failed queries allow delivery. Every accepted native
-arrival latches unread before toast policy is considered. Activation restores the
-existing process/window and selects the originating service without guessing routes.
+| Provider                          | Allowed embedded origin                    |
+| --------------------------------- | ------------------------------------------ |
+| Synology ChatPlus / Synology Chat | Exact configured HTTP(S) origin            |
+| Discord                           | `https://discord.com:443`                  |
+| WhatsApp                          | `https://web.whatsapp.com:443`             |
+| Messenger                         | `https://www.facebook.com:443`             |
+| Slack                             | HTTPS `slack.com` or a subdomain, port 443 |
+| Mattermost                        | Exact configured HTTP(S) origin            |
 
-## ChatPlus
+Sibling domains, suffix lookalikes, URL credentials and unsupported ports are not
+authentication exceptions. Off-origin HTTP(S) links require the external-browser
+preference and an explicit destination confirmation. External identity-provider
+cookie handoff is not implemented, which limits some SSO flows.
 
-The service rail uses the blue [Synology ChatPlus provider icon](https://www.synology.com/img/dsm/chatplus/icon_banner_ChatPlus.png),
-bundled locally as `public/providers/synology-chatplus.png`. The desktop app's own
-branding asset remains separate.
+Related popups share the originating profile and remain subject to navigation
+guards. Downloads use that profile's authenticated WebView2 pipeline; ChatPlus
+does not export cookies or auto-execute attachments. See
+[Links and downloads](LINKS_AND_DOWNLOADS.md).
 
-**Primary / Supported** provider and the default for migrated single-server settings.
-HTTP(S) URLs reject credentials, queries and fragments.
-Navigation/popups require the exact configured origin; external HTTP(S) links can
-use the default browser after an explicit destination confirmation. Same-origin
-popups preserve the opener's profile and leave its main provider view intact.
-ChatPlus alone receives the project-authored theme.
-Its separate unread adapter observes tab indicators from existing authenticated-layout evidence
-(`sidebar-tab-item-*` / `tab-item-indicator`). A real visible conversation scroller
-at bottom and trusted interaction in that pane or its uniquely mapped main composer
-provide read evidence; a selected tab or flashing document title does not. Sidebar markers produce boolean state without message/title
-scraping or private APIs. The audited notification event has no reliable conversation
-tag mapping, so ChatPlus conservatively delivers actual incoming browser notifications
-even when the selected service is foreground.
-The current private ChatPlus web bundle has not been independently audited; live
-marker, upstream focus/read and notification behavior remain manual acceptance gates.
+## Adapter contracts
 
-## Synology Chat
+Provider-specific selectors live in `src/theme/providers`. The shared lifecycle
+in `provider-unread.ts` handles observation revisions, foreground generations,
+trusted interactions and exact arrival proofs. The native unread store owns the
+resulting per-service state. Adapters must preserve unknown when evidence is
+missing, partial, virtualized or ambiguous; focus and selection are not read proof.
+DOM badge changes never manufacture message notifications.
 
-The service rail uses the green [Synology Chat provider icon](https://nascompares.com/wp-content/uploads/2018/08/Synology-Chat-logo.png),
-bundled locally as `public/providers/synology-chat.png`.
+### Synology ChatPlus
 
-Synology Chat has supported unread/native-notification integration and an isolated
-profile. Its general provider UI still carries an Experimental badge while
-authenticated Windows acceptance remains pending. Synology documents a
-[browser client](https://www.synology.com/en-us/dsm/feature/chat) and a
-[matching desktop interface](https://kb.synology.com/en-global/DSM/help/ChatClient/chatclient?version=6).
-A dedicated adapter uses Synology Chat's independently audited server templates,
-including channel-list highlights and group unread badges; it does not reuse
-ChatPlus selectors or styling. Starred duplicates channel rows and channel badges
-can count mentions, so the adapter publishes a boolean rather than a total.
-Read evidence checks the actual `#channels/<id>` conversation, its visible message
-pane and transformed FleXcroll content end/newest-message control. Its main composer
-is a sibling of the message panel inside the audited center panel; thread/edit/search
-inputs cannot acknowledge the main conversation. Partial or
-unrecognized aggregate UI remains unknown.
+ChatPlus alone receives the project theme; see [Theming](THEMING.md). Its adapter
+uses sidebar tab indicators and requires a uniquely mapped visible conversation
+scroller at the latest messages, or its mapped main composer, for read context.
+Selected tabs and document-title badges are insufficient. Browser notification
+tags have no reliable exact conversation mapping, so foreground notifications are
+delivered conservatively.
 
-The source audit inspected the official
-[Chat 2.2.0-1432 server package](https://global.synologydownload.com/download/Package/spk/Chat/2.2.0-1432/Chat-x86_64-2.2.0-1432.spk),
-SHA-256 `72d406e88f09875c0fdf006d5828fb34f0101445eacff68e1fbd33155cb6f19e`.
-Its public ActiveDetector reads `document.hidden` and visibility changes to activate
-the client/server session. LastViewAtUpdater uses that active state when marking a
-bottom-positioned current conversation read. The dedicated adapter projects native
-foreground into public `document.hidden`/`visibilityState` and emits visibility changes
-when effective visibility changes, preventing a logically visible background WebView
-from enabling upstream read activity. It does not access private provider state.
+### Synology Chat
 
-The compiled server's active-session-to-notification creation decision remains
-unverified, so this source-backed read workaround establishes no native or live toast
-success. Newer Chat 2.4.7/ChatPlus 1.0 packages could not be inspected as ordinary
-archives; current server markup and behavior remain manual acceptance gates. No
-vendor package or source bundle is redistributed.
+The dedicated adapter uses channel highlights and complete group metadata.
+Starred rows can duplicate channels and badges can count mentions, so their sum is
+not a message total. Read context requires the matching `#channels/<id>` route,
+visible message panel, FleXcroll content end/newest-message control and mapped main
+composer. Thread, edit and search inputs cannot acknowledge the main conversation.
 
-Unread and the native browser-notification bridge are enabled. The audited browser
-notifications have no reliable conversation tag; generic titles/sender names cannot
-justify foreground suppression. Provider notification preferences remain authoritative.
-Authenticated message/read, toast and click acceptance, login, uploads, calls and
-external SSO remain pending controlled Windows testing.
+The adapter projects native foreground into public document visibility APIs so a
+logically visible background child does not enable upstream read activity. It
+uses no private provider state. Unrecognized server markup remains unknown, and
+notification titles or sender names cannot establish exact viewing proof.
 
-## Slack
+### Discord
 
-Distinct experimental provider. Top-level origins are limited to HTTPS `slack.com`
-and subdomains on port 443; suffix lookalikes and credentials are rejected.
-Normal web login uses WebView-managed persistence. There are no API secrets,
-credential scraping or authentication bypasses. External identity providers open
-in the default browser; cookie handoff is not implemented, so some SSO flows may
-be unusable. Unread and native notifications are disabled.
+The entry URL is `https://discord.com/app/`; login uses the normal provider UI and
+WebView profile. No token handling, private stores, webpack APIs or security-check
+bypasses are used.
 
-See Slack's [browser requirements](https://slack.com/help/articles/115002037526-System-requirements-for-using-Slack)
-and [sign-in documentation](https://slack.com/help/articles/212681477-Sign-in-to-Slack).
-WebView2 compatibility and workspace policies are untested; no Slack Desktop parity
-is claimed.
+Unread evidence combines guild/folder/Favorites and private-channel navigation.
+Home promotions, hover/selection pills and mention totals cannot establish global
+unread or zero. A global zero requires complete, consistent guild/folder metadata
+and the ordinary private sidebar. Selected, hovered or muted DM rows, missing
+positions, ambiguous media labels and request/spam scope can leave the aggregate
+unknown. A mention-only DM group cannot establish that every conversation is read.
 
-## Discord
+Native foreground floors public `document.hasFocus()` and drives public blur/focus
+transitions. This prevents minimized or background WebViews from appearing active
+to Discord. Generation-only updates do not repeatedly refocus the page.
 
-Discord unread/native-notification integration is supported functionality. Its
-general provider UI still carries an Experimental badge pending authenticated
-Windows acceptance. Web sessions start at `https://discord.com/app/`. Top-level navigation
-and same-origin popups permit only `https://discord.com` on port 443, with no URL
-credentials. Configurations also reject query parameters and fragments. Off-origin
-HTTP(S) links use the existing external-browser preference and a fresh destination
-confirmation. Same-origin and recognized attachment popups use restricted,
-profile-sharing WebViews. There are no authentication-origin exceptions: arbitrary subdomains,
-`discordapp.com`, invitation domains and external identity providers are not
-embedded. External identity-provider cookie handoff is unavailable.
+Exact read/suppression proof requires the notification's message snowflake in the
+matching route's visible, unobscured latest viewport. A channel ID, similar title,
+offscreen message or unrelated content change is insufficient. History/error bars
+block proof. Current-content identity follows the newest rendered message, so
+loading older history does not appear to be a new incoming message. See
+[Read acknowledgement](NOTIFICATIONS.md#read-acknowledgement) and
+[Explicit service read actions](NOTIFICATIONS.md#explicit-service-read-actions).
 
-Discord documents its [web login](https://support.discord.com/hc/en-us/articles/360057027354-How-to-Log-In-to-your-Discord-Account)
-and [browser requirements](https://support.discord.com/hc/en-us/articles/213491697-What-are-the-OS-system-requirements-for-Discord).
-WebView2 account policies, MFA, CAPTCHA, calls, uploads and embedded login success
-require live validation. Authentication is manual; no credentials, tokens, CAPTCHA
-bypasses or Discord private APIs are used. The bundled provider symbol comes from
-the [official brand assets](https://discord.com/branding) and retains their terms.
+### WhatsApp
 
-Unread and native notifications are enabled through a dedicated Discord adapter;
-ChatPlus theme injection remains disabled. The adapter observes Discord's own
-guild/folder/Favorites and unread-DM navigation, using scoped semantic markers and
-complete aggregate metadata. Home badges also include Nitro offers/activity and
-are excluded. Guild hover/selection shares the unread pill appearance, so the pill
-alone cannot establish unread or zero. Audited guild accessibility labels can be
-compared with their actual `data-dnd-name` without assuming an English UI; media
-status badges retain unknown when the label is ambiguous.
+The entry URL is `https://web.whatsapp.com/`. QR and phone-number pairing use
+WhatsApp's official UI when offered. The normal Chromium/WebView2 identity is
+retained; no user-agent spoof, pairing/session interception or custom credential
+storage is implemented. Each instance has its own linked-device profile. ChatPlus
+does not control the browser name shown by WhatsApp on a phone.
 
-Complete guild groups and expanded-folder children must expose consistent set-size
-and position metadata before asserting global zero. The ordinary private sidebar
-must also be visible and expose complete row metadata, without selected/hovered/muted
-DM rows or a message-request/spam row. The unread-DM group and private-row pills are
-mention-based: ordinary muted DM unread can be absent from both. Ordinary private
-rows also exclude requests/spam. An empty DM aggregate while viewing another guild
-therefore cannot clear cached unread. Current public sidebar special rows can omit
-position metadata; these layouts remain unknown rather than filling those gaps.
-Selected/hovered collapsed folders, ambiguous media labels and accounts without any
-guild aggregate metadata also remain unknown. Such states can retain a cached dot
-after reading until stronger provider evidence is available. Mention numbers overlap aggregate markers,
-so counts remain unavailable. Document titles are not a read/unread source.
+The dedicated adapter reads only existing `icon-unread-count` / `unread-count`
+badge metadata inside visible chat-list rows. Arbitrary contact, preview, action
+and photo labels are not inspected, even if their text resembles an unread badge.
+Visible badge counts are not promoted to an account total. Missing badges or
+filtered, archived, collapsed and virtualized lists remain unknown, never a global
+zero.
 
-Discord's public browser blur handler only reports unfocused if `document.hasFocus()`
-is false; its focus handler always reports focused. A WebView can remain logically
-focused while the Windows host is minimized. The adapter therefore floors the public
-`document.hasFocus()` result by native foreground state and dispatches public window
-blur/focus only on actual host transitions. Misleading background focus is intercepted;
-generation-only updates do not repeatedly refocus Discord or trigger read acknowledgements.
-No private store/webpack API is called. Provider-side disabled notifications, DND and
-mute remain in force; the desktop does not synthesize toasts from unread DOM.
+There is no reliable privacy-safe current-chat/message mapping. Current/all read
+actions and exact foreground suppression are unavailable. Native browser events
+provide notification content; DOM observations do not scrape messages or fabricate
+toasts. Activation selects the correct instance and may invoke the provider's own
+retained click handler without guessing a conversation URL or acknowledging unread.
+The integration remains Experimental. ChatPlus Desktop is independent of WhatsApp
+and Meta.
 
-Discord notification tags are message snowflakes. Suppression requires that exact
-message row in the actual route's visible latest viewport, with no history/error bar;
-a channel ID, similar title or offscreen row is insufficient. Conversation content
-context uses the newest actual rendered message identity independently of bottom
-scroll position; inserting older virtualized rows does not invent incoming content.
-Trusted conversation
-scroll/editor interaction can provide read context; header/sidebar activation cannot.
-Retained background event tags can be retried during a later trusted conversation
-interaction. Each individual proof must still match its actual visible latest message
-row and receive native confirmation. A positive or unknown provider aggregate can
-permit this partial progress while preserving its unread boolean; unmatched events
-and unknown aggregate state still prevent a global clear. The desktop cannot infer
-a read from an unrelated content change.
+### Messenger
 
-The audit used Discord's publicly served production assets:
+The entry URL is `https://www.facebook.com/messages/`. Normal Facebook login and
+same-origin security checkpoints stay within that exact origin. The normal
+WebView2 identity and isolated service profile are retained.
 
-| Source                                                                        | Audited behavior                                                                                                                                                                                                                                                           | SHA-256                                                            |
-| ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| [web.24a0dd4254453b09.js](https://discord.com/assets/web.24a0dd4254453b09.js) | Modules 346142/350723/531685 public focus state; 592329 browser notification eligibility/tag; 112943 guild navigation; 131677/573163 mention-only DM aggregate; 593065 private-list row metadata; 715069 muted/selected DM rendering; 645959/309199 request/spam exclusion | `d141f126a87e0e4c49898f95c71b467641fe7e26022da5abcec663c104f3afcb` |
-| [739c29133b0fdbcc.js](https://discord.com/assets/739c29133b0fdbcc.js)         | `chat-messages-<channel>-<message>` identity, rendered message scroller, two-pixel bottom tolerance and `hasMoreAfter` history distinction                                                                                                                                 | `e44441443c591cc4cb98e001c9f542c1e4ce27490e30b24b72999eea349c22cc` |
+The dedicated DOM adapter reports unknown. Browser notification arrivals supply
+unread and native delivery; Facebook navigation badges, contact labels, title
+counts and missing/filtered lists are not message evidence. Counts, conversation
+correlation and current/all read actions are unavailable.
 
-These public implementation details can change. Structural mismatches remain unknown;
-authenticated Windows behavior still needs manual acceptance. Discord's
-[notification controls](https://discord.com/blog/how-to-manage-your-discord-desktop-notifications)
-explain provider-side server/channel mute, desktop preferences and DND behavior.
+This is a whole-origin Facebook session: navigation and browser notifications can
+include non-Messenger Facebook content. ChatPlus cannot reliably classify every
+event as a Messenger message. Provider-side notification categories remain under
+the user's control. No contacts, history, profile data or hidden API is scraped.
+The integration remains Experimental. ChatPlus Desktop is independent of Messenger
+and Meta.
 
-Tests cover dedicated adapter evidence/unknown states, focus projection, latest-view
-and message matching, strict origins, provider registration, two
-Discord configurations, stable separate profile paths, rename/restart/removal,
-name-only configuration and distinct rail activation/tooltips. A native development
-instance reached Discord's login prompt using its separate profile; that observation
-does not establish authenticated account persistence or multiple-account success.
+### Slack and Mattermost
 
-Manual acceptance requires two test accounts: sign into each instance, switch away
-and back, rename one, restart twice, disable/remove one, and confirm the other
-account/session survives. Keep credentials and all session/profile contents out of
-Git, logs, screenshots and diagnostic output.
-
-## Mattermost
-
-Mattermost (Experimental) uses the shared Services form: Provider, custom Display
-name, required Server URL, Enabled, and the informational Experimental badge/block.
-Examples include Mattermost — Company, Mattermost — Private and Mattermost — Client A.
-Its rail symbol uses the official Mattermost SVG logomark, displayed in black on
-light surfaces and white on dark surfaces. Source and usage terms:
-[Mattermost brand guidelines](https://handbook.mattermost.com/operations/operations/company-processes/publishing/publishing-guidelines/brand-and-visual-design-guidelines).
-
-Configure your own server, for example `https://chat.example.com` or
-`https://mattermost.example.com`. The existing HTTP(S) policy accepts custom hosts,
-ports and installation paths; it rejects empty/malformed URLs, unsafe schemes,
-credentials, query parameters and fragments. Normalization canonicalizes the host,
-default port and trailing slash. Navigation and popups require the exact configured
-scheme, host and port; there is no mattermost.com allowlist. External HTTP(S) links
-use the existing default-browser preference. Cross-origin SSO can open there, but
-there is no browser-cookie transfer or embedded cross-origin authentication bypass.
-
-| Capability                              | Current state                                                                         |
-| --------------------------------------- | ------------------------------------------------------------------------------------- |
-| Web session / normal web login          | Implemented through the shared WebView; authenticated live acceptance pending         |
-| Persistent profile / multiple instances | Stable `services/<service-id>` directories, including two accounts on the same server |
-| Switching                               | Existing lazy creation and hidden-view reuse; no provider-specific reload             |
-| External links                          | Shared safe HTTP(S) handling, controlled by desktop preference                        |
-| Native unread / notifications           | Disabled; no Mattermost DOM scraping or notification adapter enabled                  |
-| ChatPlus theme injection                | Disabled                                                                              |
-| Outer service menu                      | Open, local Rename/Service settings and confirmed Remove service                      |
-| Provider administration                 | No API; no members, leave-team or server-admin actions                                |
-
-Renaming retains the ID/profile. Removing one configuration closes its view and
-retains its disk profile, without deleting another account's profile or saving
-unrelated Settings drafts. A server URL is always required; Discord's fixed-entry,
-name-only form is not used.
-
-Mattermost documents [browser-based access and authentication](https://docs.mattermost.com/end-user-guide/preferences/manage-your-security-preferences).
-Server policies, WebView2 login/SSO compatibility, authenticated restart retention
-and two-account isolation still need controlled live validation. Tests establish
-configuration, origin rules, serialization, stable profile paths, rename/removal,
-form rendering and menu routing; they do not establish successful authentication.
+Both use normal Web login and isolated profiles, with no unread or native
+notification adapter. Slack accepts a workspace URL; Mattermost requires an
+explicit server URL. Provider policies and external SSO can limit embedded login.
+They do not inherit ChatPlus selectors or theme CSS.
 
 ## Migration
 
-Schema 0 plus legacy `serverUrl` creates exactly one deterministic `chatplus`
-service and saves schema 1. Repeated migration is idempotent and preferences survive.
-`serverUrl` remains a compatibility mirror; service configuration is authoritative.
-Invalid active IDs select the first enabled service; zero enabled services leave
-no active session. Invalid service configuration retains the disk record and falls
-back to the legacy URL in memory. A failed migration write restores the old store
-record while the migrated in-memory configuration runs; next startup retries.
+Legacy schema 0 plus `serverUrl` produces one deterministic `chatplus` service and
+saves schema 1. Migration is idempotent and preserves preferences. `serverUrl`
+remains a compatibility mirror; service configuration is authoritative.
+
+An invalid active ID selects the first enabled service; no enabled service means
+no active session. Invalid stored service configuration is retained on disk while
+the legacy URL is used in memory. A failed migration write restores the old store
+record, runs the migrated in-memory configuration and retries at next startup.
 
 ## Adding a provider
 
-1. Inspect its actual DOM and documented/public notification behavior independently.
-2. Add a typed registry entry in Rust and TypeScript with accurate capability/status
-   flags, entry URL and strict navigation/origin policy; preserve per-service profiles.
-3. Implement the common semantic adapter contract in src/theme/providers:
-   snapshot, observe, readContext, contentContext, interactionContext,
-   providerUnreadZero and isViewingNotification. Keep selectors provider-specific and
-   shared lifecycle/state policy in provider-unread.ts and native unread modules.
-4. Map only the uniquely active conversation and composer. Unknown identity/layout
-   must remain unknown. Do not scrape message text or private provider APIs.
-5. Add independent minimized/read/composer/synthetic/generation fixtures and native
-   origin/capability regressions. Include service mute and multiple instances.
-6. Complete authenticated [Windows acceptance](WINDOWS_ACCEPTANCE.md#current-reliability-pass-2026-10-07)
-   before claiming provider parity. Never commit test accounts, tokens or private URLs.
+1. Establish its public UI, notification and read semantics independently.
+2. Add matching Rust/TypeScript registry entries, accurate capability/status flags,
+   a strict origin policy and a stable-ID profile. Do not grant remote Tauri IPC.
+3. Implement a dedicated adapter's snapshot, observer and scoped read/view methods.
+   Missing identity or incomplete layout must remain unknown. Keep shared lifecycle
+   and native state policy outside provider selectors.
+4. Expose read actions only with safe provider-specific evidence or a bounded,
+   explicit public UI operation. Label local acknowledgements honestly. Do not
+   mass-click conversations, scrape content or invoke private APIs.
+5. Cover origins, multiple instances, partial/virtualized DOM, background arrivals,
+   trusted versus synthetic input, stale generations, read races and cleanup.
+6. Validate login/session persistence, native notifications, routing and supported
+   read actions on Windows. Keep accounts, QR/session secrets and private content
+   out of the repository, diagnostics and test artifacts.
 
-## Attachments
+## Bundled artwork
 
-Windows attachment transfers use the originating WebView2 download pipeline and
-profile, preserving authentication cookies without exporting them. Normal provider
-Content-Disposition suggestions and URL-encoded names pass through filename safety
-and duplicate reservation. Downloads never auto-execute. The native DownloadStarting observer leaves Handled=false so WebView2 retains its
-save/download/cancel/retry/security UI. A narrow related popup may show same-origin
-blob attachments or exact Discord CDN /attachments/ URLs without navigating away
-from the originating view. Inline PDF/image previews use their native download
-button. Other external-document handling remains governed by navigation policy.
-Provider-specific live attachment acceptance remains pending. See the [download checklist](WINDOWS_ACCEPTANCE.md#current-reliability-pass-2026-10-07).
-
-## WhatsApp (Experimental)
-
-WhatsApp opens the official `https://web.whatsapp.com/` in a normal WebView2
-environment. Only HTTPS `web.whatsapp.com` on port 443, without URL credentials,
-is allowed as a top-level origin; sibling domains and lookalike hosts are excluded.
-No user-agent override, unofficial API, bulk messaging or security bypass is used.
-The normal service-ID profile keeps each instance's cookies/storage separate;
-ChatPlus does not store credentials or intercept QR/pairing/session secrets.
-
-The official Web page exposes QR pairing and phone-number pairing. A public
-Chromium page inspection on 2026-10-22 reached those controls without spoofing;
-authenticated WebView2 pairing, persistence, restart and logout still require
-Windows acceptance. This is not evidence that linked-device login has succeeded.
-
-The dedicated `whatsapp-dom` adapter reads only explicit positive unread badge
-or unread accessibility metadata inside visible chat-list rows. Visible row counts
-are not promoted to account totals: lists may be virtualized, archived, collapsed
-or filtered. Missing/changed DOM and absence of badges remain `unknown`, never a
-provider-wide zero. No contact names, phone numbers, previews, messages or profile
-information are exported. The authenticated chat markup selectors are conservative
-fixture coverage and still need live validation.
-
-Browser `Notification` calls use the existing central native coordinator, including
-service mute, exact service-ID routing and deduplication. The notification itself
-is the event source; a positive DOM unread snapshot is not turned into a fabricated
-message toast. No safe current-chat/message identity is verified yet, so toast
-activation restores the correct instance without guessing a conversation or
-acknowledging unread. The retained native browser notification may run the
-provider's own click callback to route its originating chat; ChatPlus adds no
-guessed chat URL. WhatsApp `Mark as read` and `Mark all as read` are explicitly
-unsupported/disabled pending a safe verified Web UI interaction. No mass clicking
-or hidden internal API is used.
-
-The bundled green glyph is the unmodified official 2026 brand resource; see
-[NOTICE](../NOTICE). ChatPlus is independent of WhatsApp and Meta. The exact UI
-note is translated into all seven locales: “WhatsApp Web integration is experimental.”
-See [the audit and QA limitations](WHATSAPP_2026-10-22.md).
-
-## Messenger (Experimental)
-
-Messenger opens `https://www.facebook.com/messages/`, the official Facebook Web
-messaging surface, and uses its normal Facebook login/security-checkpoint UI.
-Do not depend on the legacy standalone messenger.com endpoint. Configuration and
-top-level navigation allow only HTTPS `www.facebook.com:443`, without credentials;
-no wildcard subdomains, mobile/legacy hosts or lookalikes are admitted. Same-origin
-authentication/checkpoint routes remain available. The normal WebView2 user agent
-and isolated stable-service-ID profiles are retained; no passwords or session
-secrets are managed by ChatPlus.
-
-The dedicated `messenger-dom` adapter reports unknown until current authenticated
-markup is independently audited. It never treats Facebook navigation/title badges,
-contact labels, filtered/virtualized list absence or selection as unread/read proof.
-Real browser `Notification` events supply unread arrivals through the shared native
-coordinator, with instance routing, mute preferences and deduplication. Counts,
-conversation correlation and current/all read actions are unsupported. Retained
-provider-owned notification click callbacks may route a conversation; ChatPlus
-constructs no guessed chat URL.
-
-This is a whole-origin Facebook session: Facebook can expose non-messaging pages
-and emit other Facebook notifications under the same origin. ChatPlus cannot safely
-classify all such notifications as Messenger messages without verified provider
-semantics. Configure Facebook's own notification preferences accordingly. No contacts,
-message history, profile data or hidden/internal API is scraped. Native ChatPlus
-theme CSS is not injected. The current official blue Messenger icon is bundled with
-provenance in [NOTICE](../NOTICE). [Audit and pending QA](MESSENGER_2026-10-22.md).
+Provider icons in `public/providers` and `src-tauri/icons/providers` are bundled
+locally; runtime UI does not hotlink them. Third-party marks identify their
+providers and are not licensed as project code. Original asset sources, usage
+terms and non-affiliation notices are retained in [NOTICE](../NOTICE).

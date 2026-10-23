@@ -3,7 +3,7 @@
 ChatPlus Desktop is maintained by Swiph3l. Contributions to bugs, provider integration,
 translations, accessibility, Windows testing and documentation are welcome.
 
-Start with [local development](docs/DEVELOPMENT.md), [architecture](docs/ARCHITECTURE.md)
+Start with the [documentation index](docs/README.md), [local development](docs/DEVELOPMENT.md)
 and [testing](docs/TESTING.md). The lightweight Tauri 2, Rust and vanilla TypeScript
 architecture and clearly unofficial branding should remain intact.
 
@@ -17,8 +17,11 @@ architecture and clearly unofficial branding should remain intact.
 - Notification diagnostics must omit message content, credentials/tokens, tags and
   private URLs. Never commit test accounts, profiles, keys, logs or private screenshots.
 - Before review, run `git diff --check`, inspect staged/untracked files and record
-  automatic results and native Windows checks actually performed. Keep release notes
-  user-readable; investigations belong in docs.
+  automatic results and native Windows checks actually performed in the PR. Keep
+  release notes user-readable and technical guides current with the code.
+- Keep session notes, raw logs, local build receipts and machine-specific paths
+  outside the source checkout. `docs` contains reusable developer documentation;
+  see its [conventions](docs/README.md#documentation-conventions).
 
 Current development CI validates Windows; Linux/macOS are experimental. Native
 runtime acceptance is separate from a successful build. Tags enter a signed draft

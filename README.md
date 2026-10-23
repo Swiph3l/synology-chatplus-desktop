@@ -25,28 +25,28 @@ Tauri application.
 | Service           | Status                                                                                                                      |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | Synology ChatPlus | Supported / primary; dedicated theme, unread and notification integration                                                   |
-| Synology Chat     | Supported unread/notification integration; broader web-client acceptance pending                                            |
-| Discord           | Supported unread/notification integration; broader web-client acceptance pending                                            |
-| WhatsApp          | Experimental Web integration; positive unread evidence/native notifications; authenticated acceptance pending               |
-| Messenger         | Experimental Facebook messages Web integration; browser-event unread/native notifications; authenticated acceptance pending |
+| Synology Chat     | Dedicated unread/notification integration; Experimental service UI                                                          |
+| Discord           | Dedicated unread/notification integration; Experimental service UI                                                          |
+| WhatsApp          | Experimental Web integration; positive unread evidence/native notifications; no read actions or unread totals               |
+| Messenger         | Experimental Facebook messages integration; browser-event unread/native notifications; no read actions or DOM unread totals |
 | Mattermost        | Experimental web sessions; desktop unread/notifications disabled                                                            |
 | Slack             | Experimental web sessions; desktop unread/notifications disabled                                                            |
 
 Synology Chat and Discord still carry Experimental badges in the general service UI.
-Their notification integration is supported functionality in this reliability pass;
-authenticated Windows acceptance remains pending. Provider login/SSO, calls and other
-features depend on each web app and its policies. [Provider details](docs/PROVIDERS.md)
-explain the current boundaries; no Slack/Discord desktop-client parity is claimed.
+Their notification integration has dedicated adapters. Provider login/SSO, calls
+and other features depend on each web app and its policies.
+[Provider details](docs/PROVIDERS.md) explain capability boundaries; no Slack/Discord
+desktop-client parity is claimed.
 
 WhatsApp Web integration is experimental. It uses the official Web login and an
 isolated profile for each account. Unread totals and mark-read actions remain
-unavailable pending authenticated validation. ChatPlus is independent of WhatsApp
-and Meta; [WhatsApp integration notes](docs/WHATSAPP_2026-10-22.md) list the current
-boundaries and pending Windows checks.
+unavailable. ChatPlus is independent of WhatsApp
+and Meta; [WhatsApp integration](docs/PROVIDERS.md#whatsapp) describes the current
+capabilities and limitations.
 
 Messenger uses the official Facebook messages page and its Facebook login flow.
-Read actions and DOM unread totals are unavailable pending authenticated validation.
-See [Messenger integration notes](docs/MESSENGER_2026-10-22.md); this is an independent
+Read actions and DOM unread totals are unavailable.
+See [Messenger integration](docs/PROVIDERS.md#messenger); this is an independent
 client with no Meta affiliation.
 
 ## Features
@@ -64,10 +64,9 @@ client with no Meta affiliation.
   Japanese and Traditional Chinese interface.
 - Native menus, zoom/fullscreen, saved window geometry and optional start with Windows.
 
-Current development is `0.5.0-beta.6`, focused on reliability. Native notifications,
-authenticated attachments and installed updater behavior still need the
-[Windows acceptance checks](docs/WINDOWS_ACCEPTANCE.md#current-reliability-pass-2026-10-07)
-for this revision. Windows x64 is the supported target; Linux/macOS are experimental.
+Current development is `0.5.0-beta.6`, focused on reliability. Windows x64 is the
+supported target; Linux/macOS are experimental. Native changes are covered by the
+[Windows acceptance checklist](docs/WINDOWS_ACCEPTANCE.md).
 
 ## Download
 
@@ -109,7 +108,7 @@ own privacy policy still applies. See [security reporting](SECURITY.md).
 
 ## Contributing
 
-Start with [developer documentation](docs/DEVELOPMENT.md) and
+Start with [developer documentation](docs/README.md) and
 [CONTRIBUTING.md](CONTRIBUTING.md). Contributions to bug fixes, provider integration,
 translations, accessibility, documentation and Windows testing are welcome.
 

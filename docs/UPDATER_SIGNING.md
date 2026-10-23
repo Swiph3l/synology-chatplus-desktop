@@ -1,106 +1,72 @@
-# Signed updates
+# Signing updates
 
-The official Tauri updater 2.11.0 runs behind local Rust commands. Remote ChatPlus
-has no updater capability. The service owns metadata, progress, cancellation and
-signature-verified bytes. Installation requires explicit restart confirmation.
+The Tauri updater verifies packages against the public key embedded in the app.
+Updater signatures are separate from Windows Authenticode. Selection, transport
+and cancellation contracts are documented in [UPDATER.md](UPDATER.md).
 
-## Configuration
+## Public configuration
 
-project.json defines owner/repository, updaterEnabled and the public verification
-key. The runtime updater is enabled with the configured production public key.
-Keep the complete base64-wrapped contents of Tauri's `.pub` file in
-`updaterPublicKey`. Both the Tauri CLI signer and runtime plugin decode that outer
-base64 layer into the minisign comment and key lines internally. Do not pass the
-decoded text or only its second line directly to Tauri's `pubkey` field.
-The wrapper supplies this same key as `plugins.updater.pubkey` to the CLI;
-the runtime builder reads it from `project.json`. An empty static plugin key alone
-is insufficient for signing and causes `Missing comment in public key`.
-Unconfigured checks show a local message without requesting GitHub. Private signing keys must remain outside the repository.
+`project.json` defines `owner`, `repository`, `updaterEnabled` and `updaterPublicKey`.
+Store the complete base64-wrapped contents of the Tauri `.pub` file in
+`updaterPublicKey`. The CLI and runtime decode that format themselves; do not
+substitute the decoded minisign lines or only the key's second line.
 
-The base Tauri configuration disables createUpdaterArtifacts and retains passive
-Windows installation and downgrade prevention. `updaterEnabled` controls runtime
-availability only; it does not require a private key to compile or package the app.
-Normal local and push/PR CI builds force createUpdaterArtifacts to false and remove
-signing credentials from the CLI environment. They still embed the runtime public
-key and can receive signed updates. Normal local packages are built without updater signatures. Current branch CI
-checks Windows development only; Linux/macOS remain experimental.
+The runtime builder and [Tauri wrapper](../scripts/tauri.mjs) use the same public
+key. The base Tauri configuration disables updater artifacts. Runtime update
+availability does not require a private key to build the application.
 
-Only `CHATPLUS_RELEASE_BUILD=1` selects signed release packaging through
-`npm run tauri build`. This mode validates the enabled runtime, public key and
-nonempty TAURI_SIGNING_PRIVATE_KEY before starting Tauri, then forces
-createUpdaterArtifacts to true. Tauri validates the private key/password and
-generates updater packages and `.sig` files. The tag-only release workflow sets
-the mode and passes TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD
-to its signing step. Ordinary CI never receives these secrets. For an authorized
-local release build, set the same mode in an environment already provisioned with
-signing credentials; do not use a normal build as a release artifact.
+## Initial key setup
 
-Before the first release, generate and securely back up a Tauri signing key, commit
-only the public key, enable updates and supply private key/password through protected
-CI secrets. Never put private keys in source, logs or artifacts. Follow the
-[official Tauri instructions](https://v2.tauri.app/plugin/updater/). Updater signatures
-do not provide Authenticode, Apple notarization or remove SmartScreen warnings.
+Generate a production key once, outside the repository, and retain an encrypted
+offline backup. Existing installations trust that key, so do not regenerate it
+for each version. From the repository root in PowerShell:
 
-## Update preferences and delivery
+```powershell
+$signingDirectory = Join-Path $env:LOCALAPPDATA 'ChatPlusDesktopSigning'
+New-Item -ItemType Directory -Path $signingDirectory -Force | Out-Null
+$signingKey = Join-Path $signingDirectory 'updater.key'
+if (Test-Path -LiteralPath $signingKey) { throw 'Signing key already exists.' }
+npm run tauri -- signer generate --write-keys "$signingKey"
+```
 
-All checks list published GitHub Releases through the public API, bounded to ten
-pages of 100 releases. **Include beta updates** is off by default: only stable
-releases are eligible. Enabling it includes stable and beta/pre-release versions,
-and the highest eligible SemVer wins. Drafts and unpublished releases are always
-excluded. A newer eligible release without a trusted manifest/package reports an
-error rather than silently falling back. An incomplete paginated query also reports
-an error. No token or HTML scraping is used.
+Use the interactive password prompt. Put only the generated public-key text in
+`project.json` and enable the runtime updater. Provision these GitHub Actions
+secrets for the release workflow:
 
-Beta/RC tags use `latest-prerelease.json`; stable tags use `latest.json`. The release
-version determines the manifest, while the saved beta preference determines
-eligibility. Artifact filenames remain distinct for stable and pre-release builds.
+| Secret                               | Value                                         |
+| ------------------------------------ | --------------------------------------------- |
+| `TAURI_SIGNING_PRIVATE_KEY`          | Private key contents, not its filesystem path |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Key password                                  |
 
-Only strictly newer SemVer precedence is accepted; build metadata alone is not an
-upgrade. Disabling beta updates excludes prereleases. Initial download URLs must belong to the
-configured GitHub release path. Redirects remain HTTPS; signatures are mandatory.
-A beta-preference change during checking discards the result. Download and installation
-recheck eligibility. Release notes are plain text.
+Never commit private keys, passwords or fixture signing keys. Do not print them
+in logs or include them in release assets. See the
+[Tauri signing documentation](https://v2.tauri.app/plugin/updater/).
 
-Automatic checks are opt-in, begin after ten seconds and occur at most once per six
-hours. Successful check times persist as history; each process still schedules its startup
-check. Failed automatic attempts are rate-limited
-in memory. Automatic errors stay quiet; manual checks expose errors and retries.
-About reads cached local state without requesting GitHub.
+## Build modes
 
-Downloads show actual progress, allow cancellation and are capped at 512 MiB.
-Only bytes accepted by the official verifier reach installation. Windows launches
-its passive installer after confirmation. Production installation is not yet tested.
+Normal `npm run tauri build` removes signing credentials from the CLI environment
+and forces updater artifacts off. It retains the public verification key so the
+result can receive signed updates.
 
-## Future release workflow
+The explicit `CHATPLUS_RELEASE_BUILD=1` mode validates the public configuration
+and nonempty private-key environment, then enables updater artifacts. Tauri
+validates the private key and password and creates package signatures. Supply
+credentials only to this build step. The tag workflow sets this mode; branch CI
+does not receive signing secrets.
 
-collect-release.mjs collects actual packages and generated .sig files.
-updater-metadata.mjs generates metadata only for supplied targets and rejects absent,
-empty or malformed inputs. Cryptographic verification occurs in the updater.
-release-metadata.mjs combines the collected platform manifests.
+## Verification and recovery
 
-The Windows-only .github/workflows/release.yml accepts version tags, validates
-all source versions and production signing configuration, and requires Windows CI,
-CodeQL and security checks on the same main commit. It builds NSIS and its updater
-signature, collects SBOMs, generates channel-specific metadata/checksums, attests
-public-repository artifacts and creates a draft release. Beta tags write only
-latest-prerelease.json; stable tags write only latest.json. Linux/macOS do not
-participate in this release gate. Missing signing configuration fails closed.
-Publication is a separate maintainer action.
+The release collector requires actual nonempty packages and `.sig` files. The
+Windows manifest points to the raw signed NSIS setup, with matching version,
+source commit and package identity. The release workflow runs
+`production_artifact_signature_verifies` against the collected setup before upload.
+See [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md).
 
-Before enabling, resolve audit findings, verify runner architectures and protected
-secrets, exercise platform packages and provide complete corresponding GPL source.
-For a compromised key, stop publication and distribute a trusted recovery installer
-with a replacement public key; never bypass verification. Keep installers and source
-available for manual recovery.
+Unit tests use ephemeral keys and non-executable HTTPS payloads. They verify
+signature handling but do not establish installed upgrade or restart behavior.
+Test an actual production-key upgrade using the
+[Windows acceptance checklist](WINDOWS_ACCEPTANCE.md).
 
-See [Windows beta owner steps](WINDOWS_BETA.md) for the key-generation command,
-GitHub Secrets, exact Windows assets and pending beta.2 to beta.3 acceptance test.
-The earlier beta.1 to beta.2 procedure is retained there as historical guidance.
-
-## Local verification
-
-Rust tests exercise the actual official updater with an ephemeral signing key and
-localhost HTTPS using an explicitly trusted ephemeral certificate. They cover valid
-and invalid signatures, malformed metadata, no update, channels, offline failure and
-cancellation. Non-executable payloads never reach installation. A first real signed
-update and restart still require a separate installation test.
+If a signing key is compromised, stop publication and distribute a trusted
+recovery installer with a replacement public key. Preserve manual recovery
+downloads and corresponding source; never bypass signature verification.

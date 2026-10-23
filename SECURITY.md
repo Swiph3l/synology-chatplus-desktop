@@ -10,12 +10,13 @@ interface. The app stores preferences, not account credentials. The system
 webview manages its own persistent cookies and local storage in the OS app data
 directory. Treat that profile as sensitive. Changing the URL does not clear it.
 
-The remote ChatPlus window has no Tauri capability grants. Native settings
+Remote provider views have no Tauri capability grants. Native settings
 commands additionally check the calling window and its local origin. The local
-settings page has a restrictive CSP. Only bundled theme code is injected into
-ChatPlus. Cross-origin top-level navigation is blocked; HTTP(S) links may open
-in the default browser when enabled. External authentication redirects and
-custom protocol links are not supported in this MVP.
+settings page has a restrictive CSP. Provider views receive bundled theme and
+observation bootstrap code without native command authority. Provider-specific
+rules constrain top-level navigation and related popups. External HTTP(S) links
+require the saved preference and native destination confirmation before opening
+in the default browser; custom protocol links are rejected.
 
 About is bundled local content. Its diagnostics command uses an explicit allowlist
 of build/runtime fields and a server-configured boolean, never a settings dump.
@@ -24,19 +25,19 @@ links are maintainer-configured HTTPS destinations; remote pages cannot choose
 an arbitrary URL through these commands. The Star action only opens a page.
 
 Developer actions and the fixture window are compiled out of release builds.
-The production frontend also omits fixture content. The official signed updater is
-disabled until production configuration is supplied. Enabled checks use GitHub over
+The production frontend also omits fixture content. Updater availability is controlled
+by the public configuration in `project.json`. Enabled checks use GitHub over
 HTTPS, enforce version/channel policy and require valid signatures before installation.
-Only local application windows can invoke these operations. The future release
-workflow is disabled; it has not uploaded installers or published releases.
+Only local application windows can invoke these operations. The tag-only release
+workflow creates signed draft releases; publication is a separate maintainer action.
 
 Camera and microphone use the webview/OS permission behavior. Windows browser
 notifications are bridged only from the exact configured server origin, with
 delivery controlled by the explicit desktop-notification preference and OS status.
 Only that origin's notification permission may be allowed by the saved preference
 or the explicit local Enable notifications action; other permissions are unchanged.
-The unread bridge accepts only a bounded boolean observation from the configured
-origin, with no command execution or message-content payload. The local Windows
+The unread bridge validates bounded unread/read evidence from the configured
+origin, with no command execution. The local Windows
 settings command opens a fixed notification-settings URI and accepts no target URL.
 The Settings test command sends fixed text and
 is unavailable to remote pages. No analytics or reporting integration was found in the
@@ -55,9 +56,10 @@ The local main view hosts the service rail. Remote child views load configured
 provider URLs and provider-selected resources. ChatPlus/Chat navigation is exact-origin;
 experimental Slack allows HTTPS slack.com and subdomains on port 443.
 Top-level navigation rules are not a subresource firewall. External
-HTTP(S) links, redirects and scripted popups may open the default browser when
-external links are enabled; this behavior is not restricted to verified user
-gestures. Query strings may contain sensitive information.
+HTTP(S) links, redirects and scripted popups use the native destination-confirmation
+flow when routed externally. Query strings may contain sensitive information;
+review the displayed destination before opening it. See
+[links and downloads](docs/LINKS_AND_DOWNLOADS.md).
 
 Project links open the public GitHub repository. Enabled updater checks use GitHub
 release metadata and HTTPS artifact delivery; see [updater configuration](docs/UPDATER_SIGNING.md).
@@ -78,7 +80,7 @@ RUSTSEC-2025-0080, RUSTSEC-2025-0081, RUSTSEC-2025-0098, RUSTSEC-2025-0100).
 The Windows beta gate evaluates its target graph; Linux glib unsoundness remains
 a separate release review requirement. Transitive maintenance warnings remain
 visible without automatically blocking Windows. See the
-[dependency policy and reviewed paths](docs/DEPENDENCY_POLICY.md). License checks do not establish
+[dependency policy](docs/DEPENDENCY_POLICY.md). License checks do not establish
 redistribution compliance or absence of security vulnerabilities.
 
 Build distribution packages through `npm run tauri build`, which remaps compiler
@@ -96,4 +98,5 @@ information, authentication headers, browser profiles or unsanitized screenshots
 in public issues. If private reporting is unavailable, open a minimal issue
 requesting a private contact without vulnerability details.
 
-Only the current development branch is maintained. No public release is available.
+Report issues against the current development branch or identify the published
+version explicitly so maintainers can reproduce the affected code.

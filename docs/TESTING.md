@@ -1,12 +1,12 @@
 # Testing
 
-Automated fixtures validate policy and transitions. They do not prove native Windows
-toast delivery, WebView2 provider behavior, installed session retention or signed
-installer restart. Keep those results separate in reports.
+Automated tests validate policy, state transitions and synthetic provider DOM.
+Native Windows acceptance covers actual WebView2 behavior, toast presentation,
+provider sessions and dialogs. Record those forms of evidence separately.
 
-## Automatic validation
+## Full automated checks
 
-From the repository root, with the Rust MSVC/C++ environment loaded:
+From the repository root, with the Rust MSVC/C++ environment available:
 
 ```sh
 npm ci
@@ -20,87 +20,96 @@ npm run check:release
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 cargo check --locked --manifest-path src-tauri/Cargo.toml
 cargo test --locked --manifest-path src-tauri/Cargo.toml
-cargo test --release --locked --manifest-path src-tauri/Cargo.toml
+git diff --check
+```
+
+Use `npm.cmd` where PowerShell restricts scripts. `npm run build` produces the
+frontend assets and provider/theme bundles embedded by native builds. The release
+asset check rejects development fixtures in production output. Prettier and
+rustfmt provide formatting checks; there is no separate application lint script.
+
+CI runs the Windows frontend/native checks and a second frontend job on the other
+supported Node major. Security workflows cover npm, Rust advisories,
+licenses/sources, secrets and static analysis. Follow
+[DEPENDENCY_POLICY.md](DEPENDENCY_POLICY.md) when reviewing findings.
+
+## Focused regression checks
+
+Examples:
+
+```sh
+node --test tests/theme.test.mjs tests/provider-bootstrap.test.mjs
+node --test tests/discord-unread.test.mjs tests/discord-read.test.mjs tests/provider-read.test.mjs
+node --test tests/synology-adapters.test.mjs tests/minimized-notification.test.mjs
+node --test tests/whatsapp.test.mjs tests/whatsapp-unread.test.mjs
+cargo test --locked --manifest-path src-tauri/Cargo.toml unread::
+cargo test --locked --manifest-path src-tauri/Cargo.toml services::removal_tests
+```
+
+Some Node suites rebuild the ignored provider bootstrap bundles so they exercise
+production code. Do not substitute copied selectors or real account data for
+synthetic fixtures. Keep fixtures faithful to the public provider UI that was
+actually inspected.
+
+| Area                                        | Primary suites or modules                                                                                                                    |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Renderer read lifecycle and arrival tokens  | `unread.test.mjs`, `unread-state.test.mjs`, native `unread`                                                                                  |
+| Provider evidence and foreground projection | `synology-adapters.test.mjs`, `discord-unread.test.mjs`, `whatsapp-unread.test.mjs`, `messenger.test.mjs`, `minimized-notification.test.mjs` |
+| Explicit scoped read actions                | `provider-read.test.mjs`, `discord-read.test.mjs`, native `provider_read`                                                                    |
+| Native notification identity and delivery   | Native `notification_bridge`, `desktop_notifications`, `notification_presentation`                                                           |
+| Service IDs, profiles, startup and settings | `services.test.mjs`, `service-removal.test.mjs`, `service-settings.test.mjs`, native `services` and `state`                                  |
+| Theme persistence and provider isolation    | `theme.test.mjs`, `provider-bootstrap.test.mjs`                                                                                              |
+| Navigation and downloads                    | `navigation.test.mjs`, `attachment-download.test.mjs`, native `navigation`, `external_links` and `downloads`                                 |
+| Updater and release boundaries              | `updates.test.mjs`, release/wrapper/metadata/checksum suites, native updater tests                                                           |
+| Locales and UI contracts                    | `localization.test.mjs`, settings, rail, footer and notification-color suites                                                                |
+
+## Unread and notification invariants
+
+Regression coverage should establish that:
+
+- Focus, service selection, restore, toast click and toast dismissal never
+  acknowledge unread by themselves.
+- Current-conversation read evidence cannot clear unrelated channels, threads,
+  services or newer arrivals.
+- Missing, collapsed, filtered or virtualized provider DOM is unknown unless the
+  adapter has reliable evidence of a complete zero.
+- Explicit local acknowledgement is distinguished from provider-confirmed read.
+  Discord Inbox automation requires its supported public controls and fresh
+  reliable provider zero; a click, timeout, disabled button or error is not proof.
+- Two instances of the same provider retain separate profiles, unread and actions.
+- Mute and permission changes affect delivery without clearing unread or silently
+  rewriting saved notification intent.
+- Distinct browser notification events survive identical previews; replaying one
+  event does not deliver it twice.
+- Rail, aggregate and tray inputs agree with the same authoritative native snapshot.
+- Background startup neither changes selection nor focuses a provider, and stale
+  callbacks cannot resurrect a removed or reconfigured session.
+
+Include races involving arrivals during read queries, service replacement,
+foreground changes, shutdown and failed native submissions. Add a regression for
+a reproduced failure without weakening existing assertions.
+
+## Native and release checks
+
+Build a standalone debug app with:
+
+```sh
 npm run tauri -- build --debug --no-bundle
 ```
 
-Use `npm.cmd` where PowerShell restricts scripts. Formatting uses Prettier and
-rustfmt; there is no separate application lint script. `npm run build` performs
-TypeScript checking as well as production assets and both provider bootstrap bundles.
-The release check rejects development fixture markers/chunks in output.
+Use [WINDOWS_ACCEPTANCE.md](WINDOWS_ACCEPTANCE.md) for actual provider, notification,
+theme, download, session and desktop behavior. Record the build identity, Windows
+and WebView2 versions, provider version and each observed result. Keep logs and
+private screenshots outside the repository.
 
-CI validates Windows development on push/PR, CodeQL analyzes JavaScript/TypeScript,
-Rust and Actions for the public repository, and security CI checks npm, RustSec,
-licenses/sources and secrets. Follow [DEPENDENCY_POLICY.md](DEPENDENCY_POLICY.md) for
-the narrow Linux advisory review; do not ignore unrelated findings.
+Run optimized Rust tests when changing behavior sensitive to build mode:
 
-## Regression suites
+```sh
+cargo test --release --locked --manifest-path src-tauri/Cargo.toml
+```
 
-| Suite / source                                             | What it validates                                                                                                                               |
-| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| tests/unread.test.mjs                                      | Shared renderer lifecycle, foreground generations, trusted conversation evidence, pending arrivals and proof retirement                         |
-| tests/synology-adapters.test.mjs                           | Separate ChatPlus and Synology Chat selectors, unread/zero scope, latest panes, composer mapping and visibility projection                      |
-| tests/discord-unread.test.mjs                              | Guild/DM evidence, complete aggregate rules, route/message proofs and public focus projection                                                   |
-| tests/provider-read.test.mjs                               | Scoped explicit Discord reads after rail focus; unrelated arrivals, route stability and unsupported capabilities                                |
-| tests/whatsapp-unread.test.mjs and tests/whatsapp.test.mjs | WhatsApp positive/unknown evidence, profile isolation, registry and seven-locale integration                                                    |
-| tests/messenger.test.mjs                                   | Experimental Messenger registration, separate instances, unknown DOM evidence and explicit permission-action localization                       |
-| tests/minimized-notification.test.mjs                      | Real adapter fixtures with native host projection for minimized/selected and inactive providers                                                 |
-| tests/services.test.mjs and tests/footer.test.mjs          | Rail identity, enabled filtering and stale initial/event ordering                                                                               |
-| Native unread/notification modules                         | Per-service state, aggregate invariants, native read validation, event identity/delivery and apartment-safe completion                          |
-| Native downloads module                                    | Filename/security rules, duplicate reservation, URL eligibility and download status policy                                                      |
-| Settings/service/navigation/localization suites            | Saves/removal, mute drafts, origin validation and all seven supported locales                                                                   |
-| Rust updater_tests.rs and updates.rs                       | Published-release/SemVer beta preference matrix, draft rejection, signed HTTPS, cancellation, startup/six-hour schedule and stale result guards |
-| Release/wrapper/metadata/checksum suites                   | Signing isolation, tag/version identity, URL-safe names, actual installer targets and checksums                                                 |
-
-Download automation covers filename/trust boundaries, real existing-file preservation,
-parallel name reservation and lifecycle-status interpretation. It does not execute
-a real authenticated transfer or native Save As/cancel/failure dialog; in-progress,
-completed, paused, failed and cancelled native operations remain manual acceptance.
-
-Add regression coverage for every reproduced bug, using provider-specific fixtures
-rather than assuming one DOM works everywhere. Safe public examples and synthetic
-conversation IDs belong in fixtures; real conversation content and credentials do
-not. Keep changed-provider fixtures faithful to independently inspected DOM.
-
-## Notification transition matrix
-
-For each Synology ChatPlus, Synology Chat and Discord adapter, automatic regressions
-and the manual Windows plan cover:
-
-| Case | Transition                                                                                    | Expected                                                     |
-| ---- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| A    | Selected conversation then minimize then new message                                          | Service unread, rail and tray aggregate true; toast eligible |
-| B    | A then restore only                                                                           | Unread remains true                                          |
-| C    | Restore then trusted interaction in correct latest conversation with reliable read/zero proof | Service unread clears                                        |
-| D    | Restore then type/send in mapped active composer with reliable read/zero proof                | Stale service latch clears; other unread remains             |
-| E    | Two services unread then read one                                                             | Only one clears, aggregate/tray stays true                   |
-| F    | Read the last unread service                                                                  | Rail, aggregate and tray clear                               |
-| G    | Synthetic input                                                                               | No acknowledgement                                           |
-| H    | Switch service only                                                                           | No acknowledgement                                           |
-| I    | Provider badge disappears in background                                                       | Native unread stays latched                                  |
-| J    | Two distinct consecutive messages, including identical previews                               | Neither lost to cooldown/content deduplication               |
-| K    | Repeated processing/mutations for the same event                                              | One native toast                                             |
-
-Include stale foreground generations, in-flight arrivals, route/pane changes,
-positive/unknown provider aggregate, service mute, disabled global notifications and
-failed native submission/retry. The same presentation snapshot must satisfy
-`per-service native == rail` and `any(enabled unread) == aggregate == tray input`
-after every accepted transition.
-
-## Development and release validation
-
-A development binary from `--debug --no-bundle` runs the production frontend without
-a Vite server and without signing credentials. Keep validation logs outside the
-repository. If another ChatPlus process is already running, a second launch activates
-that process; close it before inspecting a specific build.
-
-The ignored `production_artifact_signature_verifies` Rust fixture needs a separately
-built production artifact and signature; normal unit-test runs cannot substitute for
-it. Signed updater installation/restart requires an authorized release package and
-manual acceptance. [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) covers the release gate.
-
-Follow [WINDOWS_ACCEPTANCE.md](WINDOWS_ACCEPTANCE.md#current-reliability-pass-2026-10-07)
-for actual provider notifications, downloads, permissions, activation, DPI and updater.
-Record build commit, Windows/WebView2 versions, provider version and each result as
-observed/pass/fail/pending. Existing dated evidence is linked from
-[DEVELOPMENT.md](DEVELOPMENT.md); it must not be counted as testing a newer revision.
+The ignored `production_artifact_signature_verifies` test requires a valid signed
+production installer supplied through `CHATPLUS_SIGNED_ARTIFACT`. Run that fixture
+explicitly when validating production signatures. It does not replace an installed
+signed-updater test. Packaging, installation and restart gates are covered by the
+[release checklist](RELEASE_CHECKLIST.md) and [updater guide](UPDATER.md).

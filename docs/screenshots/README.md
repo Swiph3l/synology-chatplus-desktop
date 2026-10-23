@@ -1,28 +1,32 @@
-# Screenshot provenance
+# Screenshots
 
-Fresh images below are actual running Tauri/WebView2 development content captured
-on Windows on 2026-10-01. They exclude the native title/menu frame. They are not
-DOM fixtures, mockups or edited screenshot text. Only synthetic service names and
-public documentation examples are shown; rail captures exclude provider content.
-Every new image was visually inspected for private information before committing.
+These images are visual references for the native Tauri/WebView2 interface.
+They were captured on Windows using synthetic service names and public example
+URLs. They exclude the native title/menu frame and do not establish current
+provider, notification or DPI acceptance.
 
-| Image                              | Source and limits                                                                                                                                                                                               |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `setup.png`                        | Isolated first-run setup, pre-Discord acceptance build; empty server field and public placeholder.                                                                                                              |
-| `services.png`                     | UI refinement at 8a4d048, light appearance; full-width Provider/Display name/URL controls, removal section and Experimental badge. Public `example.com` is a documentation fixture, not a private/test NAS URL. |
-| `service-rail.png`                 | Feature build 5d1d926; ChatPlus and two distinct Discord service configurations.                                                                                                                                |
-| `service-rail-minimum.png`         | Same native build; actual 900 × 600 client window, DPI 96.                                                                                                                                                      |
-| `service-rail-125-render.png`      | Same build with WebView2 rendering scale emulated at 1.25; **not** an actual Windows monitor DPI transition.                                                                                                    |
-| `service-rail-150-render.png`      | Same build with rendering scale emulated at 1.5; **not** an actual Windows monitor DPI transition.                                                                                                              |
-| `service-rail-unread.png`          | Native bridge observation from the public fixture; synthetic unread, not real ChatPlus messages.                                                                                                                |
-| `service-rail-focus.png`           | Native rail after keyboard focus: active/unread ChatPlus and separately focused Discord.                                                                                                                        |
-| `service-rail-inactive-unread.png` | Discord active, inactive ChatPlus retaining the synthetic unread dot.                                                                                                                                           |
+## Existing assets
 
-`settings.png`, `notifications.png`, `updates.png` and `about.png` remain
-**historical visual references**. They are not evidence of the current multi-service
-build. About's historical `0.5.0-dev` must not be represented as the current version.
-Fresh General, Notifications, Updates and metadata-derived About captures remain due.
+The setup, services and service-rail images were captured on 1 October 2026.
+They describe an older interface; review the current application before using
+them in release material.
 
-Dark/light examples and rendering emulation are supplemental evidence; full System
-appearance, native menus and actual Windows DPI changes still need acceptance.
-See the [Windows report](../WINDOWS_ACCEPTANCE.md) for observed versus pending checks.
+| Assets                                                                                  | Scope                                                              |
+| --------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `setup.png`, `services.png`                                                             | First-run and service settings with synthetic configuration        |
+| `service-rail.png`, `service-rail-minimum.png`                                          | Multiple service instances and a 900 × 600 client window           |
+| `service-rail-125-render.png`, `service-rail-150-render.png`                            | Emulated WebView2 rendering scale; not native monitor-DPI tests    |
+| `service-rail-unread.png`, `service-rail-focus.png`, `service-rail-inactive-unread.png` | Synthetic unread and keyboard-focus states                         |
+| `settings.png`, `notifications.png`, `updates.png`, `about.png`                         | Historical settings/dialog appearance; version text is not current |
+
+## Capturing replacements
+
+Use the candidate native build and a dedicated synthetic profile. Show public
+example URLs, no account identifiers, provider messages, QR codes or private hosts.
+Inspect every image before committing it. Record enough source/version context
+to identify what the image illustrates, and distinguish rendered-scale emulation
+from actual Windows DPI changes.
+
+Keep temporary captures and test logs outside the checkout. Commit only the
+sanitized assets referenced by documentation or release material. Follow
+[Windows acceptance](../WINDOWS_ACCEPTANCE.md) for behavioral testing.

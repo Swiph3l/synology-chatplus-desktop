@@ -1,304 +1,224 @@
 # Notifications and unread
 
-Synology ChatPlus, Synology Chat and Discord have supported Windows unread and
-native browser-notification integration. WhatsApp adds an Experimental dedicated
-positive-evidence unread adapter and the shared native notification path; authenticated
-Windows acceptance remains pending. Messenger adds Experimental browser-event
-unread/native notifications on Facebook's messages page, while its dedicated DOM
-adapter remains unknown pending authenticated audit. Slack and Mattermost capabilities remain
-disabled. Automated fixture results and live Windows acceptance are separate.
+Notification delivery and unread are separate lifecycles. An incoming event can
+remain unread when its toast is muted, suppressed or rejected by Windows. Service
+selection, focus, toast clicks and toast dismissal never acknowledge unread.
+
+Provider coverage and origin rules are in [Service providers](PROVIDERS.md).
 
 ## Authoritative unread model
 
-Rust owns per-service hasUnread, optional count, transition generation, source,
-lastArrival and lastReadEvidence. Provider DOM observations are validated inputs.
-The local rail consumes a whole revisioned services/aggregate snapshot and rejects
-older revisions. Native presentation applies the current snapshot on the UI thread
-at execution time so interleaved callbacks cannot restore stale indicators. Title,
-taskbar and tray use the same enabled-service aggregate:
+Rust owns one state per stable service ID: unread boolean, optional count,
+certainty (`known-unread`, `known-read`, `unknown`), provider revision,
+conversation evidence, arrival/read generations and the local-acknowledgement
+baseline. Conversation identities are opaque runtime values, not names, URLs,
+phone numbers or message content.
+
+The rail, title, taskbar and tray derive from the same revisioned native snapshot:
 
 ```text
 aggregateUnread = any(enabledService.hasUnread)
 ```
 
-No separate sidebar/tray unread truth is stored. Native toast submission does not
-define unread; the arrival is latched first even if delivery is muted or Windows
-refuses a banner. Clearing one service immediately recomputes aggregate and leaves
-other services untouched. Optional presentation preferences can hide a title/tray
-indicator without changing unread state. Counts are unavailable when providers expose
-only mentions, ambiguous or partial navigation.
+Local views reject older snapshots; native presentation reads current state when
+its UI-thread callback executes. Hiding an indicator does not alter unread.
+Counts remain unavailable when evidence represents mentions, duplicated rows or
+partial navigation. Unknown input retains cached unread instead of inventing zero.
 
-Unread is memory-only. Restart reobserves providers and does not replay old toasts.
-Service removal, disable or provider/URL replacement invalidates that service's
-observation; reload keeps its cached state until fresh reliable evidence is accepted.
+Unread is memory-only. Restart reobserves providers without replaying old toasts.
+Reload retains cached state until fresh evidence is accepted. Removing, disabling
+or replacing a service's provider/URL invalidates its observation and source
+session without changing other instances.
 
 ## Arrival and native foreground
 
-An accepted browser notification goes through exact source-origin/service validation,
-event identity deduplication, unread latch, shared presentation refresh and native
-toast policy. Distinct arrivals invalidate earlier gestures and advance arrival state.
-Loaded/selected conversations cannot acknowledge an arrival by themselves.
+The Windows path is:
 
-Native foreground means **visible && focused && !minimized** on the top-level main
-window, plus selected service for read/suppression context. Child WebView focus,
-document.hasFocus(), document.visibilityState and provider selection are insufficient.
-A selected conversation can remain logically focused while the host is minimized:
-its unread and aggregate stay true, and a native toast remains eligible.
+```text
+browser Notification -> validated WebView2 event -> exact event deduplication
+  -> native unread latch -> shared presentation -> native toast policy
+```
 
-The native visibility generation is projected into provider public browser APIs:
-ChatPlus focus/visibility, Synology Chat visibility and Discord focus. This prevents
-upstream read/focus handlers treating a background child as active. The projection
-uses each provider's independently audited public behavior, respects browser-owned
-nonconfigurable properties and later overrides, and uses no private store/API.
+Source validation binds the event to an enabled configured service, exact origin
+and live bridge session. Distinct arrivals revoke earlier gestures and advance
+arrival state before toast policy runs. DOM unread changes never create message
+payloads or synthetic toasts.
+
+Read and suppression context requires the main window to be visible, focused and
+not minimized, with the originating service selected. Child focus or public
+`document.hasFocus()` / `visibilityState` alone is insufficient. Provider-specific
+adapters project native foreground through public focus/visibility APIs so hidden
+or minimized children cannot appear active upstream. No private provider store is
+used. See [Service startup](SERVICE_STARTUP.md) for background view lifetime.
 
 ## Read acknowledgement
 
-An acknowledgement requires all of these together:
+Automatic acknowledgement requires all of:
 
-- Current native foreground generation and the correct selected enabled service.
-- A genuine trusted conversation or mapped active-composer interaction.
-- The same uniquely identified active conversation and a visible latest message pane.
-- Fresh reliable provider aggregate zero, or exact individually viewed message proof.
+- The current native foreground generation and correct selected enabled service.
+- Genuine trusted interaction in the uniquely mapped conversation or main composer.
+- The same conversation/content identity and a visible latest message pane.
+- Fresh reliable provider-wide zero or an exact individually viewed message proof.
 
-Trusted clicks, keyboard/input and foreground scrolling in the pane/composer can
-supply read evidence. Typing/sending through the mapped main composer is engagement
-with that conversation; it is not rejected merely because the composer is a sibling
-of the message pane. Reliable provider aggregate zero plus that fresh engagement can
-retire completed native arrivals **without exact notification-tag mapping**. This
-removes the former permanent Synology read barrier. Pending arrivals cannot clear early; their native completion can retry the same
-still-current trusted proof. Fresh content/route/pane changes revoke earlier
-evidence; no timer hides unread.
+Clicks, keyboard/input and foreground scrolling can supply engagement. A mapped
+main composer may be a sibling of the message pane; unrelated thread/edit/search
+inputs cannot acknowledge that pane. Route/content changes, blur, visibility loss
+and newer arrivals revoke stale gestures. Header/sidebar clicks and synthetic
+input are insufficient.
 
-A positive/unknown provider aggregate remains unread. Exact per-message proofs can
-retire the proven subset (Discord message snowflakes) while other unread remains.
-Only native-confirmed evidence is retired. Arrival proof history is bounded to 256;
-a current proven provider zero can recover saturation without clearing a newer
-pending arrival. Missing/ambiguous provider zero is never
-guessed, so incomplete provider navigation can still retain a dot.
+Reliable provider zero with fresh engagement can retire completed arrivals without
+an exact notification tag. In-flight arrivals cannot clear early; native completion
+may retry a still-current proof. Exact Discord message proofs can retire a subset
+while unrelated or unknown unread remains. Only native-confirmed proofs retire
+renderer tokens. Proof history is bounded to 256 arrivals; saturation stays unread
+until reliable provider-zero evidence permits recovery.
 
-Selection, restore, child focus, toast activation/dismissal, header/sidebar clicks, synthetic
-input, stale generations, unrelated conversation activity and background badge
-disappearance do not acknowledge unread. A send action cannot clear another unread
-conversation/service. Child-document blur/focus and visibility loss revoke old
-conversation gestures even when the native window remains foreground. A covered
-Discord notification row is not accepted as exact viewing evidence.
-Tests cover new arrivals racing proof queries and foreground
-changes. [TESTING.md](TESTING.md#notification-transition-matrix) maps cases A-K.
-
-## Provider adapters
-
-| Provider                 | Unread inputs                                                                                                                                 | Read context                                                                                                       | Exact toast suppression                                                     |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------- |
-| Synology ChatPlus        | Independently audited aggregate sidebar tab indicators                                                                                        | Unique main latest native scroller and mapped message-create textarea                                              | No audited event-tag mapping; actual browser events conservatively deliver  |
-| Synology Chat            | Ordinary-unread channel highlights plus complete group metadata; mention-only zero is insufficient                                            | #channels route, visible message panel, transformed FleXcroll content end/newest control and sibling main composer | No audited event-tag mapping; titles/senders are insufficient               |
-| Discord                  | Guild/folder/Favorites and DM semantics; complete aggregate metadata before zero                                                              | Matching route, unobscured latest viewport and mapped editor; history/error bars block proof                       | Exact visible message row matching notification snowflake                   |
-| WhatsApp (Experimental)  | Explicit positive unread badges/accessibility labels in visible chat-list rows; missing/partial DOM stays unknown and counts stay unavailable | No authenticated privacy-safe chat/message mapping yet; current/all read actions disabled                          | No guessed tag/title matching; actual browser events conservatively deliver |
-| Messenger (Experimental) | Native browser-notification arrivals only; unaudited DOM, Facebook navigation badges and title counts remain unknown                          | No current-chat mapping; current/all read actions disabled                                                         | No guessed tag/title matching; actual browser events conservatively deliver |
-
-Discord Home promotions and guild hover/selection pills are not reliable unread.
-Mention-only DM groups, selected/muted rows, missing private-sidebar metadata and
-message-request/spam scope can be unknown. Synology server versions may change markup.
-Keep these constraints explicit. [PROVIDERS.md](PROVIDERS.md) retains audited source
-references and capability differences. DOM unread mutations never synthesize toasts.
-
-### Discord DMs and mentions
-
-Use Discord's own notification preferences to prioritize direct messages and mentions.
-Keep **User Settings > Notifications > Enable Desktop Notifications** enabled, and
-leave the desired DM conversations unmuted. For each server, open **Notification
-Settings** and choose **Only @mentions**. Check channel/category overrides too:
-an explicit **All Messages** override can still notify for every message. Set those
-overrides to mentions or inherit the server preference as appropriate. Discord's
-[desktop notification guide](https://discord.com/blog/how-to-manage-your-discord-desktop-notifications)
-and [server/channel settings](https://support.discord.com/hc/en-us/articles/215253258-Notifications-Settings-101)
-describe these controls. ChatPlus does not change them automatically.
-
-If unwanted server activity remains, review **Suppress Highlights**, event alerts
-and the optional role/@everyone/@here suppression controls. Highlights operate
-independently of the server's message-notification level, so mentions-only does not
-disable them. See [Discord's Highlights documentation](https://support.discord.com/hc/en-us/articles/5304469213079-Highlights-Notifications).
-Keep ChatPlus's global and per-service notification preferences enabled and saved;
-existing mute and privacy choices remain in force.
-
-The native toast retains the sender/conversation title supplied by Discord. Its
-public message-notification formatter includes channel/thread or group-DM context
-where available; direct DMs use the sender. **Full** additionally shows the provider's
-message excerpt, while **Sender/chat** hides the body and **Generic** hides the
-sender/conversation. The service attribution identifies the configured Discord
-instance. Missing names or locations are not recovered by scraping message content.
-[PROVIDERS.md](PROVIDERS.md#discord) records the public-source audit.
-
-ChatPlus does not add a strict DM/mention filter. Discord's browser notification
-payload does not expose a reliable universal category: its message tag identifies
-a message, not its channel or mention status. The DOM adapter can recognize an exact
-message only when it is actually rendered in the current conversation. Classifying
-every other event from titles, sidebar badges or the selected route could discard
-real DMs, so unknown events remain eligible under the existing notification policy.
-
-WhatsApp uses the official `web.whatsapp.com` session with a separate profile per
-stable service ID. It never scrapes contacts/phone numbers or uses private APIs.
-Unread badge absence never establishes account-wide zero, including filtered,
-archived, collapsed and virtualized lists. A validated toast click selects the correct
-instance without acknowledging unread or guessing a chat; authenticated originating
-chat routing and remote read UI semantics remain unverified. See the
-[WhatsApp audit](WHATSAPP_2026-10-22.md) for evidence and remaining QA.
-
-Messenger uses the exact `www.facebook.com` origin for official login and messages,
-with an isolated profile per stable service ID. It is a whole Facebook-origin
-session, so same-origin navigation or browser events can include non-Messenger
-Facebook content/notifications. The adapter never scans contact labels or treats
-Facebook navigation badges as message unread. Configure Facebook's own notification
-categories as needed. [Messenger audit](MESSENGER_2026-10-22.md) lists the current
-browser-event-only support and pending authenticated acceptance.
-
-## Native toast policy
-
-Enable global Desktop notifications and the service's saved Desktop notifications
-preference. The rail mute/unmute controls this desktop preference independently from
-provider-side mute. Existing false preferences remain false after upgrade. Provider
-notification settings, Discord DND and Windows permissions can prevent delivery;
-ChatPlus cannot intercept an event the provider never emits.
-
-The service context menu offers `More… > Allow provider notifications` for the exact
-clicked service instance. It grants browser permission to that instance's validated
-live origin/profile; reload the service if the provider retains old permission
-guidance. Saved desktop notification and mute preferences still apply, along with
-Windows permission. The action does not acknowledge unread. Automatic browser
-permission handling must not persist a denial merely because desktop delivery is
-disabled or muted; these are separate states.
-
-On supported WebView2 versions, NotificationReceived is intercepted, its source
-validated and duplicate browser display suppressed before native submission. Selected
-service alone cannot suppress a toast. Foreground suppression additionally requires
-reliable originating-message viewing proof, revalidated after the asynchronous query.
-Unknown identity, failed renderer queries/timeouts and background/minimize allow
-delivery. Distinct messages with identical previews remain separate events. Only
-exact repeated event identities are deduplicated; conversation cooldown no longer
-silences legitimate consecutive messages. The legacy saved cooldown field remains
-for profile compatibility but does not control delivery.
-
-Windows provider WebViews retain the browser's native `Notification` API, which
-feeds the WebView2 bridge. The Tauri notification plugin is registered only on
-other platforms: its JavaScript polyfill would replace the browser constructor,
-report a separate permission state and send provider notifications through Tauri
-IPC, which is unavailable to remote provider pages. Windows desktop permission
-checks and toast delivery use the native sender directly.
-
-Preview modes are Full (default for new or unset preferences), Sender/chat and Generic. Saved
-Sender/chat and Generic choices are retained; choose Full in desktop notification
-settings to show the sender and message excerpt on an existing profile. Notification content is
-used only for requested display and is not logged/persisted. Failed submissions
-release delivery reservations for retry. Native WebView2 completion stays on its
-owning apartment, and callback/timeout/error races cannot complete the same event
-twice. No background push runs after the application exits.
-Provider `IsSilent` also disables sound; enabling application sound cannot override
-a provider's silent notification. Bridge availability and source-session identity
-are tracked per service, so a stale WebView callback cannot publish into its replacement.
-
-Windows toasts show the provider icon framed in the service's saved RGB color.
-Full preview keeps the provider's sender/chat title and a message excerpt of at
-most 240 Unicode characters. Sender/chat hides the message body; Generic also
-hides the sender and custom service name, showing only the provider identity.
-Full and Sender/chat include the configured service name and provider below the
-preview. Named colors and Auto remain supported; Auto follows the app accent.
-The local `notification-icons` cache stores provider/color PNG artwork only, with
-no message text, service names, URLs or credentials. The explicit test notification
-uses the active service's icon/color and fixed sample text without changing unread.
+Focus, restore, selection, toast activation/dismissal, elapsed time and background
+badge disappearance never substitute for this evidence. Loading older history or
+changing unrelated content cannot prove a new arrival was read. An unobscured
+visible message must match its exact identity; a covered or offscreen row does not.
 
 ## Explicit service read actions
 
-Right-clicking a service icon opens its native context menu using the clicked
-stable service ID, without activating it. Open, mute/unmute and service settings
-stay at the top, with Remove separated below. `More…` groups supported read actions,
-provider permission repair and desktop notification settings. Rename remains
-available in service settings. Unsupported read actions are omitted.
-`More… > Mark as read (local)` is available for
-Discord only when the currently rendered conversation has fresh exact message
-viewing evidence; it acknowledges only those proven arrivals in that service.
-Synology current-conversation actions stay unavailable because no audited exact
-message mapping is available. Synology's `Mark all as read (local)` acknowledges
-known local state for that clicked instance without claiming a server-side read.
-Its local baseline prevents unchanged provider markup from immediately restoring
-the same dot; a new native arrival or changed provider evidence can restore unread.
+The service rail's native context menu targets the clicked stable ID. More groups
+supported read actions, provider permission repair and notification settings.
+Unsupported actions are omitted. Local acknowledgement is labelled **local** and
+makes no server-side read claim.
 
-Discord instead offers `Mark Inbox as read`. A background task opens the provider's
-public Inbox, selects Unreads and clicks its uniquely identified **Mark Inbox As
-Read** control. This requests Discord's real read operation through its own UI;
-no token, private API or internal store is used. Discord documents this Inbox scope
-as unread messages in unmuted channels plus direct/group direct messages; it does
-not promise to include every muted channel. See the official
-[Inbox FAQ](https://support.discord.com/hc/en-us/articles/360045027712-Inbox-FAQ).
-ChatPlus acknowledges only its captured pre-action arrivals after the same scoped
-control is disabled and fresh complete provider evidence confirms zero unread. It
-preserves newer arrivals or changed positive provider
-evidence. A provider confirmation stays visible for the user. Ambiguous controls,
-an unchanged action, renderer timeout or a switched/reconfigured service produce
-guidance without clearing that captured local state. The task has a bounded wait
-and never waits on the native menu thread. Current live DOM acceptance remains
-pending; tests cover conservative control selection and failure paths.
+| Provider                          | Mark current                                             | Mark all                                |
+| --------------------------------- | -------------------------------------------------------- | --------------------------------------- |
+| Synology ChatPlus / Synology Chat | Unavailable without exact message mapping                | Local acknowledgement for that instance |
+| Discord                           | Local acknowledgement of proven visible message arrivals | Bounded public Inbox action             |
+| WhatsApp / Messenger              | Unavailable                                              | Unavailable                             |
+| Slack / Mattermost                | Unavailable                                              | Unavailable                             |
 
-WhatsApp and Messenger current/all actions are hidden until a safe Web UI interaction is
-verified. No provider mass-click loop or hidden internal API is used. Activating a
-service, focusing the app, clicking a toast or dismissing a toast is never an
-implicit `Mark all as read` action.
+Discord current read additionally requires the service to be active in the native
+foreground. It acknowledges only exact arrivals visible in that channel/thread;
+other conversations and service instances remain unread.
+
+Synology local all-read records a baseline so unchanged provider markup does not
+immediately restore the same dot. New native arrivals or changed provider evidence
+can restore unread. Configuration is revalidated before applying the action.
+
+Discord **Mark Inbox as read** opens its public Inbox, selects Unreads and clicks
+only a uniquely identified scoped read-all control. It requests Discord's own read
+operation without private APIs, stores or per-channel mass clicks. The Inbox covers
+unmuted channels and direct/group direct messages; it does not promise every muted
+channel. Provider confirmations remain for the user to accept.
+
+The operation runs off the menu thread with a bounded wait and revalidates the
+configured active service. A renamed/replaced/ambiguous control or visible error
+fails closed. ChatPlus acknowledges the captured pre-action arrivals only after
+the same control is disabled and fresh complete provider evidence confirms zero.
+Newer arrivals and changed positive evidence survive. Unknown layouts, unchanged
+controls and timeouts leave local unread intact and show provider instructions.
+
+## Native toast policy
+
+Incoming delivery requires the saved global Desktop notifications preference,
+that service's saved preference, provider event emission, runtime capability and
+Windows permission. Rail mute/unmute controls desktop delivery independently of
+provider-side mute. Permission checks never rewrite saved preferences; existing
+mute and preview choices survive upgrades.
+
+Exact repeated browser-event identities are deduplicated. Different arrivals with
+identical previews remain separate. Failed submissions release delivery
+reservations for retry. The legacy cooldown preference is retained for profile
+compatibility but does not silence consecutive messages.
+
+Foreground suppression requires reliable proof that the originating message is
+currently visible at latest. Native code revalidates context after the asynchronous
+query. Unknown identity, failed queries, timeouts, background and minimized states
+allow delivery. Provider silent notifications remain silent even when application
+sound is enabled. Source-session checks reject callbacks from replaced views;
+WebView2 completion occurs on its owning apartment, exactly once across callback,
+timeout and error races.
+
+Windows retains the browser's native `Notification` API. WebView2 intercepts the
+event and suppresses its duplicate browser delivery while the coordinator handles
+it. The Tauri notification plugin is registered only on other platforms: its
+polyfill would require remote Tauri IPC and replace the provider's browser API.
+No background notification service runs after the application exits.
+
+### Permission sources
+
+Windows native permission/runtime checks and the send result are authoritative
+for desktop delivery. `Notification.permission` describes browser-origin permission
+and can be stale; it must not silently disable the user's saved desktop preference.
+
+**More > Allow provider notifications** grants only the clicked instance's
+validated live origin in its own profile. Global/per-service desktop preferences
+and Windows policy still apply; granting browser permission does not unmute the
+service. A provider may need reload to refresh its permission UI. Automatic denials
+caused by temporary delivery settings are not persisted as browser-origin denials.
+Other permission kinds retain normal WebView policy.
+
+### Preview and presentation
+
+Full is the default for new or unset preferences; saved Sender/chat and Generic
+choices are retained. Full shows the provider's sender/chat title and an excerpt
+of at most 240 Unicode characters. Sender/chat hides the body. Generic also hides
+the sender and custom service name, retaining provider identity. Missing sender or
+conversation context is not recovered by scraping content.
+
+Toasts use bundled provider artwork framed in the saved notification color; Auto
+follows the app accent. The `notification-icons` cache contains provider/color PNG
+artwork only, without names, URLs, credentials or message text. Notification
+content is bounded in memory for display and routing, never logged or persisted.
+
+### Discord categories
+
+Use Discord's own desktop notification preferences, server **Only @mentions**
+setting and channel/category overrides to choose DM/mention delivery. Highlights,
+event alerts, DND and mute can independently affect emission. ChatPlus does not
+change these settings or invent a strict DM/mention filter: message tags identify
+messages, not a universal event category. Unknown events remain eligible rather
+than discarding real DMs based on titles, sidebar badges or selected routes.
+
+WhatsApp has no exact chat/message correlation for foreground suppression.
+Messenger browser events come from the whole Facebook origin and may include
+non-messaging notifications; provider-side categories remain authoritative. See
+[Provider adapter contracts](PROVIDERS.md#adapter-contracts).
 
 ## Toast activation
 
-Activation uses the existing process and main window, shows it if hidden, unminimizes,
-brings it foreground/focuses it and selects the originating enabled service. It never
-creates another window/process. Clicking a toast, dismissing it, letting it time out
-or restoring a window never acknowledges unread. The clicked arrival and unrelated
-messages remain unread until the normal provider/view proof or an explicit supported
-read action is accepted. After restore,
-the retained originating WebView notification receives `ReportClicked` on its COM
-apartment, allowing the provider's own click handler to route the conversation.
-No route is guessed from tags/titles. The bounded activation history retains 256
-contexts; evicted or replaced-source contexts are ignored without opening another
-account or changing unread. Calling the provider's click handler is routing, not
-evidence that a message was read. Closed-process activation still
-requires Windows acceptance; this change handles the running application.
+A retained, validated toast click restores the existing main window and selects
+the originating enabled service. It does not create another desktop instance or
+acknowledge any unread arrival. Dismissal, timeout and window restore also leave
+unread unchanged.
 
-## Privacy-safe diagnostics
+On the owning COM apartment, the retained native browser notification receives
+`ReportClicked`, allowing the provider's own handler to route its conversation.
+ChatPlus never guesses a URL from notification tags or titles. Routing is not read
+evidence. Activation history retains 256 contexts; missing, evicted, removed,
+reconfigured or replaced-source contexts are ignored without opening a different
+account. Closed-process activation depends on Windows registration and is separate
+from this running-process path.
 
-About's existing **Copy diagnostics** includes a bounded in-memory history of 128
-notification transitions. Event types include detected, normalized, duplicate_suppressed,
-notification_arrival, unread_latched,
-read_candidate/read_accepted/read_rejected, unread_cleared, toast_submitted,
-toast_suppressed, toast_activated and provider_activated. Metadata is allowlisted: service/provider,
-native foreground, selected state, generation, fixed reason code and timestamp. Copy diagnostics appends the safe
-JSON event history; typed events/reasons prevent arbitrary content entering it.
-Message bodies, credentials/tokens, private URLs, event tags and conversation content
-are excluded. History is not a disk log and disappears at exit.
+## Diagnostics and verification
 
-For bug reports, include copied diagnostics, app/Windows/WebView2 versions, provider
-version, whether the app was foreground/background/minimized/hidden, selected service,
-exact safe steps and which indicators disagreed. Do not include private conversation
-content, credentials, profile directories or signed attachment URLs.
+About > Copy diagnostics includes a bounded in-memory history of 128 transitions.
+Typed events and fixed reasons describe arrival, unread/read proof, suppression,
+submission and activation. Metadata is limited to service/provider IDs, native
+foreground, selection, generations and timestamps. Message content, tags,
+credentials, tokens, private URLs and conversation contents are excluded. History
+is not a disk log and disappears at exit.
 
-## Test notification and acceptance
+Settings > Notifications > Send test notification checks platform access and sends
+fixed sample text with the active service's icon/color, without altering unread.
+Enable notifications can request platform access and grant the supported active
+origin; it cannot bypass Windows policy. Save the delivery preference separately.
+Opening Windows notification settings and refocusing Settings refreshes access.
 
-Settings > Notifications > **Send test notification** checks platform permission and
-sends fixed application text without altering unread. Save feedback does not send a
-toast. **Enable notifications** can request platform permission and enable the selected
-supported origin on capable WebView2 versions; save the preference for incoming toasts.
-It cannot bypass Windows policy. **Open Windows notification settings** opens
-ms-settings:notifications when access is blocked/unavailable. Settings rechecks access
-when focused. The sound option applies immediately to the test.
+Debug builds use the registered Windows PowerShell notification sender because
+there is no installer-created application shortcut/AUMID. Installed release builds
+use ChatPlus Desktop's identifier. Permission checks and sending use the same
+sender within each build mode. A successful submission can appear only in
+Notification Center when Windows suppresses banners.
 
-Windows development/debug builds use the registered Windows PowerShell notification
-sender because their executable has no installer-created shortcut/AUMID registration.
-Windows displays a Windows PowerShell sender header with the ChatPlus Desktop title;
-permission checks and delivery use this same development sender. Installed release
-builds retain ChatPlus Desktop's own identifier and sender. This development fallback
-does not change Windows notification settings or register another application.
-
-Submission success does not prove a visible banner: Windows Do Not Disturb may keep
-it in Notification Center. Follow the exact provider, multi-service, activation,
-mute/privacy/permission and attachment cases in
-[WINDOWS_ACCEPTANCE.md](WINDOWS_ACCEPTANCE.md#current-reliability-pass-2026-10-07).
-All authenticated acceptance for this revision remains pending until actually run.
-
-Historical investigations remain available: [beta.4 reliability](BETA4_RELIABILITY.md),
-[minimized notification review](MINIMIZED_NOTIFICATION_REVIEW.md) and
-[maintainer follow-up](MAINTAINER_FOLLOWUP.md). They describe their original revisions,
-including former exact-tag limitations, rather than current intended behavior.
+Regression coverage must include foreground/background/minimized/tray-hidden
+arrivals, mute and permission failures, duplicate identity, two same-provider
+instances, exact current reads, provider-zero races, explicit all-read boundaries,
+and toast clicks/dismissal leaving unread unchanged. Use native Windows checks for
+actual banners, restore/routing and provider UI behavior; DOM fixtures alone do not
+establish those outcomes. See [Development](DEVELOPMENT.md) for validation commands.

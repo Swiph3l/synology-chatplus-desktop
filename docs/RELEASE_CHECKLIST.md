@@ -1,88 +1,76 @@
 # Release checklist
 
-Version tags trigger a Windows-only draft pipeline; final publication is manual.
-Complete the [Windows beta checklist](WINDOWS_BETA.md) before tagging.
-Linux/macOS remain experimental and are not Windows beta release gates.
-Record the exact commit, clean/dirty state, tool versions, UTC date and final
-artifact hashes for each candidate. Never equate an unchecked item with PASS.
+Version tags trigger the Windows x64 signed draft-release pipeline. Publishing
+the draft is a separate maintainer action. Linux and macOS are experimental and
+need their own target validation before distribution.
 
-- [ ] Select a reviewed, committed source revision; no private changes or files.
-- [ ] Complete [multi-service development gates](DEVELOPMENT_STATUS.md): migration, profiles, child-WebView layout, switching, single-instance restore and native notifications.
-- [ ] Capture [fresh screenshots](screenshots/README.md) from the actual candidate, including the metadata-derived About version.
-- [ ] Check beta/RC-to-stable updater eligibility with **Include beta updates** both off and on; verify no downgrade and no draft release is offered.
-- [ ] Align Cargo/npm/Tauri versions, release notes and eventual tag.
-- [ ] Run `npm ci`, `npm run format:check`, `npm run typecheck`, `npm test`.
-- [ ] Run `npm run build` and `npm run check:release`.
-- [ ] Run `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check`.
-- [ ] Run locked Cargo check, debug tests and release tests on supported targets.
-- [ ] Run `npm run tauri build` with `CHATPLUS_RELEASE_BUILD=1` and signing
-      credentials supplied securely as described in [UPDATER_SIGNING.md](UPDATER_SIGNING.md);
-      retain the actual final packages and updater signatures.
-- [ ] Run `npm audit`, `cargo audit --file src-tauri/Cargo.lock`
-      and `cargo deny --manifest-path src-tauri/Cargo.toml --config deny.toml --locked check`.
-- [ ] Apply the [target-specific dependency policy](DEPENDENCY_POLICY.md).
-      Run `node scripts/audit-linux.mjs` for the Windows beta review and strict
-      `cargo deny --manifest-path src-tauri/Cargo.toml --config deny.toml --target x86_64-unknown-linux-gnu --locked check`
-      before approving Linux binaries. Windows eligibility is not Linux approval.
-- [ ] Resolve or explicitly review advisories with target/reachability evidence;
-      do not silence advisories merely to obtain a green build.
-- [ ] Scan tracked and untracked candidate files with the free Gitleaks CLI;
-      scan `git --all --reflog` history and any unreachable objects separately.
-- [ ] Review credentials/session keywords, private hosts/IPs, absolute paths,
-      screenshots, binary strings and all extracted installer contents. A real
-      historical secret requires revocation/rotation and history remediation.
-- [ ] Verify GitHub secret scanning and push protection in repository Security
-      settings; do not assume local configuration enables these server settings.
-- [ ] Review actual CodeQL JS/TS, Rust and Actions results for the public GPLv3
-      repository. Do not assume paid private-repository access.
-- [ ] Confirm Dependabot runs and review updates; no automatic merging.
-- [ ] Recheck Tauri grants and local command origins. Test hostile remote IPC,
-      cross-origin redirects/popups and camera/microphone/notification prompts.
-- [ ] Review privacy with a controlled test server and recorded network traffic,
-      including WebView/OS requests. Never publish real NAS/session capture data.
-- [ ] Verify NSIS name, icon, publisher, version, license and per-user location.
-- [ ] Fresh-install on a clean Windows VM, with and without WebView2 installed.
-- [ ] Upgrade a prior supported version; test running-app handling and preference
-      retention. Test reinstall/downgrade behavior and document supported paths.
-- [ ] Uninstall: shortcuts/autostart/registration removed; test both retaining
-      and deleting app data, without touching unrelated files.
-- [ ] Inspect contents: no dev fixture, profiles, private references, proprietary
-      Synology bundles or build-machine paths. Review third-party license notices
-      and platform library redistribution obligations beyond SBOM metadata.
-- [ ] Check Authenticode of app and installer with `Get-AuthenticodeSignature`;
-      label unsigned output accurately. Never recommend disabling SmartScreen.
-- [ ] Generate SBOMs with `cargo install cargo-cyclonedx --version 0.5.9 --locked`
-      then `npm run sbom -- release-artifacts`; validate CycloneDX schemas and
-      confirm target/dependency inventory matches the final build.
-- [ ] Place only final distribution files in `release-artifacts`, including NSIS,
-      MSI if produced, Linux/macOS packages and SBOMs. Finish all signing first.
-- [ ] Run `npm run checksums -- release-artifacts`; independently verify hashes.
-- [ ] Scan final EXE and NSIS using active, updated Defender. Record file, SHA-256,
-      engine/signature versions, command, exit/result and findings. Disabled or
-      unavailable protection is NOT TESTED, never PASS.
-- [ ] Review GitHub artifact attestations generated by the public draft workflow only for
-      an authorized public build. Verify downloaded artifacts with
-      `gh attestation verify <artifact> -R Swiph3l/synology-chatplus-desktop`.
-- [ ] Separately authorize publication; attach unchanged artifacts, checksums,
-      both SBOMs, notes and provenance. Do not publish raw private audit logs.
+Keep the candidate commit, tool versions, test results and final artifact hashes
+with the release record. An unchecked or unavailable check is not a pass.
 
-## Optional future VirusTotal check
+## Source and validation
 
-Only after selecting the final public RC, passing private-data review and deciding
-that its binary is intended for public distribution: obtain explicit upload
-authorization, manually submit the final file at VirusTotal, and record the
-SHA-256, scan time and results URL. Treat submissions as disclosure to a third
-party. Investigate detections; zero detections is not a safety guarantee. Never
-upload current private/development builds automatically or store an API key in Git.
+- [ ] Review the source revision and confirm it contains no private files,
+      account profiles, machine paths or development fixtures.
+- [ ] Synchronize versions in npm, Cargo and Tauri manifests/lockfiles with the
+      intended tag, and write user-facing release notes.
+- [ ] Run the [automated gates](TESTING.md), dependency/secret audits and
+      [target-specific dependency policy](DEPENDENCY_POLICY.md).
+- [ ] Require Windows CI, CodeQL and security checks on the exact tagged main
+      commit. Review failures and advisories rather than suppressing them.
+- [ ] Complete [Windows acceptance](WINDOWS_ACCEPTANCE.md) for the candidate,
+      including isolated profiles, background startup, notifications, read
+      actions, links, downloads, themes and DPI.
+- [ ] Review remote-view capabilities, local command origin checks and provider
+      navigation/permission boundaries.
 
-## Local evidence commands
+## Packaging and signing
+
+- [ ] Provision production signing as described in
+      [UPDATER_SIGNING.md](UPDATER_SIGNING.md). Keep private credentials outside
+      source and limited to the release build step.
+- [ ] Build the signed NSIS setup using the tag workflow. Keep package version,
+      tag, source commit, manifest URL and signature aligned.
+- [ ] Verify the collected package with the production signature fixture.
+- [ ] Inspect installer name, publisher, icon, license, architecture and contents.
+      Exclude local profiles, private URLs, build logs and debug fixtures.
+- [ ] Generate npm/Rust SBOMs and retain required third-party notices and
+      corresponding source. See [LICENSING.md](LICENSING.md).
+- [ ] Finalize distribution filenames and signing before generating checksums.
+      Verify downloaded bytes against `SHA256SUMS.txt` and artifact attestations.
+- [ ] Check app/installer Authenticode and scan the final files with an active,
+      updated antivirus engine. Record actual results; updater signing does not
+      imply Authenticode or remove SmartScreen warnings.
+
+Useful verification commands, with the final artifact substituted:
 
 ```powershell
-Get-FileHash '<final artifact>' -Algorithm SHA256
-Get-AuthenticodeSignature '<final artifact>'
-# Use the installed Defender platform's MpCmdRun.exe with an active engine:
-& '<MpCmdRun.exe>' -Scan -ScanType 3 -File '<final artifact>' -DisableRemediation -ReturnHR
+Get-FileHash -LiteralPath '<artifact>' -Algorithm SHA256
+Get-AuthenticodeSignature -LiteralPath '<artifact>'
+gh attestation verify '<artifact>' -R Swiph3l/synology-chatplus-desktop
 ```
 
-Keep local logs outside the repository. Replacing or signing any artifact
-invalidates earlier hashes and scan evidence: regenerate them.
+Changing or signing a file invalidates its earlier hashes and scan results.
+Keep raw local evidence outside the checkout. Any third-party binary scan upload
+must use an artifact intended for public distribution.
+
+## Installation and updates
+
+- [ ] Fresh-install on clean Windows with WebView2 present and absent.
+- [ ] Upgrade from a supported prior production-key version. Verify the installed
+      version, settings, isolated provider sessions and normal restart behavior.
+- [ ] Exercise stable/beta eligibility with **Include beta updates** off and on;
+      confirm drafts and downgrades are excluded.
+- [ ] Test network failure, cancellation, signature rejection and confirmation
+      before installation.
+- [ ] Verify single-instance handling, close-to-tray and autostart after login.
+- [ ] Test uninstall/reinstall, shortcut and autostart cleanup, and data-retention
+      choices without modifying unrelated files.
+
+## Publication
+
+- [ ] Review the generated draft assets, channel manifest, signatures, checksums,
+      SBOMs, attestation and release notes. The updater targets the NSIS setup,
+      not the standalone application.
+- [ ] Capture current, sanitized [screenshots](screenshots/README.md) if needed.
+- [ ] Approve publication and publish the unchanged reviewed artifacts. Confirm
+      public release discovery and retain source and recovery downloads.

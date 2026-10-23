@@ -35,7 +35,7 @@ all use this same selection path.
 
 Pagination is bounded to ten pages of 100 releases; an incomplete query reports an
 error instead of declaring the installation current. The saved preference never
-changes automatically. The new `includeBetaUpdates` boolean takes precedence over
+changes automatically. The `includeBetaUpdates` boolean takes precedence over
 legacy settings; old `updateChannel: stable` migrates to false and old beta or
 pre-release values migrate to true. Missing preferences default to false. Migration
 preserves other settings and the last-check timestamp.
@@ -102,8 +102,7 @@ tag against it. Collected target metadata carries version/source-commit provenan
 which the manifest job checks before generating updater metadata. The release job
 also schedules the existing production signature verifier against the collected
 setup before uploading it.
-Branch development must stay lightweight and never creates release artifacts.
-Do not create a tag or publish as part of a reliability pass.
+Branch development stays lightweight and does not create release artifacts.
 
 ## Artifact names
 
@@ -117,9 +116,8 @@ Linux/macOS remain experimental and are outside the current Windows release gate
 
 ## More detail and acceptance
 
-[UPDATER_SIGNING.md](UPDATER_SIGNING.md) retains key-format/signing details,
-[WINDOWS_BETA.md](WINDOWS_BETA.md) retains owner setup and historical upgrade steps,
-and [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) contains the release checklist.
+[UPDATER_SIGNING.md](UPDATER_SIGNING.md) describes key setup and build modes;
+[RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) covers candidate verification and publication.
 Rust tests use an ephemeral key and locally trusted HTTPS certificate with
 non-executable payloads. Production signed install/restart remains a separate
-[Windows acceptance](WINDOWS_ACCEPTANCE.md#current-reliability-pass-2026-10-07) gate.
+[Windows acceptance](WINDOWS_ACCEPTANCE.md) gate.

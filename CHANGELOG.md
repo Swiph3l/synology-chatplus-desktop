@@ -68,8 +68,7 @@ notification acceptance and the final production-build smoke test are incomplete
 GLib 0.18.5 remains under the reviewed Linux-only audit classification, and a signed
 beta.6 installation/restart has not been validated. Beta.6 must be published as a
 prerelease with valid signed assets before eligible users can receive it. The final
-readiness decision and remaining native acceptance gates are recorded in
-[Development status](docs/DEVELOPMENT_STATUS.md).
+release gates are described in the [release checklist](docs/RELEASE_CHECKLIST.md).
 
 ## 0.5.0-beta.4 - development candidate
 
@@ -101,8 +100,7 @@ readiness decision and remaining native acceptance gates are recorded in
 
 Authenticated provider notifications, native attachment UI, installed session retention,
 signed update/restart and actual Windows DPI checks remain pending for this candidate.
-See [Windows acceptance](docs/WINDOWS_ACCEPTANCE.md#current-reliability-pass-2026-10-07).
-Historical engineering evidence remains in [the beta.4 report](docs/BETA4_RELIABILITY.md).
+See the [Windows acceptance checklist](docs/WINDOWS_ACCEPTANCE.md).
 No release tag or publication is implied.
 
 ## 0.5.0-beta.3

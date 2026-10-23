@@ -23,6 +23,3 @@ remain third-party property. This project's license does not relicense dependenc
 Before binary distribution, assemble required notices and corresponding source for
 the final platform graph from its SBOM. Passing metadata checks alone does not prove
 distribution compliance. See the [GNU compatibility list](https://www.gnu.org/licenses/license-list.html).
-
-Suggested GitHub topics: gplv3, open-source, tauri, rust, typescript, synology-chat,
-desktop-app. The standard root LICENSE supports GitHub license detection.
