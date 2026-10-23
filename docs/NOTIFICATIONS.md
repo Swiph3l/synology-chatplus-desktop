@@ -154,6 +154,12 @@ session or selection changes. Diagnostic outcomes distinguish browser `granted`,
 own desktop-notification and streamer-mode preferences still determine whether it
 creates a browser notification; hearing a message sound alone does not prove that.
 
+Explicit provider grants record fixed request/failure outcomes only while the
+captured service and bridge still match. Complete each native grant once, including
+synchronous setup failure, and surface failures in Settings. A success message
+requires both native access and browser permission; native access alone does not
+resolve a provider page's denied permission.
+
 **More > Allow provider notifications** grants only the clicked instance's
 validated live origin in its own profile. Global/per-service desktop preferences
 and Windows policy still apply; granting browser permission does not unmute the

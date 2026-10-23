@@ -193,12 +193,12 @@ pub async fn request_notification_permission(
                 probe,
                 permission_bridge(&app, &probe.service.id),
             ) {
-                let _ = crate::notification_bridge::enable_permission_captured(
+                crate::notification_bridge::enable_permission_captured(
                     &app,
                     probe.service.clone(),
                     probe.bridge,
                 )
-                .await;
+                .await?;
             }
         }
     }

@@ -111,13 +111,22 @@ fn permission_scope_valid(
     current: Option<(u64, bool)>,
     source: &str,
 ) -> bool {
-    current == Some((bridge_id, true))
-        && permission_service(settings, &service.id).is_ok_and(|configured| {
-            configured.provider == service.provider && configured.url == service.url
-        })
+    permission_grant_scope_valid(settings, service, Some((bridge_id, true)), current)
         && trusted_origin(&service.url, source)
         && url::Url::parse(source)
             .is_ok_and(|source| service.provider.allows(&service.url, &source))
+}
+
+fn permission_grant_scope_valid(
+    settings: &crate::state::Settings,
+    service: &crate::providers::ServiceConfig,
+    expected: Option<(u64, bool)>,
+    current: Option<(u64, bool)>,
+) -> bool {
+    expected == current
+        && permission_service(settings, &service.id).is_ok_and(|configured| {
+            configured.provider == service.provider && configured.url == service.url
+        })
 }
 
 // Swiph3l: An explicit grant is scoped to this profile and its configured origin;
@@ -139,6 +148,43 @@ pub async fn enable_permission_for(app: &tauri::AppHandle, id: &str) -> Result<(
 pub async fn enable_permission_captured(
     app: &tauri::AppHandle,
     service: crate::providers::ServiceConfig,
+    bridge: Option<(u64, bool)>,
+) -> Result<(), String> {
+    use tauri::Manager;
+    let record = |reason| {
+        let settings = crate::state::current(app);
+        let current = app
+            .state::<crate::desktop_notifications::Service>()
+            .0
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .bridges
+            .get(&service.id)
+            .copied();
+        // Swiph3l: A failed old grant must not be attributed to a replacement
+        // account/profile using the same stored service ID.
+        if permission_grant_scope_valid(&settings, &service, bridge, current) {
+            crate::diagnostics::notification_with_settings(
+                app,
+                &settings,
+                &service.id,
+                crate::diagnostics::NotificationEvent::ProviderPermissionChecked,
+                reason,
+                bridge.map_or(0, |(generation, _)| generation),
+            );
+        }
+    };
+    record(crate::diagnostics::NotificationReason::ProviderPermissionGrantRequested);
+    let result = grant_permission_captured(app, &service, bridge).await;
+    if result.is_err() {
+        record(crate::diagnostics::NotificationReason::ProviderPermissionGrantFailed);
+    }
+    result
+}
+
+async fn grant_permission_captured(
+    app: &tauri::AppHandle,
+    service: &crate::providers::ServiceConfig,
     bridge: Option<(u64, bool)>,
 ) -> Result<(), String> {
     let id = service.id.as_str();
@@ -165,7 +211,7 @@ pub async fn enable_permission_captured(
             .map_err(|_| "Configure a valid service URL first.")?
             .origin()
             .ascii_serialization();
-        let validate = |source: &str| {
+        let validate_with_settings = |settings: &crate::state::Settings, source: &str| {
             let bridge = app
                 .state::<crate::desktop_notifications::Service>()
                 .0
@@ -174,14 +220,9 @@ pub async fn enable_permission_captured(
                 .bridges
                 .get(id)
                 .copied();
-            permission_scope_valid(
-                &crate::state::current(app),
-                &service,
-                bridge_id,
-                bridge,
-                source,
-            )
+            permission_scope_valid(settings, &service, bridge_id, bridge, source)
         };
+        let validate = |source: &str| validate_with_settings(&crate::state::current(app), source);
         if !validate(
             window
                 .url()
@@ -191,8 +232,9 @@ pub async fn enable_permission_captured(
             return Err("Provider session changed. Open the configured service and retry.".into());
         }
         let (tx, rx) = tokio::sync::oneshot::channel();
+        let response = std::sync::Arc::new(std::sync::Mutex::new(Some(tx)));
         let request_app = app.clone();
-        let request_service = service.clone();
+        let request_service = (*service).clone();
         window
             .with_webview(move |view| unsafe {
                 let result = (|| -> windows::core::Result<()> {
@@ -223,19 +265,22 @@ pub async fn enable_permission_captured(
                         .cast::<ICoreWebView2_13>()?
                         .Profile()?
                         .cast::<ICoreWebView2Profile4>()?;
+                    let callback_response = response.clone();
                     profile.SetPermissionState(
                         COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS,
                         &HSTRING::from(origin),
                         COREWEBVIEW2_PERMISSION_STATE_ALLOW,
                         &webview2_com::SetPermissionStateCompletedHandler::create(Box::new(
                             move |result| {
-                                let _ = tx.send(result.is_ok());
+                                complete_permission_grant(&callback_response, result.is_ok());
                                 Ok(())
                             },
                         )),
                     )
                 })();
-                let _ = result;
+                if result.is_err() {
+                    complete_permission_grant(&response, false);
+                }
             })
             .map_err(|_| "Could not access WebView notification permission.")?;
         return match tokio::time::timeout(std::time::Duration::from_secs(2), rx).await {
@@ -248,7 +293,9 @@ pub async fn enable_permission_captured(
                 ) =>
             {
                 let state = permission_state_for(app, id).await;
-                if !validate(
+                let settings = crate::state::current(app);
+                if !validate_with_settings(
+                    &settings,
                     window
                         .url()
                         .map_err(|_| "Provider session changed.")?
@@ -258,8 +305,9 @@ pub async fn enable_permission_captured(
                         "Provider session changed. Open the configured service and retry.".into(),
                     );
                 }
-                crate::diagnostics::notification(
+                crate::diagnostics::notification_with_settings(
                     app,
+                    &settings,
                     id,
                     crate::diagnostics::NotificationEvent::PermissionChecked,
                     if state == "granted" {
@@ -283,6 +331,20 @@ pub async fn enable_permission_captured(
     {
         let _ = (app, &service, bridge, id);
         Err("Provider notification permission controls require Windows WebView2.".into())
+    }
+}
+
+#[cfg(any(windows, test))]
+fn complete_permission_grant(
+    response: &std::sync::Mutex<Option<tokio::sync::oneshot::Sender<bool>>>,
+    succeeded: bool,
+) {
+    if let Some(sender) = response
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .take()
+    {
+        let _ = sender.send(succeeded);
     }
 }
 pub fn trusted_origin(server: &str, sender: &str) -> bool {
@@ -1412,6 +1474,57 @@ mod tests {
         settings.services[1] = target.clone();
         settings.services[1].enabled = false;
         assert!(permission_service(&settings, &target.id).is_err());
+    }
+
+    #[test]
+    fn permission_grant_setup_and_callback_complete_once_without_waiting_for_timeout() {
+        for first in [false, true] {
+            let (sender, mut receiver) = tokio::sync::oneshot::channel();
+            let response = std::sync::Mutex::new(Some(sender));
+            complete_permission_grant(&response, first);
+            complete_permission_grant(&response, !first);
+            assert_eq!(receiver.try_recv(), Ok(first));
+            assert!(response.lock().unwrap().is_none());
+        }
+    }
+
+    #[test]
+    fn grant_diagnostics_require_the_same_configured_profile_and_bridge() {
+        let mut settings = whatsapp_permission_settings();
+        let target = permission_service(&settings, "whatsapp-work").unwrap();
+        assert!(permission_grant_scope_valid(
+            &settings,
+            &target,
+            Some((22, true)),
+            Some((22, true))
+        ));
+        for current in [None, Some((23, true)), Some((22, false))] {
+            assert!(!permission_grant_scope_valid(
+                &settings,
+                &target,
+                Some((22, true)),
+                current
+            ));
+        }
+        settings.services[1].provider = crate::providers::ProviderId::Mattermost;
+        assert!(!permission_grant_scope_valid(
+            &settings,
+            &target,
+            Some((22, true)),
+            Some((22, true))
+        ));
+        for (reason, code) in [
+            (
+                crate::diagnostics::NotificationReason::ProviderPermissionGrantRequested,
+                "provider_permission_grant_requested",
+            ),
+            (
+                crate::diagnostics::NotificationReason::ProviderPermissionGrantFailed,
+                "provider_permission_grant_failed",
+            ),
+        ] {
+            assert_eq!(serde_json::to_value(reason).unwrap(), code);
+        }
     }
 
     fn whatsapp_permission_settings() -> crate::state::Settings {

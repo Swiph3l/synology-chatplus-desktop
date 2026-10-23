@@ -329,6 +329,58 @@ test("native permission remains authoritative when the browser shim reports deni
   assert.equal(f.settings.desktopNotifications, true);
 });
 
+for (const webviewState of ["denied", "default", "unavailable"]) {
+  test(`native permission alone cannot announce browser enablement when ${webviewState}`, async () => {
+    const f = await fixture({
+      permission: { state: "enabled", granted: true, webviewState },
+    });
+    f.document.getElementById("enable-notifications").click();
+    await f.flush();
+    assert.equal(
+      f.document.getElementById("status").textContent,
+      "Could not enable notifications.",
+    );
+    assert.equal(
+      f.document.getElementById("desktop-notifications").checked,
+      true,
+      "the explicit native opt-in remains a draft preference",
+    );
+    assert.equal(
+      f.document.getElementById("enable-notifications").hidden,
+      false,
+    );
+  });
+}
+
+test("a failed provider grant remains visible and refreshes browser permission without changing saved intent", async () => {
+  const f = await fixture({
+    settings: { desktopNotifications: true },
+    permission: { state: "enabled", granted: true, webviewState: "denied" },
+    permissionError:
+      "Could not enable provider notifications. Reload this service and retry.",
+  });
+  await f.flush();
+  const before = f.calls.filter(
+    (call) => call.command === "get_notification_permission",
+  ).length;
+  f.document.getElementById("enable-notifications").click();
+  await f.flush();
+  assert.equal(
+    f.document.getElementById("status").textContent,
+    "Could not enable provider notifications. Reload this service and retry.",
+  );
+  assert.equal(
+    f.document.getElementById("desktop-notifications").checked,
+    true,
+  );
+  assert.equal(f.document.getElementById("enable-notifications").hidden, false);
+  assert.equal(
+    f.calls.filter((call) => call.command === "get_notification_permission")
+      .length,
+    before + 1,
+  );
+});
+
 test("notification probes capture the selected service and discard an older response", async () => {
   const permission = { webviewState: "denied" };
   const f = await fixture({

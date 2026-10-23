@@ -751,8 +751,13 @@ export async function renderSettings() {
         if (!permissionContextCurrent(context)) return;
         if (result.granted) input("desktop-notifications").checked = true;
         showPermission(result);
-        if (input("desktop-notifications").checked)
+        if (
+          result.granted &&
+          result.webviewState === "granted" &&
+          input("desktop-notifications").checked
+        )
           status.textContent = t("notifications.permissionAvailable");
+        else status.textContent = t("notifications.enableError");
       } catch (error) {
         if (permissionContextCurrent(context)) {
           status.textContent = localizeError(

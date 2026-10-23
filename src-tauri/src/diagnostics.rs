@@ -82,6 +82,8 @@ pub enum NotificationReason {
     BrowserPermissionDenied,
     BrowserPermissionUnavailable,
     ProviderOriginGranted,
+    ProviderPermissionGrantRequested,
+    ProviderPermissionGrantFailed,
     ProviderPermissionRefreshRequired,
     BridgeAttached,
     BridgeUnsupported,
@@ -565,22 +567,30 @@ pub fn notification(
     generation: u64,
 ) {
     let settings = state::current(app);
-    let Some(service) = settings.services.iter().find(|service| service.id == id) else {
-        return;
-    };
+    notification_with_settings(app, &settings, id, event, reason, generation);
+}
+
+pub fn notification_with_settings(
+    app: &tauri::AppHandle,
+    settings: &Settings,
+    id: &str,
+    event: NotificationEvent,
+    reason: NotificationReason,
+    generation: u64,
+) {
     let Some(history) = app.try_state::<NotificationHistory>() else {
         return;
     };
-    let mut event = NotificationDiagnostic {
-        ordinal: 0,
+    let Some(mut event) = notification_from_settings(
+        settings,
+        id,
         event,
         reason,
         generation,
-        service_id: service.id.clone(),
-        provider: service.provider,
-        native_foreground: crate::window::is_foreground(app),
-        selected: settings.active_service.as_deref() == Some(id),
-        timestamp: timestamp(),
+        crate::window::is_foreground(app),
+        timestamp(),
+    ) else {
+        return;
     };
     let mut history = history.0.lock().unwrap_or_else(|error| error.into_inner());
     history.ordinal = history.ordinal.saturating_add(1);
@@ -589,6 +599,29 @@ pub fn notification(
         enqueue_capture(capture, status, event.clone());
     }
     retain_notification(&mut history.events, event);
+}
+
+fn notification_from_settings(
+    settings: &Settings,
+    id: &str,
+    event: NotificationEvent,
+    reason: NotificationReason,
+    generation: u64,
+    native_foreground: bool,
+    timestamp: u64,
+) -> Option<NotificationDiagnostic> {
+    let service = settings.services.iter().find(|service| service.id == id)?;
+    Some(NotificationDiagnostic {
+        ordinal: 0,
+        event,
+        reason,
+        generation,
+        service_id: service.id.clone(),
+        provider: service.provider,
+        native_foreground,
+        selected: settings.active_service.as_deref() == Some(id),
+        timestamp,
+    })
 }
 
 pub fn report(app: &tauri::AppHandle) -> String {
@@ -726,6 +759,47 @@ mod tests {
             timestamp(),
             NEXT.fetch_add(1, Ordering::Relaxed),
         ))
+    }
+
+    #[test]
+    fn captured_notification_metadata_cannot_follow_a_replaced_service_id() {
+        use crate::providers::{ProviderId, ServiceConfig};
+        let mut current = Settings {
+            active_service: Some("same-id".into()),
+            services: vec![ServiceConfig {
+                id: "same-id".into(),
+                provider: ProviderId::Discord,
+                name: "Private fixture name".into(),
+                url: "https://private.invalid/".into(),
+                enabled: true,
+                notifications: true,
+                notification_color: Default::default(),
+            }],
+            ..Default::default()
+        };
+        let captured = current.clone();
+        current.services[0].provider = ProviderId::Whatsapp;
+        current.active_service = None;
+        let construct = |settings| {
+            notification_from_settings(
+                settings,
+                "same-id",
+                NotificationEvent::ProviderPermissionChecked,
+                NotificationReason::ProviderPermissionGrantFailed,
+                42,
+                false,
+                100,
+            )
+            .unwrap()
+        };
+        let event = construct(&captured);
+        assert_eq!(event.provider, ProviderId::Discord);
+        assert!(event.selected);
+        assert_eq!(construct(&current).provider, ProviderId::Whatsapp);
+        assert!(!construct(&current).selected);
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(!json.contains("Private fixture name"));
+        assert!(!json.contains("private.invalid"));
     }
 
     #[test]
