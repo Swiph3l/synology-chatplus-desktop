@@ -144,6 +144,7 @@ export async function renderSettings() {
   let updateDirty = () => {};
   let pendingSettings: Settings | undefined;
   let settingsEventRevision = 0;
+  let refreshNotificationPermission: (() => Promise<void>) | undefined;
   let permissionPending = false;
   let externalConflict = false;
   const lockedControls = new Map<
@@ -598,6 +599,7 @@ export async function renderSettings() {
     applyTheme(theme ? (theme.value as Theme) : payload.theme);
     if (externalConflict) status.textContent = t("settings.externalConflict");
     updateDirty();
+    void refreshNotificationPermission?.();
   };
   await listen<Settings>("settings-changed", ({ payload }) => {
     settingsEventRevision++;
@@ -687,31 +689,81 @@ export async function renderSettings() {
       enableButton.hidden =
         result.state === "enabled" && result.webviewState === "granted";
     };
+    let permissionRequestRevision = 0;
+    const permissionIdentity = () => {
+      const service = original.services.find(
+        (service) => service.id === original.activeService,
+      );
+      return JSON.stringify([
+        original.activeService,
+        service?.provider,
+        service?.url,
+        service?.enabled,
+      ]);
+    };
+    const capturePermissionContext = () => ({
+      serviceId: original.activeService,
+      identity: permissionIdentity(),
+      settingsRevision: settingsEventRevision,
+      requestRevision: ++permissionRequestRevision,
+    });
+    const permissionContextCurrent = (
+      context: ReturnType<typeof capturePermissionContext>,
+    ) =>
+      context.identity === permissionIdentity() &&
+      context.settingsRevision === settingsEventRevision &&
+      context.requestRevision === permissionRequestRevision;
+    let enableContext: ReturnType<typeof capturePermissionContext> | undefined;
     const refreshPermission = async () => {
+      // Swiph3l: Passive refresh must not cancel an explicit opt-in for the same service.
+      if (
+        permissionPending &&
+        enableContext &&
+        permissionContextCurrent(enableContext)
+      )
+        return;
+      const context = capturePermissionContext();
+      lastPermission = undefined;
+      permission.textContent = t("notifications.checkingPermission");
       try {
-        showPermission(await notifications.isPermissionGranted());
+        const result = await notifications.isPermissionGranted(
+          context.serviceId,
+        );
+        if (permissionContextCurrent(context)) showPermission(result);
       } catch {
-        permission.textContent = t("notifications.permissionError");
+        if (permissionContextCurrent(context))
+          permission.textContent = t("notifications.permissionError");
       }
     };
+    refreshNotificationPermission = refreshPermission;
     const enable = async () => {
       if (persistencePending || permissionPending) return;
+      const context = capturePermissionContext();
+      enableContext = context;
       permissionPending = true;
       enableButton.disabled = true;
       input("desktop-notifications").disabled = true;
       updateDirty();
       try {
-        const result = await notifications.requestPermission();
+        const result = await notifications.requestPermission(context.serviceId);
         // Saved intent is independent of native capability and the cached browser
         // shim. A rejected/stale permission check must not silently opt the user out.
+        if (!permissionContextCurrent(context)) return;
         if (result.granted) input("desktop-notifications").checked = true;
         showPermission(result);
         if (input("desktop-notifications").checked)
           status.textContent = t("notifications.permissionAvailable");
       } catch (error) {
-        status.textContent = localizeError(error, "notifications.enableError");
-        await refreshPermission();
+        if (permissionContextCurrent(context)) {
+          status.textContent = localizeError(
+            error,
+            "notifications.enableError",
+          );
+          enableContext = undefined;
+          await refreshPermission();
+        }
       } finally {
+        enableContext = undefined;
         permissionPending = false;
         enableButton.disabled = persistencePending;
         input("desktop-notifications").disabled = persistencePending;
@@ -733,6 +785,11 @@ export async function renderSettings() {
     window.addEventListener("focus", () => {
       void refreshPermission();
     });
+    document
+      .getElementById("tab-notifications")
+      ?.addEventListener("click", () => {
+        void refreshPermission();
+      });
     void refreshPermission();
   }
   const showError = async () => {

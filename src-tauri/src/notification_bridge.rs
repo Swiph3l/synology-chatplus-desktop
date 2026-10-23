@@ -45,13 +45,6 @@ impl<T: PartialEq> EventHistory<T> {
     }
 }
 
-pub async fn permission_state(app: &tauri::AppHandle) -> String {
-    let Some(id) = crate::state::current(app).active_service else {
-        return "unavailable".into();
-    };
-    permission_state_for(app, &id).await
-}
-
 pub async fn permission_state_for(app: &tauri::AppHandle, id: &str) -> String {
     #[cfg(windows)]
     {
@@ -99,14 +92,6 @@ pub async fn permission_state_for(app: &tauri::AppHandle, id: &str) -> String {
     "unknown".into()
 }
 
-// Existing Settings action delegates to the same instance-scoped native grant.
-pub async fn enable_permission(app: &tauri::AppHandle) -> Result<(), String> {
-    let id = crate::state::current(app)
-        .active_service
-        .ok_or("Open a service first.")?;
-    enable_permission_for(app, &id).await
-}
-
 fn permission_service(
     settings: &crate::state::Settings,
     id: &str,
@@ -138,7 +123,25 @@ fn permission_scope_valid(
 // Swiph3l: An explicit grant is scoped to this profile and its configured origin;
 // granting browser permission must not overwrite delivery preferences or OS policy.
 pub async fn enable_permission_for(app: &tauri::AppHandle, id: &str) -> Result<(), String> {
+    use tauri::Manager;
     let service = permission_service(&crate::state::current(app), id)?;
+    let bridge = app
+        .state::<crate::desktop_notifications::Service>()
+        .0
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .bridges
+        .get(id)
+        .copied();
+    enable_permission_captured(app, service, bridge).await
+}
+
+pub async fn enable_permission_captured(
+    app: &tauri::AppHandle,
+    service: crate::providers::ServiceConfig,
+    bridge: Option<(u64, bool)>,
+) -> Result<(), String> {
+    let id = service.id.as_str();
     let permission = crate::desktop_notifications::permission(app);
     if !permission.granted {
         return Err(permission.message);
@@ -152,15 +155,11 @@ pub async fn enable_permission_for(app: &tauri::AppHandle, id: &str) -> Result<(
         let window = app
             .get_webview(&crate::services::label(id))
             .ok_or("Open this service first.")?;
-        let bridge_id = app
-            .state::<crate::desktop_notifications::Service>()
-            .0
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .bridges
-            .get(id)
+        // Swiph3l: Preserve the caller's profile generation through the grant;
+        // resolving its ID again could target a replacement session.
+        let bridge_id = bridge
             .filter(|(_, available)| *available)
-            .map(|(bridge_id, _)| *bridge_id)
+            .map(|(id, _)| id)
             .ok_or("Provider notification bridge unavailable. Reload the service and retry.")?;
         let origin = url::Url::parse(&service.url)
             .map_err(|_| "Configure a valid service URL first.")?
@@ -282,7 +281,7 @@ pub async fn enable_permission_for(app: &tauri::AppHandle, id: &str) -> Result<(
     }
     #[cfg(not(windows))]
     {
-        let _ = (app, service);
+        let _ = (app, &service, bridge, id);
         Err("Provider notification permission controls require Windows WebView2.".into())
     }
 }

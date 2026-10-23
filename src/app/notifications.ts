@@ -12,8 +12,12 @@ export const notifications = {
   openSettings: () => invoke<void>("open_notification_settings"),
   sendTest: (sound: boolean) =>
     invoke<void>("send_test_notification", { sound }),
-  isPermissionGranted: () =>
-    invoke<NotificationPermission>("get_notification_permission"),
-  requestPermission: () =>
-    invoke<NotificationPermission>("request_notification_permission"),
+  isPermissionGranted: (serviceId?: string | null) =>
+    invoke<NotificationPermission>("get_notification_permission", {
+      serviceId,
+    }),
+  requestPermission: (serviceId?: string | null) =>
+    invoke<NotificationPermission>("request_notification_permission", {
+      serviceId,
+    }),
 };

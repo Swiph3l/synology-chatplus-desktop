@@ -182,23 +182,28 @@ async function fixture(options = {}) {
         settingsTarget = null;
         return target;
       }
-      if (command === "get_notification_permission")
-        return {
+      if (command === "get_notification_permission") {
+        const response = {
           state: "enabled",
           granted: true,
           webviewState: "granted",
           message: "Fixture",
           ...options.permission,
         };
+        await deferred.get(command)?.promise;
+        return response;
+      }
       if (command === "request_notification_permission") {
         if (options.permissionError) throw options.permissionError;
-        return {
+        const response = {
           state: "enabled",
           granted: true,
           webviewState: "granted",
           message: "Fixture",
           ...options.permission,
         };
+        await deferred.get(command)?.promise;
+        return response;
       }
       if (command === "get_update_state") {
         await options.beforeUpdateReady?.({ document, window, listeners });
@@ -322,6 +327,124 @@ test("native permission remains authoritative when the browser shim reports deni
   f.document.getElementById("save").click();
   await f.flush();
   assert.equal(f.settings.desktopNotifications, true);
+});
+
+test("notification probes capture the selected service and discard an older response", async () => {
+  const permission = { webviewState: "denied" };
+  const f = await fixture({
+    permission,
+    settings: { services: twoServices(), activeService: "first" },
+  });
+  await f.flush();
+  const finishOld = f.defer("get_notification_permission");
+  f.document.getElementById("tab-notifications").click();
+  const finishNew = f.defer("get_notification_permission");
+  permission.webviewState = "granted";
+  f.settings.activeService = "second";
+  f.listeners.get("settings-changed")({ payload: structuredClone(f.settings) });
+  await f.flush();
+  const probes = f.calls.filter(
+    (call) => call.command === "get_notification_permission",
+  );
+  assert.equal(probes.at(-2).args.serviceId, "first");
+  assert.equal(probes.at(-1).args.serviceId, "second");
+  const checking = f.document.getElementById(
+    "notification-permission",
+  ).textContent;
+  finishOld();
+  await f.flush();
+  assert.equal(
+    f.document.getElementById("notification-permission").textContent,
+    checking,
+  );
+  finishNew();
+  await f.flush();
+  assert.equal(f.document.getElementById("enable-notifications").hidden, true);
+});
+
+test("an older permission refresh cannot overwrite a newer result for the same service", async () => {
+  const permission = { webviewState: "denied" };
+  const f = await fixture({ permission });
+  await f.flush();
+  const finishOld = f.defer("get_notification_permission");
+  f.document.getElementById("tab-notifications").click();
+  const finishNew = f.defer("get_notification_permission");
+  permission.webviewState = "granted";
+  f.document.getElementById("tab-notifications").click();
+  finishNew();
+  await f.flush();
+  const latest = f.document.getElementById(
+    "notification-permission",
+  ).textContent;
+  finishOld();
+  await f.flush();
+  assert.equal(
+    f.document.getElementById("notification-permission").textContent,
+    latest,
+  );
+  assert.equal(f.document.getElementById("enable-notifications").hidden, true);
+});
+
+test("a permission request for a replaced selection cannot opt in or update its successor", async () => {
+  const permission = { webviewState: "denied" };
+  const f = await fixture({
+    permission,
+    settings: { services: twoServices(), activeService: "first" },
+  });
+  await f.flush();
+  const finish = f.defer("request_notification_permission");
+  permission.webviewState = "granted";
+  f.document.getElementById("enable-notifications").click();
+  assert.equal(
+    f.calls.find((call) => call.command === "request_notification_permission")
+      .args.serviceId,
+    "first",
+  );
+  permission.webviewState = "denied";
+  f.settings.activeService = "second";
+  f.listeners.get("settings-changed")({ payload: structuredClone(f.settings) });
+  await f.flush();
+  const latest = f.document.getElementById(
+    "notification-permission",
+  ).textContent;
+  finish();
+  await f.flush();
+  assert.equal(
+    f.document.getElementById("desktop-notifications").checked,
+    false,
+  );
+  assert.equal(
+    f.document.getElementById("notification-permission").textContent,
+    latest,
+  );
+  assert.equal(f.document.getElementById("enable-notifications").hidden, false);
+});
+
+test("passive same-service permission refreshes preserve a pending explicit opt-in", async () => {
+  const permission = { webviewState: "denied" };
+  const f = await fixture({ permission });
+  await f.flush();
+  const finish = f.defer("request_notification_permission");
+  permission.webviewState = "granted";
+  f.document.getElementById("enable-notifications").click();
+  const queries = f.calls.filter(
+    (call) => call.command === "get_notification_permission",
+  ).length;
+  f.document.getElementById("tab-notifications").click();
+  f.window.dispatchEvent(new f.window.Event("focus"));
+  await f.flush();
+  assert.equal(
+    f.calls.filter((call) => call.command === "get_notification_permission")
+      .length,
+    queries,
+  );
+  finish();
+  await f.flush();
+  assert.equal(
+    f.document.getElementById("desktop-notifications").checked,
+    true,
+  );
+  assert.equal(f.document.getElementById("enable-notifications").hidden, true);
 });
 
 for (const failure of ["native-blocked", "request-error"]) {

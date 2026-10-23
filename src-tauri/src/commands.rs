@@ -17,6 +17,109 @@ fn local_view(view: &tauri::Webview, labels: &[&str]) -> Result<(), String> {
     }
     Ok(())
 }
+
+struct PermissionProbe {
+    service: crate::providers::ServiceConfig,
+    bridge: Option<(u64, bool)>,
+}
+
+fn permission_target(
+    settings: &Settings,
+    id: Option<&str>,
+) -> Option<crate::providers::ServiceConfig> {
+    let id = id.or(settings.active_service.as_deref())?;
+    settings
+        .services
+        .iter()
+        .find(|service| service.enabled && service.id == id)
+        .cloned()
+}
+
+fn permission_bridge(app: &tauri::AppHandle, id: &str) -> Option<(u64, bool)> {
+    app.state::<crate::desktop_notifications::Service>()
+        .0
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .bridges
+        .get(id)
+        .copied()
+}
+
+fn capture_permission_probe(app: &tauri::AppHandle, id: Option<&str>) -> Option<PermissionProbe> {
+    let service = permission_target(&state::current(app), id)?;
+    let bridge = permission_bridge(app, &service.id);
+    Some(PermissionProbe { service, bridge })
+}
+
+fn permission_probe_valid(
+    settings: &Settings,
+    probe: &PermissionProbe,
+    bridge: Option<(u64, bool)>,
+) -> bool {
+    bridge == probe.bridge
+        && permission_target(settings, Some(&probe.service.id)).is_some_and(|current| {
+            current.provider == probe.service.provider && current.url == probe.service.url
+        })
+}
+
+fn browser_permission(value: &str) -> (&'static str, diagnostics::NotificationReason) {
+    use diagnostics::NotificationReason as Reason;
+    match value {
+        "granted" => ("granted", Reason::BrowserPermissionGranted),
+        "default" => ("default", Reason::BrowserPermissionDefault),
+        "denied" => ("denied", Reason::BrowserPermissionDenied),
+        _ => ("unavailable", Reason::BrowserPermissionUnavailable),
+    }
+}
+
+async fn query_permission_probe(
+    app: &tauri::AppHandle,
+    probe: Option<PermissionProbe>,
+    mut result: crate::desktop_notifications::Permission,
+) -> crate::desktop_notifications::Permission {
+    result.webview_state = "unavailable".into();
+    result.bridge_available = false;
+    let Some(probe) = probe else {
+        return result;
+    };
+    if !permission_probe_valid(
+        &state::current(app),
+        &probe,
+        permission_bridge(app, &probe.service.id),
+    ) {
+        return result;
+    }
+    let value = crate::notification_bridge::permission_state_for(app, &probe.service.id).await;
+    // Swiph3l: Never attribute a delayed browser answer to a replacement profile
+    // or to the service selected while the original script was pending.
+    if !permission_probe_valid(
+        &state::current(app),
+        &probe,
+        permission_bridge(app, &probe.service.id),
+    ) {
+        return result;
+    }
+    let (value, reason) = browser_permission(&value);
+    result.webview_state = value.into();
+    result.bridge_available = probe.bridge.is_some_and(|(_, available)| available);
+    diagnostics::notification(
+        app,
+        &probe.service.id,
+        diagnostics::NotificationEvent::PermissionChecked,
+        reason,
+        0,
+    );
+    if result.granted && value == "denied" {
+        diagnostics::notification(
+            app,
+            &probe.service.id,
+            diagnostics::NotificationEvent::PermissionChecked,
+            diagnostics::NotificationReason::FrontendPermissionMismatch,
+            0,
+        );
+    }
+    result
+}
 #[tauri::command]
 pub fn get_external_link_prompt(
     window: tauri::WebviewWindow,
@@ -48,14 +151,12 @@ pub fn respond_external_link_prompt(
 pub async fn get_notification_permission(
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,
+    service_id: Option<String>,
 ) -> Result<crate::desktop_notifications::Permission, String> {
     local(&window, &["settings"])?;
-    let mut result = crate::desktop_notifications::permission(&app);
-    result.set_webview_state(
-        &app,
-        crate::notification_bridge::permission_state(&app).await,
-    );
-    Ok(result)
+    let probe = capture_permission_probe(&app, service_id.as_deref());
+    let result = crate::desktop_notifications::permission(&app);
+    Ok(query_permission_probe(&app, probe, result).await)
 }
 #[tauri::command]
 pub fn open_notification_settings(
@@ -80,18 +181,28 @@ pub fn open_notification_settings(
 pub async fn request_notification_permission(
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,
+    service_id: Option<String>,
 ) -> Result<crate::desktop_notifications::Permission, String> {
     local(&window, &["settings"])?;
+    let probe = capture_permission_probe(&app, service_id.as_deref());
     let result = crate::desktop_notifications::request_permission(&app)?;
     if result.granted {
-        let _ = crate::notification_bridge::enable_permission(&app).await;
+        if let Some(probe) = &probe {
+            if permission_probe_valid(
+                &state::current(&app),
+                probe,
+                permission_bridge(&app, &probe.service.id),
+            ) {
+                let _ = crate::notification_bridge::enable_permission_captured(
+                    &app,
+                    probe.service.clone(),
+                    probe.bridge,
+                )
+                .await;
+            }
+        }
     }
-    let mut result = result;
-    result.set_webview_state(
-        &app,
-        crate::notification_bridge::permission_state(&app).await,
-    );
-    Ok(result)
+    Ok(query_permission_probe(&app, probe, result).await)
 }
 #[tauri::command]
 pub fn send_test_notification(
@@ -424,4 +535,93 @@ pub fn get_providers(
     .into_iter()
     .map(|id| id.definition())
     .collect())
+}
+
+#[cfg(test)]
+mod permission_tests {
+    use super::*;
+    use crate::providers::{NotificationColor, ProviderId, ServiceConfig};
+
+    fn fixture() -> Settings {
+        Settings {
+            active_service: Some("first".into()),
+            services: ["first", "second"]
+                .into_iter()
+                .map(|id| ServiceConfig {
+                    id: id.into(),
+                    provider: ProviderId::Discord,
+                    name: "Private fixture name".into(),
+                    url: "https://discord.com/app/".into(),
+                    enabled: true,
+                    notifications: false,
+                    notification_color: NotificationColor::Auto,
+                })
+                .collect(),
+            ..Settings::default()
+        }
+    }
+
+    #[test]
+    fn explicit_permission_target_does_not_follow_active_selection() {
+        let mut settings = fixture();
+        assert_eq!(permission_target(&settings, None).unwrap().id, "first");
+        let probe = PermissionProbe {
+            service: permission_target(&settings, Some("second")).unwrap(),
+            bridge: Some((7, true)),
+        };
+        assert!(permission_probe_valid(&settings, &probe, Some((7, true))));
+        settings.active_service = Some("second".into());
+        settings.services[1].name = "Renamed fixture".into();
+        settings.services[1].notifications = true;
+        assert!(permission_probe_valid(&settings, &probe, Some((7, true))));
+        assert!(permission_target(&settings, Some("missing")).is_none());
+    }
+
+    #[test]
+    fn permission_probe_rejects_replaced_removed_disabled_or_restarted_service() {
+        let settings = fixture();
+        let probe = PermissionProbe {
+            service: settings.services[0].clone(),
+            bridge: Some((7, true)),
+        };
+        for bridge in [None, Some((8, true)), Some((7, false))] {
+            assert!(!permission_probe_valid(&settings, &probe, bridge));
+        }
+        for change in 0..4 {
+            let mut current = fixture();
+            match change {
+                0 => current.services[0].url = "https://discord.com/channels/@me/".into(),
+                1 => current.services[0].provider = ProviderId::Whatsapp,
+                2 => current.services[0].enabled = false,
+                _ => {
+                    current.services.remove(0);
+                }
+            }
+            assert!(!permission_probe_valid(&current, &probe, Some((7, true))));
+        }
+    }
+
+    #[test]
+    fn permission_outcomes_are_closed_metadata_and_unknown_values_are_unavailable() {
+        for (input, expected, reason) in [
+            ("granted", "granted", "browser_permission_granted"),
+            ("default", "default", "browser_permission_default"),
+            ("denied", "denied", "browser_permission_denied"),
+            (
+                "unavailable",
+                "unavailable",
+                "browser_permission_unavailable",
+            ),
+            ("unknown", "unavailable", "browser_permission_unavailable"),
+            (
+                "private arbitrary script result",
+                "unavailable",
+                "browser_permission_unavailable",
+            ),
+        ] {
+            let (value, code) = browser_permission(input);
+            assert_eq!(value, expected);
+            assert_eq!(serde_json::to_value(code).unwrap(), reason);
+        }
+    }
 }

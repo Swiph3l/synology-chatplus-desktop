@@ -146,6 +146,13 @@ Windows native permission/runtime checks and the send result are authoritative
 for desktop delivery. `Notification.permission` describes browser-origin permission
 and can be stale; it must not silently disable the user's saved desktop preference.
 
+Settings captures the selected service's identity and bridge generation before a
+permission query or grant. Discard delayed results after service configuration,
+session or selection changes. Diagnostic outcomes distinguish browser `granted`,
+`default`, `denied` and `unavailable` without logging script output. The provider's
+own desktop-notification and streamer-mode preferences still determine whether it
+creates a browser notification; hearing a message sound alone does not prove that.
+
 **More > Allow provider notifications** grants only the clicked instance's
 validated live origin in its own profile. Global/per-service desktop preferences
 and Windows policy still apply; granting browser permission does not unmute the

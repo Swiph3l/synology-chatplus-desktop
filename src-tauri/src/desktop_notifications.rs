@@ -83,22 +83,6 @@ pub struct Permission {
     pub authority: &'static str,
     pub last_send_succeeded: Option<bool>,
 }
-impl Permission {
-    pub fn set_webview_state(&mut self, app: &AppHandle, state: String) {
-        if self.granted && state == "denied" {
-            if let Some(id) = crate::state::current(app).active_service {
-                crate::diagnostics::notification(
-                    app,
-                    &id,
-                    crate::diagnostics::NotificationEvent::PermissionChecked,
-                    crate::diagnostics::NotificationReason::FrontendPermissionMismatch,
-                    0,
-                );
-            }
-        }
-        self.webview_state = state;
-    }
-}
 pub fn permission(app: &AppHandle) -> Permission {
     // Swiph3l: Native Windows sender state and WebView Notification.permission are separate notification paths.
     #[cfg(not(windows))]
