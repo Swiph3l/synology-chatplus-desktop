@@ -21,6 +21,11 @@ export interface ProviderHostWindow {
     operation: string,
   ) => import("./providers/discord-read").InboxReadStatus;
   __chatplusAcknowledgeAllLocal?: (through: number) => void;
+  __chatplusPrepareToastRead?: (
+    notification: ProviderNotification,
+    expectedGeneration: number,
+    expectedIncoming: number,
+  ) => boolean;
   chrome?: { webview?: { postMessage: (value: unknown) => void } };
 }
 
@@ -32,6 +37,8 @@ export function installUnreadAdapter(
   let lastKey: string | undefined;
   let lastDiagnosticKey: string | undefined;
   let duplicateDiagnosticKey: string | undefined;
+  let readContextDiagnosticGeneration = -1;
+  const readContextDiagnostics = new Set<string>();
   let disposed = false;
   let scheduled = false;
   let foreground = false;
@@ -41,6 +48,14 @@ export function installUnreadAdapter(
   let interactionSequence = 0;
   let lastUnread: boolean | null = null;
   let interactionSawUnread = false;
+  let toastRead: {
+    notification: ProviderNotification;
+    generation: number;
+    incoming: number;
+    expires: number;
+    context: string | null;
+    content: string | null;
+  } | null = null;
   let incomingSequence = 0;
   let localAcknowledgedThrough = 0;
   let providerRevision = 0;
@@ -62,6 +77,7 @@ export function installUnreadAdapter(
     interactionContent = null;
     interactionSawUnread = false;
     pendingRead = null;
+    toastRead = null;
   };
   const post = (payload: object): boolean => {
     if (disposed || !host.chrome?.webview) return false;
@@ -106,6 +122,7 @@ export function installUnreadAdapter(
     conversations: state.conversations,
     currentConversation: state.currentConversation ?? adapter.readContext(),
     unreadScope: state.unreadScope,
+    unattributedUnread: state.unattributedUnread,
   });
   const observeState = () => {
     observedState = normalize(adapter.snapshot());
@@ -139,7 +156,7 @@ export function installUnreadAdapter(
     acknowledgement: number | null = null,
     readArrivals: number[] = [],
     proofOnly = false,
-    readScope?: "provider-zero",
+    readScope?: "provider-zero" | "conversation-read",
   ) => {
     const arrivals =
       acknowledgement === null
@@ -180,6 +197,7 @@ export function installUnreadAdapter(
         currentConversation: observedState.currentConversation,
         conversations: observedState.conversations,
         unreadScope: observedState.unreadScope,
+        unattributedUnread: observedState.unattributedUnread,
       })
     ) {
       lastKey = key;
@@ -207,6 +225,48 @@ export function installUnreadAdapter(
     // service selection or retained WebView focus alone is not.
     const content = adapter.contentContext();
     const context = adapter.readContext();
+    if (toastRead !== null) {
+      if (
+        !visible() ||
+        toastRead.generation !== generation ||
+        toastRead.incoming !== incomingSequence ||
+        Date.now() > toastRead.expires ||
+        (toastRead.context !== null &&
+          (toastRead.context !== context || toastRead.content !== content))
+      ) {
+        toastRead = null;
+      } else if (
+        context !== null &&
+        content !== null &&
+        adapter.isViewingNotification(toastRead.notification)
+      ) {
+        toastRead.context = context;
+        toastRead.content = content;
+        if (
+          state.currentConversation === context &&
+          state.conversations?.some(
+            (entry) => entry.id === context && entry.hasUnread === false,
+          )
+        ) {
+          // Swiph3l: A native toast is only intent. The exact retained message
+          // must actually appear unobscured at latest in its mapped DM before a
+          // scoped local read proposal; native still checks prior DM ownership.
+          publish(
+            state.hasUnread,
+            state.count,
+            "toast-view-read-proof",
+            generation,
+            [],
+            false,
+            "conversation-read",
+          );
+          toastRead = null;
+          interaction = null;
+          interactionSawUnread = false;
+          return;
+        }
+      }
+    }
     // Swiph3l: Returning to the same pane/content cannot revive a proof after an
     // observed navigation, replacement or scroll away from latest. Keep new input.
     if (
@@ -228,6 +288,31 @@ export function installUnreadAdapter(
       genuineRead &&
       state.hasUnread === false &&
       adapter.providerUnreadZero?.() === true;
+    const conversationRead =
+      genuineRead &&
+      adapter.source === "discord-dom" &&
+      state.currentConversation === context &&
+      state.conversations?.some(
+        (conversation) =>
+          conversation.id === context && conversation.hasUnread === false,
+      ) === true;
+    if (conversationRead && !providerZero) {
+      // Swiph3l: A partial DM list is not global zero. Fresh input may read only
+      // its exact observed conversation while native retains every other owner.
+      publish(
+        state.hasUnread,
+        state.count,
+        "conversation-read-acknowledgement",
+        generation,
+        [],
+        false,
+        "conversation-read",
+      );
+      interaction = null;
+      interactionSawUnread = false;
+      lastUnread = state.hasUnread;
+      return;
+    }
     if (genuineRead) {
       // Swiph3l: Changed content may be an old avatar or another message. Retry retained native tags against actual visible rows; unrelated DOM changes cannot read unseen arrivals.
       for (const [arrival, notification] of unseenArrivals)
@@ -351,18 +436,59 @@ export function installUnreadAdapter(
       content !== null &&
       adapter.readContext() === context &&
       adapter.contentContext() === content;
-    if (arrivals.length === 0 && !scopedZero) return false;
+    const scopedConversation =
+      adapter.source === "discord-dom" &&
+      context !== null &&
+      content !== null &&
+      state.currentConversation === context &&
+      state.conversations?.some(
+        (conversation) =>
+          conversation.id === context && conversation.hasUnread === false,
+      ) === true &&
+      adapter.readContext() === context &&
+      adapter.contentContext() === content;
+    if (arrivals.length === 0 && !scopedZero && !scopedConversation)
+      return false;
     revokeRead();
     interactionSequence += 1;
     return publish(
-      state.hasUnread ?? false,
+      scopedConversation ? state.hasUnread : (state.hasUnread ?? false),
       state.count,
       "explicit-current-local",
       generation,
       arrivals,
-      state.hasUnread === null,
-      scopedZero ? "provider-zero" : undefined,
+      scopedConversation ? false : state.hasUnread === null,
+      scopedZero
+        ? "provider-zero"
+        : scopedConversation
+          ? "conversation-read"
+          : undefined,
     );
+  };
+  host.__chatplusPrepareToastRead = (
+    notification,
+    expectedGeneration,
+    expectedIncoming,
+  ) => {
+    if (
+      disposed ||
+      adapter.source !== "discord-dom" ||
+      !visible() ||
+      expectedGeneration !== generation ||
+      expectedIncoming !== incomingSequence ||
+      !/^[0-9]{17,20}$/.test(notification?.tag ?? "")
+    )
+      return false;
+    toastRead = {
+      notification: { tag: notification.tag },
+      generation,
+      incoming: incomingSequence,
+      expires: Date.now() + 10_000,
+      context: null,
+      content: null,
+    };
+    schedule();
+    return true;
   };
   host.__chatplusReadAllStep = (operation) => {
     if (
@@ -469,15 +595,40 @@ export function installUnreadAdapter(
   };
   const interact = (event: Event) => {
     if (disposed || !event.isTrusted || !visible()) return;
+    toastRead = null;
     if (
       event instanceof KeyboardEvent &&
       ["Alt", "Control", "Meta", "Shift", "Tab"].includes(event.key)
     )
       return;
     const context = adapter.interactionContext(event);
+    const content = context === null ? null : adapter.contentContext();
+    if (adapter.source === "discord-dom") {
+      const reason =
+        context === null
+          ? "conversation-unmapped"
+          : adapter.readContext() !== context || content === null
+            ? "latest-unavailable"
+            : "conversation-ready";
+      if (readContextDiagnosticGeneration !== generation) {
+        readContextDiagnosticGeneration = generation;
+        readContextDiagnostics.clear();
+      }
+      if (
+        !readContextDiagnostics.has(reason) &&
+        post({
+          chatplusUnreadDiagnostic: 1,
+          source: adapter.source,
+          event: "read-context-checked",
+          reason,
+          generation,
+        })
+      )
+        readContextDiagnostics.add(reason);
+    }
     if (context === null) return;
     interaction = context;
-    interactionContent = adapter.contentContext();
+    interactionContent = content;
     interactionSawUnread = normalize(adapter.snapshot()).hasUnread === true;
     interactionSequence += 1;
     schedule();
@@ -491,8 +642,12 @@ export function installUnreadAdapter(
   const presentationChanged = (event: Event) => {
     // Swiph3l: A child document can lose focus while its native frame stays foreground.
     // Restoring it is presentation, never continuation of an earlier read gesture.
+    const prepared = event.type === "focus" && visible() ? toastRead : null;
     if (event.type === "blur" || event.type === "focus" || !visible())
       revokeRead();
+    // Provider onclick may refocus its document after native activation. Preserve
+    // only that existing bounded intent; focus itself never creates read intent.
+    if (prepared) toastRead = prepared;
     schedule();
   };
   document.defaultView?.addEventListener("blur", presentationChanged, true);
@@ -528,5 +683,6 @@ export function installUnreadAdapter(
     delete host.__chatplusMarkCurrentRead;
     delete host.__chatplusReadAllStep;
     delete host.__chatplusAcknowledgeAllLocal;
+    delete host.__chatplusPrepareToastRead;
   };
 }

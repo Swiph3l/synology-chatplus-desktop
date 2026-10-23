@@ -68,6 +68,7 @@ pub struct ProviderEvidence {
     pub certainty: Certainty,
     pub current_conversation: Option<String>,
     pub conversations: Vec<ConversationObservation>,
+    pub unattributed_unread: Option<bool>,
 }
 #[derive(Clone, Serialize, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -112,6 +113,8 @@ struct Tracking {
     observed_unread_arrivals: HashMap<String, HashSet<u64>>,
     observed_unread_overflow: HashSet<String>,
     provider_unread_latched: HashSet<String>,
+    provider_unread_conversations: HashMap<String, HashSet<String>>,
+    provider_unread_unattributed: HashSet<String>,
     incoming_sequence: u64,
     foreground_service: Option<String>,
     presentation_generation: u64,
@@ -141,6 +144,8 @@ pub fn remove(app: &AppHandle, id: &str) {
     tracking.observed_unread_arrivals.remove(id);
     tracking.observed_unread_overflow.remove(id);
     tracking.provider_unread_latched.remove(id);
+    tracking.provider_unread_conversations.remove(id);
+    tracking.provider_unread_unattributed.remove(id);
     tracking.provider_fingerprints.remove(id);
     tracking.local_acknowledgements.remove(id);
     tracking.revision += 1;
@@ -459,6 +464,40 @@ fn consume_provider_zero(tracking: &mut Tracking, id: &str) -> Vec<u64> {
     accepted
 }
 
+pub fn prepare_toast_read_for(app: &AppHandle, id: &str, tag: &str) -> bool {
+    if !(17..=20).contains(&tag.len()) || !tag.bytes().all(|byte| byte.is_ascii_digit()) {
+        return false;
+    }
+    let settings = crate::state::current(app);
+    let Some(configured) = settings.services.iter().find(|service| {
+        service.id == id
+            && service.enabled
+            && service.provider == crate::providers::ProviderId::Discord
+    }) else {
+        return false;
+    };
+    let captured = crate::services::with_configured(app, configured, || {
+        let service = app.state::<Service>();
+        let tracking = service.0.lock().unwrap_or_else(|error| error.into_inner());
+        if tracking.foreground_service.as_deref() != Some(id) {
+            return Err("The notification service is not foreground.".into());
+        }
+        let generation = tracking.presentation_generation;
+        let incoming = tracking.incoming_generations.get(id).copied().unwrap_or(0);
+        let script = format!(
+            "{};window.__chatplusPrepareToastRead?.({}, {}, {})",
+            presentation_script(&tracking, id),
+            serde_json::json!({ "tag": tag }),
+            generation,
+            incoming
+        );
+        Ok((app.get_webview(&crate::services::label(id)), script))
+    });
+    // Swiph3l: Projection and arming share one evaluated script. A stale queued
+    // projection must never arm an intent using a newer renderer generation.
+    matches!(captured, Ok((Some(view), script)) if view.eval(&script).is_ok())
+}
+
 pub fn accept_read_for(app: &AppHandle, id: &str, arrivals: &[u64]) {
     if !arrivals.is_empty() {
         let complete_through = {
@@ -704,6 +743,7 @@ pub fn publish_for(
     read_arrivals: &[u64],
     proof_only: bool,
     provider_zero: bool,
+    conversation_read: bool,
     evidence: &ProviderEvidence,
 ) {
     let settings = crate::state::current(app);
@@ -723,7 +763,19 @@ pub fn publish_for(
         .is_some_and(|state| state.has_unread);
     let at = now();
     let suppressed = same_local_acknowledgement(&tracking, id, count, has_unread, evidence);
-    let mut outcome = if let Some(has_unread) = has_unread.filter(|_| !suppressed) {
+    let mut outcome = if source == Source::DiscordDom && !suppressed {
+        observe_discord_conversations(
+            &mut tracking,
+            id,
+            has_unread,
+            foreground,
+            acknowledgement,
+            provider_zero,
+            conversation_read,
+            evidence,
+            at,
+        )
+    } else if let Some(has_unread) = has_unread.filter(|_| !suppressed) {
         observe_provider_scoped(
             &mut tracking,
             id,
@@ -751,6 +803,7 @@ pub fn publish_for(
         ProviderObservation {
             changed: false,
             accepted: Vec::new(),
+            conversation_accepted: false,
         }
     };
     outcome.changed |= record_provider_evidence(
@@ -790,6 +843,8 @@ pub fn publish_for(
             Reason::StaleOrBackground
         } else if provider_zero {
             Reason::ProviderZero
+        } else if conversation_read {
+            Reason::ConversationRead
         } else if !outcome.accepted.is_empty() {
             Reason::ExactArrival
         } else {
@@ -798,7 +853,9 @@ pub fn publish_for(
         notification(
             app,
             id,
-            if valid_read && (cleared || !outcome.accepted.is_empty()) {
+            if valid_read
+                && (cleared || !outcome.accepted.is_empty() || outcome.conversation_accepted)
+            {
                 Event::ReadAccepted
             } else {
                 Event::ReadRejected
@@ -832,7 +889,13 @@ fn evidence_fingerprint(
 ) -> u64 {
     let mut hash = tracking.evidence_hasher.build_hasher();
     // Selecting another conversation is presentation, never evidence of a new arrival.
-    (count, has_unread, evidence.certainty).hash(&mut hash);
+    (
+        count,
+        has_unread,
+        evidence.certainty,
+        evidence.unattributed_unread,
+    )
+        .hash(&mut hash);
     // DOM reordering cannot resurrect a locally acknowledged badge.
     let mut conversations = evidence.conversations.iter().collect::<Vec<_>>();
     conversations.sort_by(|a, b| a.id.cmp(&b.id));
@@ -1104,6 +1167,8 @@ fn acknowledge_inbox_baseline(
         state.has_unread = false;
         state.certainty = Certainty::Unknown;
         tracking.provider_unread_latched.remove(id);
+        tracking.provider_unread_conversations.remove(id);
+        tracking.provider_unread_unattributed.remove(id);
     }
     state.total_unread_count = None;
     state.locally_acknowledged = true;
@@ -1162,6 +1227,8 @@ fn acknowledge_all(tracking: &mut Tracking, id: &str, at: u64) -> (u64, Vec<u64>
         .collect();
     tracking.observed_unread_overflow.remove(id);
     tracking.provider_unread_latched.remove(id);
+    tracking.provider_unread_conversations.remove(id);
+    tracking.provider_unread_unattributed.remove(id);
     tracking.read_generations.insert(
         id.into(),
         ReadProof {
@@ -1187,6 +1254,105 @@ fn acknowledge_all(tracking: &mut Tracking, id: &str, at: u64) -> (u64, Vec<u64>
 struct ProviderObservation {
     changed: bool,
     accepted: Vec<u64>,
+    conversation_accepted: bool,
+}
+
+fn observe_discord_conversations(
+    tracking: &mut Tracking,
+    id: &str,
+    has_unread: Option<bool>,
+    foreground: bool,
+    acknowledgement: Option<u64>,
+    provider_zero: bool,
+    conversation_read: bool,
+    evidence: &ProviderEvidence,
+    at: u64,
+) -> ProviderObservation {
+    let valid_read = read_acknowledged(tracking, id, foreground, acknowledgement);
+    let mut ownership_changed = false;
+    let positives = evidence
+        .conversations
+        .iter()
+        .filter(|entry| entry.has_unread == Some(true));
+    let mut mapped_positive = false;
+    for entry in positives {
+        mapped_positive = true;
+        let owned = tracking
+            .provider_unread_conversations
+            .entry(id.into())
+            .or_default();
+        if owned.len() < 64 || owned.contains(&entry.id) {
+            ownership_changed |= owned.insert(entry.id.clone());
+        } else {
+            ownership_changed |= tracking.provider_unread_unattributed.insert(id.into());
+        }
+    }
+    if evidence.unattributed_unread == Some(true)
+        || (has_unread == Some(true)
+            && (evidence.unattributed_unread != Some(false) || !mapped_positive))
+    {
+        ownership_changed |= tracking.provider_unread_unattributed.insert(id.into());
+    }
+    let global_zero = valid_read
+        && provider_zero
+        && has_unread == Some(false)
+        && !mapped_positive
+        && evidence.unattributed_unread != Some(true);
+    let mut conversation_accepted = false;
+    if global_zero {
+        ownership_changed |= tracking.provider_unread_conversations.remove(id).is_some();
+        ownership_changed |= tracking.provider_unread_unattributed.remove(id);
+    } else if valid_read && conversation_read {
+        if let Some(current) = evidence.current_conversation.as_deref().filter(|current| {
+            evidence
+                .conversations
+                .iter()
+                .any(|entry| entry.id == *current && entry.has_unread == Some(false))
+        }) {
+            if let Some(owned) = tracking.provider_unread_conversations.get_mut(id) {
+                conversation_accepted = owned.remove(current);
+                ownership_changed |= conversation_accepted;
+            }
+        }
+    }
+    let owned = tracking
+        .provider_unread_conversations
+        .get(id)
+        .is_some_and(|owned| !owned.is_empty())
+        || tracking.provider_unread_unattributed.contains(id);
+    if owned {
+        tracking.provider_unread_latched.insert(id.into());
+    } else {
+        tracking.provider_unread_latched.remove(id);
+    }
+    // Swiph3l: A virtualized DM list can read one observed conversation without
+    // claiming global zero. Every other mapped or unattributed owner survives.
+    let known_state = if owned {
+        Some(true)
+    } else if global_zero || conversation_accepted {
+        Some(false)
+    } else {
+        has_unread.filter(|value| !*value)
+    };
+    let acknowledged = valid_read
+        && (global_zero || conversation_accepted)
+        && native_unread_complete(tracking, id);
+    let mut changed = known_state
+        .is_some_and(|value| observe(&mut tracking.observations, id, value, acknowledged, at));
+    changed |= ownership_changed;
+    if changed {
+        let state = tracking.observations.entry(id.into()).or_default();
+        state.generation += 1;
+        if conversation_accepted || global_zero {
+            state.last_read_evidence = Some(at);
+        }
+        tracking.revision += 1;
+    }
+    ProviderObservation {
+        changed,
+        accepted: Vec::new(),
+        conversation_accepted,
+    }
 }
 
 #[cfg(test)]
@@ -1278,7 +1444,11 @@ fn observe_provider_scoped(
             }
             tracking.revision += 1;
         }
-        return ProviderObservation { changed, accepted };
+        return ProviderObservation {
+            changed,
+            accepted,
+            conversation_accepted: false,
+        };
     }
     let acknowledged = valid_read && native_unread_complete(tracking, id);
     let mut changed = observe(&mut tracking.observations, id, has_unread, acknowledged, at);
@@ -1294,7 +1464,11 @@ fn observe_provider_scoped(
         }
         tracking.revision += 1;
     }
-    ProviderObservation { changed, accepted }
+    ProviderObservation {
+        changed,
+        accepted,
+        conversation_accepted: false,
+    }
 }
 
 fn read_acknowledged(
@@ -1366,6 +1540,313 @@ fn refresh_presentation(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn discord_evidence(
+        rows: &[(&str, bool)],
+        current: Option<&str>,
+        unattributed: bool,
+    ) -> ProviderEvidence {
+        ProviderEvidence {
+            current_conversation: current.map(str::to_owned),
+            conversations: rows
+                .iter()
+                .map(|(id, unread)| ConversationObservation {
+                    id: (*id).into(),
+                    has_unread: Some(*unread),
+                    count: None,
+                })
+                .collect(),
+            unattributed_unread: Some(unattributed),
+            ..Default::default()
+        }
+    }
+
+    fn discord_tracking() -> Tracking {
+        Tracking {
+            foreground_service: Some("discord".into()),
+            presentation_generation: 7,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn observed_dm_read_clears_without_claiming_a_complete_private_list() {
+        let mut tracking = discord_tracking();
+        let positive = discord_evidence(&[("12345678901234567", true)], None, false);
+        observe_discord_conversations(
+            &mut tracking,
+            "discord",
+            Some(true),
+            true,
+            None,
+            false,
+            false,
+            &positive,
+            1,
+        );
+        let current = discord_evidence(
+            &[("12345678901234567", false)],
+            Some("12345678901234567"),
+            false,
+        );
+        let unproven = observe_discord_conversations(
+            &mut tracking,
+            "discord",
+            None,
+            true,
+            None,
+            false,
+            true,
+            &current,
+            2,
+        );
+        assert!(
+            !unproven.conversation_accepted,
+            "selection or toast activation supplies no read acknowledgement"
+        );
+        assert!(tracking.observations["discord"].has_unread);
+        let read = observe_discord_conversations(
+            &mut tracking,
+            "discord",
+            None,
+            true,
+            Some(7),
+            false,
+            true,
+            &current,
+            3,
+        );
+        assert!(read.conversation_accepted);
+        assert!(!tracking.observations["discord"].has_unread);
+        assert_eq!(tracking.observations["discord"].last_read_evidence, Some(3));
+    }
+
+    #[test]
+    fn scoped_dm_read_preserves_other_conversations_and_configured_instances() {
+        let mut tracking = discord_tracking();
+        let both = discord_evidence(
+            &[("12345678901234567", true), ("22345678901234567", true)],
+            None,
+            false,
+        );
+        for service in ["discord", "other-discord"] {
+            observe_discord_conversations(
+                &mut tracking,
+                service,
+                Some(true),
+                false,
+                None,
+                false,
+                false,
+                &both,
+                1,
+            );
+        }
+        let first = discord_evidence(
+            &[("12345678901234567", false)],
+            Some("12345678901234567"),
+            false,
+        );
+        assert!(
+            observe_discord_conversations(
+                &mut tracking,
+                "discord",
+                None,
+                true,
+                Some(7),
+                false,
+                true,
+                &first,
+                2
+            )
+            .conversation_accepted
+        );
+        assert_eq!(
+            tracking.provider_unread_conversations["discord"],
+            HashSet::from(["22345678901234567".into()])
+        );
+        assert_eq!(
+            tracking.provider_unread_conversations["other-discord"].len(),
+            2
+        );
+        assert!(tracking.observations["discord"].has_unread);
+        let second = discord_evidence(
+            &[("22345678901234567", false)],
+            Some("22345678901234567"),
+            false,
+        );
+        observe_discord_conversations(
+            &mut tracking,
+            "discord",
+            None,
+            true,
+            Some(7),
+            false,
+            true,
+            &second,
+            3,
+        );
+        assert!(!tracking.observations["discord"].has_unread);
+        assert!(tracking.observations["other-discord"].has_unread);
+    }
+
+    #[test]
+    fn unattributed_dm_owner_survives_current_read_until_proven_global_zero() {
+        let mut tracking = discord_tracking();
+        let positive = discord_evidence(&[("12345678901234567", true)], None, true);
+        observe_discord_conversations(
+            &mut tracking,
+            "discord",
+            Some(true),
+            true,
+            None,
+            false,
+            false,
+            &positive,
+            1,
+        );
+        let current = discord_evidence(
+            &[("12345678901234567", false)],
+            Some("12345678901234567"),
+            false,
+        );
+        observe_discord_conversations(
+            &mut tracking,
+            "discord",
+            None,
+            true,
+            Some(7),
+            false,
+            true,
+            &current,
+            2,
+        );
+        assert!(tracking.observations["discord"].has_unread);
+        assert!(tracking.provider_unread_unattributed.contains("discord"));
+        let zero = discord_evidence(&[], None, false);
+        observe_discord_conversations(
+            &mut tracking,
+            "discord",
+            Some(false),
+            true,
+            None,
+            true,
+            false,
+            &zero,
+            3,
+        );
+        assert!(
+            tracking.observations["discord"].has_unread,
+            "a passive zero cannot clear unknown owners"
+        );
+        observe_discord_conversations(
+            &mut tracking,
+            "discord",
+            Some(false),
+            true,
+            Some(7),
+            true,
+            false,
+            &zero,
+            4,
+        );
+        assert!(!tracking.observations["discord"].has_unread);
+        assert!(!tracking.provider_unread_unattributed.contains("discord"));
+    }
+
+    #[test]
+    fn scoped_dm_read_rejects_missing_context_background_and_new_arrival_races() {
+        for invalid in [
+            "stale-generation",
+            "background",
+            "different-service",
+            "missing-row",
+            "unread-row",
+            "new-arrival",
+        ] {
+            let mut tracking = discord_tracking();
+            let positive = discord_evidence(&[("12345678901234567", true)], None, false);
+            observe_discord_conversations(
+                &mut tracking,
+                "discord",
+                Some(true),
+                true,
+                None,
+                false,
+                false,
+                &positive,
+                1,
+            );
+            let mut current = discord_evidence(
+                &[("12345678901234567", false)],
+                Some("12345678901234567"),
+                false,
+            );
+            let mut acknowledgement = Some(7);
+            match invalid {
+                "stale-generation" => acknowledgement = Some(6),
+                "different-service" => tracking.foreground_service = Some("other".into()),
+                "missing-row" => current.conversations.clear(),
+                "unread-row" => current.conversations[0].has_unread = Some(true),
+                "new-arrival" => {
+                    begin_browser_event(&mut tracking, "discord", true, None, 2, false);
+                }
+                _ => {}
+            }
+            let outcome = observe_discord_conversations(
+                &mut tracking,
+                "discord",
+                None,
+                invalid != "background",
+                acknowledgement,
+                false,
+                true,
+                &current,
+                3,
+            );
+            assert!(!outcome.conversation_accepted, "{invalid}");
+            assert!(tracking.observations["discord"].has_unread, "{invalid}");
+        }
+    }
+
+    #[test]
+    fn dm_owner_capacity_retains_overflow_until_explicit_all_cleanup() {
+        let mut tracking = discord_tracking();
+        for number in 0..65 {
+            let id = format!("1234567890123{number:04}");
+            let positive = discord_evidence(&[(&id, true)], None, false);
+            observe_discord_conversations(
+                &mut tracking,
+                "discord",
+                Some(true),
+                true,
+                None,
+                false,
+                false,
+                &positive,
+                1,
+            );
+        }
+        assert_eq!(tracking.provider_unread_conversations["discord"].len(), 64);
+        assert!(tracking.provider_unread_unattributed.contains("discord"));
+        acknowledge_all(&mut tracking, "discord", 2);
+        assert!(!tracking
+            .provider_unread_conversations
+            .contains_key("discord"));
+        assert!(!tracking.provider_unread_unattributed.contains("discord"));
+        assert!(!tracking.observations["discord"].has_unread);
+    }
+
+    #[test]
+    fn unattributed_dm_evidence_changes_the_local_all_baseline() {
+        let tracking = discord_tracking();
+        let known = discord_evidence(&[("12345678901234567", true)], None, false);
+        let unknown = discord_evidence(&[("12345678901234567", true)], None, true);
+        assert_ne!(
+            evidence_fingerprint(&tracking, None, Some(true), &known),
+            evidence_fingerprint(&tracking, None, Some(true), &unknown)
+        );
+    }
 
     #[test]
     fn native_complete_read_boundary_requires_every_unread_owner_to_be_clear() {
@@ -1949,6 +2430,7 @@ mod tests {
                 has_unread: Some(true),
                 count: Some(2),
             }],
+            unattributed_unread: None,
         };
         observe(&mut tracking.observations, "discord", true, false, 1);
         record_provider_evidence(
@@ -2078,6 +2560,7 @@ mod tests {
                 has_unread: Some(true),
                 count: Some(4),
             }],
+            unattributed_unread: None,
         };
         assert!(record_provider_evidence(
             &mut tracking,

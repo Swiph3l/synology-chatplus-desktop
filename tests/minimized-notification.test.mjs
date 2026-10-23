@@ -344,8 +344,16 @@ for (const [name, provider] of providers) {
     f.flush();
     f.gesture(f.composer, "input");
     assert.equal(f.messages.at(-1).hasUnread, true);
-    assert.equal(f.messages.at(-1).readScope, undefined);
-    assert.equal(f.messages.at(-1).acknowledgement, null);
+    assert.equal(
+      f.messages.at(-1).readScope,
+      provider === "discord" ? "conversation-read" : undefined,
+    );
+    assert.equal(
+      f.messages.at(-1).acknowledgement,
+      provider === "discord" ? 2 : null,
+    );
+    if (provider === "discord")
+      assert.equal(f.messages.at(-1).unattributedUnread, true);
   });
 
   test(`${name}: native completion ${provider === "discord" ? "cannot replay a DM proof without retained browser tokens" : "retries a trusted restored composer read that beat its notification query"}`, () => {

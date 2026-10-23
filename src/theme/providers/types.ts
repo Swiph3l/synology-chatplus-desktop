@@ -2,6 +2,7 @@ export interface ProviderUnreadSnapshot {
   hasUnread: boolean | null;
   count: number | null;
   unreadScope?: "direct-messages";
+  unattributedUnread?: boolean;
   conversations?: Array<{
     id: string;
     hasUnread: boolean;

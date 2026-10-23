@@ -201,17 +201,22 @@ test("Discord DM-zero observation and service activation cannot produce an autom
   }
 });
 
-test("Discord explicit DM read rejects other unread or unknown DMs and never reads a guild pane", async () => {
+test("Discord explicit DM read preserves other unread or unknown DMs and never reads a guild pane", async () => {
   const f = discordFixture();
   try {
     f.host.__chatplusSetForeground(true, 7);
     await settle();
     assert.equal(
       f.host.__chatplusMarkCurrentRead(),
-      false,
-      "another unread DM survives current read",
+      true,
+      "current read proposes only its exact DM",
     );
-    assert.ok(f.messages.every((event) => event.acknowledgement === null));
+    assert.equal(
+      f.messages.at(-1).hasUnread,
+      true,
+      "another unread DM survives",
+    );
+    assert.equal(f.messages.at(-1).readScope, "conversation-read");
     const other = f.document.querySelector(
       `a[href="/channels/@me/${otherChannel}"]`,
     );
@@ -222,9 +227,12 @@ test("Discord explicit DM read rejects other unread or unknown DMs and never rea
     );
     assert.equal(
       f.host.__chatplusMarkCurrentRead(),
-      false,
-      "another ambiguous muted DM survives current read",
+      true,
+      "current read does not infer a global zero from another ambiguous DM",
     );
+    assert.equal(f.messages.at(-1).hasUnread, null);
+    assert.equal(f.messages.at(-1).proofOnly, undefined);
+    assert.equal(f.messages.at(-1).readScope, "conversation-read");
     other.querySelector("span").remove();
     f.host.location.pathname = `/channels/${guild}/${channel}`;
     assert.equal(

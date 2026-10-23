@@ -930,6 +930,7 @@ pub fn attach(
                             &unread.read_arrivals,
                             unread.proof_only,
                             unread.provider_zero,
+                            unread.conversation_read,
                             &unread.evidence,
                         );
                     }
@@ -1170,6 +1171,7 @@ struct UnreadObservation {
     read_arrivals: Vec<u64>,
     proof_only: bool,
     provider_zero: bool,
+    conversation_read: bool,
     evidence: crate::unread::ProviderEvidence,
 }
 
@@ -1223,6 +1225,21 @@ fn parse_diagnostic(json: &str) -> Option<RendererDiagnostic> {
         {
             (Event::ReadStateChecked, Reason::ProviderReadUnknown)
         }
+        ("read-context-checked", "conversation-unmapped")
+            if source == crate::unread::Source::DiscordDom =>
+        {
+            (Event::ReadContextChecked, Reason::ConversationUnmapped)
+        }
+        ("read-context-checked", "latest-unavailable")
+            if source == crate::unread::Source::DiscordDom =>
+        {
+            (Event::ReadContextChecked, Reason::LatestUnavailable)
+        }
+        ("read-context-checked", "conversation-ready")
+            if source == crate::unread::Source::DiscordDom =>
+        {
+            (Event::ReadContextChecked, Reason::ConversationReady)
+        }
         _ => return None,
     };
     Some(RendererDiagnostic {
@@ -1256,6 +1273,7 @@ fn parse_unread(json: &str) -> Option<UnreadObservation> {
         proof_only: bool,
         read_scope: Option<String>,
         unread_scope: Option<String>,
+        unattributed_unread: Option<bool>,
     }
 
     // Swiph3l: Up to 256 u64 read proofs can exceed the old tiny badge payload;
@@ -1324,15 +1342,33 @@ fn parse_unread(json: &str) -> Option<UnreadObservation> {
     }
     // Swiph3l: Provider-wide zero is a distinct read scope, never inferred from
     // an ordinary empty DOM observation or allowed to override partial unread.
-    let provider_zero = match value.read_scope.as_deref() {
-        None => false,
+    let (provider_zero, conversation_read) = match value.read_scope.as_deref() {
+        None => (false, false),
         Some("provider-zero")
             if observed == Some(false)
                 && certainty == crate::unread::Certainty::KnownRead
                 && !value.proof_only
                 && value.acknowledgement.is_some() =>
         {
-            true
+            (true, false)
+        }
+        Some("conversation-read")
+            if value.source.as_deref() == Some("discord-dom")
+                && value.acknowledgement.is_some()
+                && !value.proof_only
+                && value.read_arrivals.is_empty()
+                && value
+                    .current_conversation
+                    .as_deref()
+                    .is_some_and(|current| {
+                        value.conversations.iter().any(|row| {
+                            row.id == current
+                                && row.has_unread == Some(false)
+                                && row.count.is_none()
+                        })
+                    }) =>
+        {
+            (false, true)
         }
         _ => return None,
     };
@@ -1352,9 +1388,36 @@ fn parse_unread(json: &str) -> Option<UnreadObservation> {
         crate::unread::Source::DiscordDom => {
             value.unread_scope.as_deref() != Some("direct-messages")
         }
-        _ => value.unread_scope.is_some(),
+        _ => value.unread_scope.is_some() || value.unattributed_unread.is_some(),
     } {
         return None;
+    }
+    // Swiph3l: Scoped Discord read evidence contains only public DM snowflakes,
+    // never chat names/routes. A positive with no mapped owner stays unattributed.
+    if source == crate::unread::Source::DiscordDom {
+        let dm_id = |id: &str| {
+            (17..=20).contains(&id.len()) && id.bytes().all(|byte| byte.is_ascii_digit())
+        };
+        if value
+            .current_conversation
+            .as_deref()
+            .is_some_and(|id| !dm_id(id))
+            || value.conversations.iter().any(|row| !dm_id(&row.id))
+            || (observed == Some(true)
+                && value.unattributed_unread == Some(false)
+                && !value
+                    .conversations
+                    .iter()
+                    .any(|row| row.has_unread == Some(true)))
+            || (observed == Some(false)
+                && (value.unattributed_unread == Some(true)
+                    || value
+                        .conversations
+                        .iter()
+                        .any(|row| row.has_unread == Some(true))))
+        {
+            return None;
+        }
     }
     let reason = value.reason.unwrap_or_else(|| "event".into());
     if reason.len() > 120 {
@@ -1375,11 +1438,13 @@ fn parse_unread(json: &str) -> Option<UnreadObservation> {
         read_arrivals: value.read_arrivals,
         proof_only: value.proof_only,
         provider_zero,
+        conversation_read,
         evidence: crate::unread::ProviderEvidence {
             revision: value.provider_revision,
             certainty,
             current_conversation: value.current_conversation,
             conversations: value.conversations,
+            unattributed_unread: value.unattributed_unread,
         },
     })
 }
@@ -1395,6 +1460,99 @@ pub fn attach(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn discord_conversation_read_is_exact_scoped_and_can_coexist_with_unknown_or_other_unread() {
+        for aggregate in [None, Some(false), Some(true)] {
+            let value = serde_json::json!({
+                "chatplusUnread": 1, "source": "discord-dom",
+                "unreadScope": "direct-messages", "readScope": "conversation-read",
+                "hasUnread": aggregate, "certainty": if aggregate.is_none() { "unknown" } else if aggregate == Some(true) { "known-unread" } else { "known-read" },
+                "acknowledgement": 7, "currentConversation": "111111111111111111",
+                "unattributedUnread": false,
+                "conversations": [
+                    {"id": "111111111111111111", "hasUnread": false},
+                    {"id": "222222222222222222", "hasUnread": aggregate == Some(true)}
+                ]
+            });
+            let parsed = parse_unread(&value.to_string()).unwrap();
+            assert!(parsed.conversation_read);
+            assert!(!parsed.provider_zero);
+            assert_eq!(parsed.known, aggregate.is_some());
+            assert_eq!(parsed.evidence.unattributed_unread, Some(false));
+        }
+    }
+
+    #[test]
+    fn discord_conversation_read_rejects_missing_or_cross_scope_evidence() {
+        let baseline = serde_json::json!({
+            "chatplusUnread": 1, "source": "discord-dom", "unreadScope": "direct-messages",
+            "readScope": "conversation-read", "hasUnread": null, "certainty": "unknown",
+            "acknowledgement": 7, "currentConversation": "111111111111111111",
+            "conversations": [{"id":"111111111111111111", "hasUnread": false}]
+        });
+        assert!(
+            parse_unread(&baseline.to_string())
+                .unwrap()
+                .conversation_read
+        );
+        for (key, replacement) in [
+            ("source", serde_json::json!("mattermost-dom")),
+            ("unreadScope", serde_json::Value::Null),
+            ("acknowledgement", serde_json::Value::Null),
+            (
+                "currentConversation",
+                serde_json::json!("222222222222222222"),
+            ),
+            (
+                "currentConversation",
+                serde_json::json!("conversation title"),
+            ),
+            ("conversations", serde_json::json!([])),
+            (
+                "conversations",
+                serde_json::json!([{"id":"111111111111111111", "hasUnread": true}]),
+            ),
+            ("proofOnly", serde_json::json!(true)),
+            ("readArrivals", serde_json::json!([1])),
+        ] {
+            let mut value = baseline.clone();
+            value[key] = replacement;
+            assert!(parse_unread(&value.to_string()).is_none(), "{key}");
+        }
+        let mut foreign = baseline.clone();
+        foreign["source"] = "mattermost-dom".into();
+        foreign.as_object_mut().unwrap().remove("readScope");
+        foreign.as_object_mut().unwrap().remove("unreadScope");
+        foreign["unattributedUnread"] = false.into();
+        assert!(parse_unread(&foreign.to_string()).is_none());
+    }
+
+    #[test]
+    fn discord_read_context_diagnostics_accept_only_fixed_source_and_reason_pairs() {
+        for (reason, native) in [
+            ("conversation-unmapped", "conversation_unmapped"),
+            ("latest-unavailable", "latest_unavailable"),
+            ("conversation-ready", "conversation_ready"),
+        ] {
+            let mut value = serde_json::json!({
+                "chatplusUnreadDiagnostic": 1, "source": "discord-dom",
+                "event": "read-context-checked", "reason": reason, "generation": 7
+            });
+            let parsed = parse_diagnostic(&value.to_string()).unwrap();
+            assert_eq!(
+                serde_json::to_value(parsed.event).unwrap(),
+                "read_context_checked"
+            );
+            assert_eq!(serde_json::to_value(parsed.reason).unwrap(), native);
+            value["source"] = "mattermost-dom".into();
+            assert!(parse_diagnostic(&value.to_string()).is_none());
+            value["source"] = "discord-dom".into();
+            value["reason"] = "private arbitrary message".into();
+            assert!(parse_diagnostic(&value.to_string()).is_none());
+        }
+    }
+
 
     #[test]
     fn mattermost_read_state_diagnostics_preserve_fixed_result_pairs_and_generation() {

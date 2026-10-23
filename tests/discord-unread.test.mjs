@@ -172,11 +172,15 @@ test("Discord rail evidence is DM-only and mention totals remain unknown counts"
     },
   ]) {
     const f = fixture(options);
-    assert.deepEqual(f.adapter.snapshot(), {
-      hasUnread: true,
-      count: null,
-      unreadScope: "direct-messages",
-    });
+    const { hasUnread, count, unreadScope } = f.adapter.snapshot();
+    assert.deepEqual(
+      { hasUnread, count, unreadScope },
+      {
+        hasUnread: true,
+        count: null,
+        unreadScope: "direct-messages",
+      },
+    );
     assert.equal(f.adapter.providerUnreadZero(), false);
     assert.equal(f.adapter.providerAllUnreadZero(), false);
     assert.equal(f.adapter.tracksNotificationArrivals, false);
@@ -188,11 +192,15 @@ test("Discord rail evidence is DM-only and mention totals remain unknown counts"
       '<div class="numberBadge__new">5</div><div class="unreadPill__new">Message divider</div>',
   });
   f.document.title = "(50) Discord";
-  assert.deepEqual(f.adapter.snapshot(), {
-    hasUnread: false,
-    count: null,
-    unreadScope: "direct-messages",
-  });
+  const { hasUnread, count, unreadScope } = f.adapter.snapshot();
+  assert.deepEqual(
+    { hasUnread, count, unreadScope },
+    {
+      hasUnread: false,
+      count: null,
+      unreadScope: "direct-messages",
+    },
+  );
   assert.equal(f.adapter.providerUnreadZero(), true);
   assert.equal(
     f.adapter.providerAllUnreadZero(),

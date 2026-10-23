@@ -320,21 +320,72 @@ export function createDiscordAdapter(
     const privateLists = [
       ...document.querySelectorAll('[data-list-id^="private-channels-"]'),
     ];
-    if (
-      privateLists.some((list) =>
-        [...list.querySelectorAll('a[href^="/channels/@me/"]')].some(
-          (dm) =>
-            new RegExp(`^/channels/@me/${snowflake}/?$`).test(
-              dm.getAttribute("href") ?? "",
-            ) &&
-            semanticDescendant(semanticAncestor(dm, "dm") ?? dm, "unreadPill"),
-        ),
+    const channelLink = new RegExp(`^/channels/@me/(${snowflake})/?$`);
+    const channelOf = (link: Element) =>
+      channelLink.exec(link.getAttribute("href") ?? "")?.[1] ?? null;
+    const links = privateLists.flatMap((list) =>
+      [...list.querySelectorAll('a[href^="/channels/@me/"]')].filter(channelOf),
+    );
+    const positive = new Set<string>();
+    let unattributedUnread = false;
+    for (const link of links) {
+      if (
+        semanticDescendant(semanticAncestor(link, "dm") ?? link, "unreadPill")
       )
-    ) {
-      return { hasUnread: true, count: null, unreadScope: "direct-messages" };
+        positive.add(channelOf(link)!);
     }
-    if (dms && badgePresent(dms))
-      return { hasUnread: true, count: null, unreadScope: "direct-messages" };
+    // Swiph3l: Keep only public channel identities. An unmatched badge remains
+    // unattributed instead of being silently assigned to the selected DM.
+    for (const badge of dms?.querySelectorAll("[class]") ?? []) {
+      if (
+        !semanticClass(badge, "numberBadge") ||
+        !/^[1-9][0-9]*\+?$/.test(badge.textContent?.trim() ?? "")
+      )
+        continue;
+      let mapped: string | null = null;
+      for (
+        let row: Element | null = badge;
+        row && row !== dms;
+        row = row.parentElement
+      ) {
+        const candidates = new Set(
+          [
+            row,
+            ...row.querySelectorAll(
+              'a[href^="/channels/@me/"], [data-list-item-id]',
+            ),
+          ]
+            .map(
+              (node) =>
+                channelOf(node) ??
+                new RegExp(`^guildsnav___(${snowflake})$`).exec(
+                  node.getAttribute("data-list-item-id") ?? "",
+                )?.[1] ??
+                null,
+            )
+            .filter((id): id is string => id !== null),
+        );
+        if (candidates.size > 1) break;
+        if (candidates.size === 1) {
+          mapped = [...candidates][0];
+          break;
+        }
+      }
+      if (mapped) positive.add(mapped);
+      else unattributedUnread = true;
+    }
+    const current = directMessageViewport(document, true)?.channel ?? null;
+    const currentLinks = links.filter((link) => channelOf(link) === current);
+    const currentRead =
+      current !== null &&
+      !positive.has(current) &&
+      currentLinks.length === 1 &&
+      visible(currentLinks[0] as HTMLElement, document);
+    const limit = currentRead ? 63 : 64;
+    if (positive.size > limit) unattributedUnread = true;
+    const conversations: NonNullable<ProviderUnreadSnapshot["conversations"]> =
+      [...positive].slice(0, limit).map((id) => ({ id, hasUnread: true }));
+    if (currentRead) conversations.push({ id: current!, hasUnread: false });
     // Swiph3l: The rail dot is private-message-only. Empty mention badges cannot
     // clear hidden/muted/request DMs; guild unread belongs only to Inbox proof.
     const complete =
@@ -346,9 +397,17 @@ export function createDiscordAdapter(
         directMessageViewport(document, true)?.channel ?? null,
       );
     return {
-      hasUnread: complete ? false : null,
+      hasUnread:
+        positive.size > 0 || unattributedUnread
+          ? true
+          : complete
+            ? false
+            : null,
       count: null,
       unreadScope: "direct-messages",
+      unattributedUnread,
+      conversations,
+      currentConversation: current,
     };
   };
 
