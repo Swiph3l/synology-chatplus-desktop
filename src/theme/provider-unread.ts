@@ -35,6 +35,7 @@ export function installUnreadAdapter(
   host: ProviderHostWindow,
 ) {
   let lastKey: string | undefined;
+  let lastConversationReadKey: string | undefined;
   let lastDiagnosticKey: string | undefined;
   let duplicateDiagnosticKey: string | undefined;
   let readContextDiagnosticGeneration = -1;
@@ -157,6 +158,7 @@ export function installUnreadAdapter(
     readArrivals: number[] = [],
     proofOnly = false,
     readScope?: "provider-zero" | "conversation-read",
+    proposalKey?: string,
   ) => {
     const arrivals =
       acknowledgement === null
@@ -167,7 +169,9 @@ export function installUnreadAdapter(
     // Swiph3l: State equality is separate from exact read-token equality. A new arrival
     // proof cannot disappear merely because its provider badge is unchanged.
     const proofKey = [...arrivals].sort((a, b) => a - b).join(",");
-    const key = `${providerRevision}:${hasUnread === null ? "unknown" : Number(hasUnread)}:${count ?? "dot"}:${proofOnly ? "proof" : "state"}:${readScope ?? "exact"}:${acknowledgement === null ? "observation" : `${acknowledgement}:${interactionSequence}:${proofKey}`}`;
+    const key =
+      proposalKey ??
+      `${providerRevision}:${hasUnread === null ? "unknown" : Number(hasUnread)}:${count ?? "dot"}:${proofOnly ? "proof" : "state"}:${readScope ?? "exact"}:${acknowledgement === null ? "observation" : `${acknowledgement}:${interactionSequence}:${proofKey}`}`;
     if (lastKey === key) {
       if (
         duplicateDiagnosticKey !== key &&
@@ -205,6 +209,36 @@ export function installUnreadAdapter(
       return true;
     }
     return false;
+  };
+  const publishConversationRead = (
+    state: ProviderUnreadSnapshot,
+    context: string,
+    content: string,
+    reason: string,
+  ) => {
+    const key = JSON.stringify([
+      "conversation-read",
+      generation,
+      incomingSequence,
+      context,
+      content,
+      providerRevision,
+    ]);
+    // Swiph3l: Repeated pane input cannot reread the same native owner. Keep one
+    // successful proposal apart from observations; changed evidence can retry.
+    if (lastConversationReadKey === key) return true;
+    const sent = publish(
+      state.hasUnread,
+      state.count,
+      reason,
+      generation,
+      [],
+      false,
+      "conversation-read",
+      key,
+    );
+    if (sent) lastConversationReadKey = key;
+    return sent;
   };
   const report = () => {
     scheduled = false;
@@ -251,14 +285,11 @@ export function installUnreadAdapter(
           // Swiph3l: A native toast is only intent. The exact retained message
           // must actually appear unobscured at latest in its mapped DM before a
           // scoped local read proposal; native still checks prior DM ownership.
-          publish(
-            state.hasUnread,
-            state.count,
+          publishConversationRead(
+            state,
+            context,
+            content,
             "toast-view-read-proof",
-            generation,
-            [],
-            false,
-            "conversation-read",
           );
           toastRead = null;
           interaction = null;
@@ -299,14 +330,11 @@ export function installUnreadAdapter(
     if (conversationRead && !providerZero) {
       // Swiph3l: A partial DM list is not global zero. Fresh input may read only
       // its exact observed conversation while native retains every other owner.
-      publish(
-        state.hasUnread,
-        state.count,
+      publishConversationRead(
+        state,
+        context!,
+        content!,
         "conversation-read-acknowledgement",
-        generation,
-        [],
-        false,
-        "conversation-read",
       );
       interaction = null;
       interactionSawUnread = false;

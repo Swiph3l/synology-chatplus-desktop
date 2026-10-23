@@ -39,6 +39,7 @@ function fixture({
   </body></html>`);
   let focused = true,
     covered = false,
+    failedProposals = 0,
     clock = 1000;
   const host = Object.assign(new EventTarget(), {
     location: { pathname: `/channels/@me/${first}` },
@@ -70,7 +71,20 @@ function fixture({
     offsetHeight: 300,
   });
   const bridge = bridgeMessages();
-  host.chrome = { webview: { postMessage: bridge.postMessage } };
+  host.chrome = {
+    webview: {
+      postMessage(value) {
+        if (
+          failedProposals > 0 &&
+          JSON.parse(value).readScope === "conversation-read"
+        ) {
+          failedProposals -= 1;
+          throw new Error("Bridge unavailable");
+        }
+        bridge.postMessage(value);
+      },
+    },
+  };
   const context = {
     Event,
     KeyboardEvent: class {},
@@ -127,11 +141,122 @@ function fixture({
     advance(ms) {
       clock += ms;
     },
+    failReadProposals(count = 1) {
+      failedProposals = count;
+    },
   };
 }
 function readProofs(f) {
   return f.messages.filter((event) => event.readScope === "conversation-read");
 }
+
+test("Discord repeated pane input and toast view share one automatic read proposal", async () => {
+  const f = fixture();
+  try {
+    f.foreground();
+    await settle();
+    f.read();
+    await settle();
+    for (let input = 0; input < 4; input++) {
+      f.gesture();
+      await settle();
+    }
+    assert.equal(readProofs(f).length, 1);
+    assert.equal(f.arm(), true);
+    await settle();
+    assert.equal(
+      readProofs(f).length,
+      1,
+      "a toast intent adds no duplicate view proof",
+    );
+    assert.equal(f.host.__chatplusMarkCurrentRead(), true);
+    assert.equal(f.host.__chatplusMarkCurrentRead(), true);
+    assert.equal(
+      readProofs(f).length,
+      3,
+      "deliberate current-read actions remain repeatable",
+    );
+  } finally {
+    f.stop();
+  }
+});
+
+test("Discord changed positive evidence and native arrivals permit new read proposals", async () => {
+  const f = fixture();
+  try {
+    f.foreground();
+    await settle();
+    f.read();
+    await settle();
+    f.gesture();
+    await settle();
+    assert.equal(readProofs(f).length, 1);
+    f.document.querySelector(`a[href="/channels/@me/${first}"]`).innerHTML =
+      '<span class="unreadPill_current"></span>';
+    await settle();
+    assert.equal(f.adapter.snapshot().hasUnread, true);
+    f.read();
+    await settle();
+    f.gesture();
+    await settle();
+    assert.equal(
+      readProofs(f).length,
+      2,
+      "a new positive-to-read transition is fresh evidence",
+    );
+    f.foreground(8, 3);
+    await settle();
+    f.gesture();
+    await settle();
+    assert.equal(readProofs(f).length, 3);
+    assert.equal(readProofs(f).at(-1).acknowledgement, 8);
+  } finally {
+    f.stop();
+  }
+});
+
+test("Discord changed content allows a fresh automatic read proposal", async () => {
+  const f = fixture();
+  try {
+    f.foreground();
+    await settle();
+    f.read();
+    await settle();
+    f.gesture();
+    await settle();
+    assert.equal(readProofs(f).length, 1);
+    f.document.querySelector('[id^="chat-messages-"]').id =
+      `chat-messages-${first}-444444444444444444`;
+    await settle();
+    f.gesture();
+    await settle();
+    assert.equal(readProofs(f).length, 2);
+  } finally {
+    f.stop();
+  }
+});
+
+test("Discord failed bridge delivery does not reserve the automatic proposal", async () => {
+  const f = fixture();
+  try {
+    f.foreground();
+    await settle();
+    f.read();
+    await settle();
+    f.failReadProposals();
+    f.gesture();
+    await settle();
+    assert.equal(readProofs(f).length, 0);
+    f.gesture();
+    await settle();
+    assert.equal(readProofs(f).length, 1);
+    f.gesture();
+    await settle();
+    assert.equal(readProofs(f).length, 1);
+  } finally {
+    f.stop();
+  }
+});
 
 test("Discord maps non-href DM rail items before private sidebar exists", async () => {
   const f = fixture({ privateList: false, otherUnread: true });
