@@ -378,5 +378,10 @@
   "errors.messengerUrl": "Messenger web sessions require https://www.facebook.com/messages/.",
   "rail.allowProviderNotifications": "Allow provider notifications",
   "rail.providerNotificationsEnabled": "Browser permission allowed. Reload the service if needed; desktop notification preferences still apply.",
-  "rail.providerNotificationsError": "Open the service and check Windows notification permission, then try again."
+  "rail.providerNotificationsError": "Open the service and check Windows notification permission, then try again.",
+  "rail.markDiscordInboxRead": "Mark Inbox as read",
+  "rail.discordReadAllBusy": "Discord Inbox read action is already running.",
+  "rail.discordReadAllSubmitted": "Discord’s Inbox read action was submitted. Newer ChatPlus notifications stay unread.",
+  "rail.discordReadAllConfirm": "Confirm the read action in Discord. ChatPlus has not cleared local notifications.",
+  "rail.discordReadAllUnavailable": "Could not verify Discord’s Inbox read action. Use Inbox → Unreads → Mark Inbox As Read in Discord; ChatPlus has not cleared local notifications."
 }

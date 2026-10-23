@@ -467,19 +467,32 @@ fn show(
                         arrival_generation,
                     );
                 }
-                if crate::window::activate_notification(&app, id.as_deref()).is_ok() {
-                    if let (Some(id), Some(identity)) = (id.as_deref(), identity.as_deref()) {
-                        crate::notification_bridge::report_activation(&app, id, identity);
-                    }
-                } else if let Some(id) = id.as_deref() {
-                    let _ = app.emit_to("main", "notification-issue", ());
-                    crate::diagnostics::notification(
+                if let (Some(id), Some(identity)) = (id.as_deref(), identity.as_deref()) {
+                    // Swiph3l: Retained event/config validation must precede selection;
+                    // an old toast must not activate a reused or removed service ID.
+                    crate::notification_bridge::report_activation(
                         &app,
                         id,
-                        crate::diagnostics::NotificationEvent::ToastSuppressed,
-                        crate::diagnostics::NotificationReason::ActivationFailed,
+                        identity,
                         arrival_generation,
                     );
+                } else {
+                    // Swiph3l: A test toast may recreate a closed Main window.
+                    // Keep that native creation off the COM/UI callback thread.
+                    std::thread::spawn(move || {
+                        if crate::window::activate_notification(&app, id.as_deref()).is_err() {
+                            let _ = app.emit_to("main", "notification-issue", ());
+                            if let Some(id) = id.as_deref() {
+                                crate::diagnostics::notification(
+                                    &app,
+                                    id,
+                                    crate::diagnostics::NotificationEvent::ToastSuppressed,
+                                    crate::diagnostics::NotificationReason::ActivationFailed,
+                                    arrival_generation,
+                                );
+                            }
+                        }
+                    });
                 }
             });
             Ok(())

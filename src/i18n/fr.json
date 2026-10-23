@@ -453,5 +453,10 @@
   "errors.messengerUrl": "Les sessions Web Messenger nécessitent https://www.facebook.com/messages/.",
   "rail.allowProviderNotifications": "Autoriser les notifications du fournisseur",
   "rail.providerNotificationsEnabled": "Autorisation du navigateur accordée. Rechargez le service si nécessaire ; les préférences de notifications de bureau restent applicables.",
-  "rail.providerNotificationsError": "Ouvrez le service et vérifiez l’autorisation des notifications Windows, puis réessayez."
+  "rail.providerNotificationsError": "Ouvrez le service et vérifiez l’autorisation des notifications Windows, puis réessayez.",
+  "rail.markDiscordInboxRead": "Marquer la boîte de réception comme lue",
+  "rail.discordReadAllBusy": "L’action de lecture de la boîte Discord est déjà en cours.",
+  "rail.discordReadAllSubmitted": "L’action de lecture de la boîte Discord a été envoyée. Les nouvelles notifications ChatPlus restent non lues.",
+  "rail.discordReadAllConfirm": "Confirmez l’action dans Discord. ChatPlus n’a pas effacé les notifications locales.",
+  "rail.discordReadAllUnavailable": "Impossible de vérifier l’action. Dans Discord, utilisez Boîte de réception → Non lus → Marquer la boîte de réception comme lue. ChatPlus n’a pas effacé les notifications locales."
 }

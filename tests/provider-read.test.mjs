@@ -27,7 +27,7 @@ const {
 test("read capabilities distinguish scoped local acknowledgement from unsupported provider actions", () => {
   assert.deepEqual(readCapabilities("discord-dom"), {
     current: "local",
-    all: "local",
+    all: "provider",
   });
   for (const source of ["chatplus-dom", "synology-chat-dom"])
     assert.deepEqual(readCapabilities(source), {

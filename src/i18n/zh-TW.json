@@ -453,5 +453,10 @@
   "errors.messengerUrl": "Messenger 網頁工作階段必須使用 https://www.facebook.com/messages/。",
   "rail.allowProviderNotifications": "允許服務供應商通知",
   "rail.providerNotificationsEnabled": "已允許瀏覽器通知。必要時請重新載入服務；桌面通知偏好設定仍然適用。",
-  "rail.providerNotificationsError": "請開啟服務並檢查 Windows 通知權限，然後再試一次。"
+  "rail.providerNotificationsError": "請開啟服務並檢查 Windows 通知權限，然後再試一次。",
+  "rail.markDiscordInboxRead": "將收件匣標記為已讀",
+  "rail.discordReadAllBusy": "Discord 收件匣的已讀操作正在執行中。",
+  "rail.discordReadAllSubmitted": "已送出 Discord 收件匣的已讀操作。較新的 ChatPlus 通知仍維持未讀。",
+  "rail.discordReadAllConfirm": "請在 Discord 確認已讀操作。ChatPlus 尚未清除本機通知。",
+  "rail.discordReadAllUnavailable": "無法確認 Discord 的已讀操作。請在 Discord 使用收件匣 → 未讀 → 將收件匣標記為已讀。ChatPlus 尚未清除本機通知。"
 }

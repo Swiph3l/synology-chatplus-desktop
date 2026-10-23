@@ -17,6 +17,9 @@ export interface ProviderHostWindow {
   __chatplusAcceptRead?: (arrivals: number[]) => void;
   __chatplusCompleteArrival?: (arrival: number) => void;
   __chatplusMarkCurrentRead?: () => boolean;
+  __chatplusReadAllStep?: (
+    operation: string,
+  ) => import("./providers/discord-read").InboxReadStatus;
   __chatplusAcknowledgeAllLocal?: (through: number) => void;
   chrome?: { webview?: { postMessage: (value: unknown) => void } };
 }
@@ -336,6 +339,24 @@ export function installUnreadAdapter(
       state.hasUnread === null,
     );
   };
+  host.__chatplusReadAllStep = (operation) => {
+    if (
+      disposed ||
+      !foreground ||
+      document.visibilityState !== "visible" ||
+      readCapabilities(adapter.source).all !== "provider"
+    )
+      return "unavailable";
+    const result = adapter.readAllStep?.(operation) ?? "unavailable";
+    if (result !== "submitted") return result;
+    // Swiph3l: Disabled may mean a pending request, not a successful read. The
+    // public action must also leave fresh complete provider evidence of zero;
+    // partial/unknown DOM and network errors cannot clear the captured baseline.
+    return observeState().hasUnread === false &&
+      adapter.providerUnreadZero?.() === true
+      ? "submitted"
+      : "waiting";
+  };
   host.__chatplusAcknowledgeAllLocal = (through) => {
     if (disposed || !Number.isSafeInteger(through) || through < 0) return;
     // Swiph3l: Keep the explicit action's boundary so late queries cannot restore
@@ -470,6 +491,7 @@ export function installUnreadAdapter(
     delete host.__chatplusAcceptRead;
     delete host.__chatplusCompleteArrival;
     delete host.__chatplusMarkCurrentRead;
+    delete host.__chatplusReadAllStep;
     delete host.__chatplusAcknowledgeAllLocal;
   };
 }

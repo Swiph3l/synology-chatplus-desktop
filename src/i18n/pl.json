@@ -378,5 +378,10 @@
   "errors.messengerUrl": "Sesje internetowe Messengera wymagają https://www.facebook.com/messages/.",
   "rail.allowProviderNotifications": "Zezwól na powiadomienia dostawcy",
   "rail.providerNotificationsEnabled": "Zezwolono na powiadomienia przeglądarki. W razie potrzeby przeładuj usługę; ustawienia powiadomień pulpitu nadal obowiązują.",
-  "rail.providerNotificationsError": "Otwórz usługę i sprawdź uprawnienia powiadomień systemu Windows, a następnie spróbuj ponownie."
+  "rail.providerNotificationsError": "Otwórz usługę i sprawdź uprawnienia powiadomień systemu Windows, a następnie spróbuj ponownie.",
+  "rail.markDiscordInboxRead": "Oznacz skrzynkę odbiorczą jako przeczytaną",
+  "rail.discordReadAllBusy": "Oznaczanie skrzynki Discorda jako przeczytanej już trwa.",
+  "rail.discordReadAllSubmitted": "Wysłano polecenie oznaczenia skrzynki Discorda jako przeczytanej. Nowsze powiadomienia ChatPlus pozostają nieprzeczytane.",
+  "rail.discordReadAllConfirm": "Potwierdź operację w Discordzie. ChatPlus nie wyczyścił lokalnych powiadomień.",
+  "rail.discordReadAllUnavailable": "Nie udało się potwierdzić operacji w Discordzie. Użyj Skrzynka odbiorcza → Nieprzeczytane → Oznacz skrzynkę jako przeczytaną. ChatPlus nie wyczyścił lokalnych powiadomień."
 }

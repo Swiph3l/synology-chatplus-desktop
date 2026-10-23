@@ -453,5 +453,10 @@
   "errors.messengerUrl": "Messenger の Web セッションには https://www.facebook.com/messages/ が必要です。",
   "rail.allowProviderNotifications": "サービス提供元の通知を許可",
   "rail.providerNotificationsEnabled": "ブラウザーの通知を許可しました。必要に応じてサービスを再読み込みしてください。デスクトップ通知の設定は引き続き適用されます。",
-  "rail.providerNotificationsError": "サービスを開き、Windows の通知権限を確認してから再試行してください。"
+  "rail.providerNotificationsError": "サービスを開き、Windows の通知権限を確認してから再試行してください。",
+  "rail.markDiscordInboxRead": "受信トレイを既読にする",
+  "rail.discordReadAllBusy": "Discordの受信トレイの既読操作を実行中です。",
+  "rail.discordReadAllSubmitted": "Discordの受信トレイの既読操作を送信しました。新しいChatPlus通知は未読のままです。",
+  "rail.discordReadAllConfirm": "Discordで既読操作を確認してください。ChatPlusのローカル通知は消去していません。",
+  "rail.discordReadAllUnavailable": "Discordの既読操作を確認できませんでした。Discordで受信トレイ → 未読 → 受信トレイを既読にするを使用してください。ChatPlusのローカル通知は消去していません。"
 }

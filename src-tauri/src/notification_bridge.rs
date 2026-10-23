@@ -299,13 +299,24 @@ pub fn trusted_origin(server: &str, sender: &str) -> bool {
 #[cfg(any(windows, test))]
 fn viewing_query(tag: &str, title: &str, arrival: u64) -> String {
     let payload = serde_json::json!({
-        "tag": tag.chars().take(512).collect::<String>(),
+        "tag": bounded_notification_tag(tag),
         "title": title.chars().take(160).collect::<String>(),
         "arrival": arrival,
     });
     // Swiph3l: The arrival counter prevents an older query from releasing a newer
     // renderer barrier; missing hooks/unknown tags stay conservative, without exposing bodies.
     format!("(()=>{{try{{return window.__chatplusIsViewingNotification?.({payload})===true}}catch{{return false}}}})()")
+}
+
+#[cfg(any(windows, test))]
+fn bounded_notification_tag(tag: &str) -> &str {
+    // Swiph3l: Opaque correlation evidence must stay exact. A clipped prefix
+    // could match a different event, so oversized tags remain unknown.
+    if tag.chars().take(513).count() > 512 {
+        ""
+    } else {
+        tag
+    }
 }
 
 #[cfg(any(windows, test))]
@@ -336,10 +347,19 @@ fn read_notification_content<E>(
 ) -> NotificationContent {
     // Swiph3l: Preview/property failures cannot erase an already trusted arrival;
     // an unavailable tag means unknown conversation evidence, never a guessed ID.
+    let text = |value: Result<String, E>, fallback: &str, limit| {
+        let value = value.unwrap_or_default();
+        let value = if value.trim().is_empty() {
+            fallback
+        } else {
+            &value
+        };
+        value.chars().take(limit).collect()
+    };
     NotificationContent {
-        title: read(NotificationField::Title).unwrap_or_else(|_| fallback_title.into()),
-        body: read(NotificationField::Body).unwrap_or_else(|_| fallback_body.into()),
-        tag: read(NotificationField::Tag).unwrap_or_default(),
+        title: text(read(NotificationField::Title), fallback_title, 160),
+        body: text(read(NotificationField::Body), fallback_body, 500),
+        tag: bounded_notification_tag(&read(NotificationField::Tag).unwrap_or_default()).into(),
     }
 }
 
@@ -525,12 +545,14 @@ fn current_bridge(app: &tauri::AppHandle, id: &str, bridge_id: u64) -> bool {
 }
 
 #[cfg(windows)]
-pub fn report_activation(app: &tauri::AppHandle, id: &str, identity: &str) {
+pub fn report_activation(app: &tauri::AppHandle, id: &str, identity: &str, generation: u64) {
     let context = NOTIFICATION_ACTIVATIONS.with(|contexts| {
         let mut contexts = contexts.borrow_mut();
-        let position = contexts
-            .iter()
-            .position(|context| context.service.id == id && context.identity == identity)?;
+        let position = contexts.iter().position(|context| {
+            context.service.id == id
+                && context.identity == identity
+                && context.generation == generation
+        })?;
         contexts.remove(position)
     });
     use crate::diagnostics::{
@@ -542,7 +564,7 @@ pub fn report_activation(app: &tauri::AppHandle, id: &str, identity: &str) {
             id,
             Event::ToastSuppressed,
             Reason::ActivationUnavailable,
-            0,
+            generation,
         );
         return;
     };
@@ -558,8 +580,31 @@ pub fn report_activation(app: &tauri::AppHandle, id: &str, identity: &str) {
         );
         return;
     }
-    // The existing WinRT callback dispatches here on the WebView UI apartment
-    // after restoring its service. Let the provider's own onclick route its chat.
+    // Swiph3l: Validate the retained browser event before opening a service. An
+    // obsolete toast must not focus a replacement account or clear its unread.
+    if crate::window::activate_notification_for(app, &context.service).is_err() {
+        let _ = app.emit_to("main", "notification-issue", ());
+        notification(
+            app,
+            id,
+            Event::ToastSuppressed,
+            Reason::ActivationFailed,
+            generation,
+        );
+        return;
+    }
+    if crate::unread::acknowledge_notification_local(app, &context.service, generation).is_err() {
+        notification(
+            app,
+            id,
+            Event::ToastSuppressed,
+            Reason::ActivationUnavailable,
+            generation,
+        );
+        return;
+    }
+    // The provider's own public onclick chooses the originating conversation;
+    // local acknowledgement does not claim a remote/server-side read.
     let result = unsafe { context.notification.ReportClicked() };
     if result.is_err() {
         let _ = app.emit_to("main", "notification-issue", ());
@@ -1506,6 +1551,41 @@ mod tests {
         assert!(viewing_query(&all_failed.tag, &all_failed.title, 1).contains(r#""tag":"""#));
     }
     #[test]
+    fn browser_notification_previews_preserve_sender_and_body_with_bounded_empty_fallbacks() {
+        let direct = read_notification_content(
+            |field| {
+                Ok::<_, ()>(match field {
+                    NotificationField::Title => "Alice (@alice)".into(),
+                    NotificationField::Body => "A direct message with <literal> & emoji 🙂".into(),
+                    NotificationField::Tag => "123456789012345678".into(),
+                })
+            },
+            "Discord work",
+            "New message",
+        );
+        assert_eq!(direct.title, "Alice (@alice)");
+        assert_eq!(direct.body, "A direct message with <literal> & emoji 🙂");
+        assert_eq!(direct.tag, "123456789012345678");
+        let empty = read_notification_content(
+            |_| Ok::<_, ()>(" \n\t".into()),
+            "WhatsApp",
+            "Nowa wiadomość",
+        );
+        assert_eq!(empty.title, "WhatsApp");
+        assert_eq!(empty.body, "Nowa wiadomość");
+        let large = read_notification_content(
+            |_| Ok::<_, ()>("🙂".repeat(1024)),
+            "Messenger",
+            "New message",
+        );
+        assert_eq!(large.title.chars().count(), 160);
+        assert_eq!(large.body.chars().count(), 500);
+        assert!(large.tag.is_empty());
+        let exact = "x".repeat(512);
+        assert_eq!(bounded_notification_tag(&exact), exact);
+        assert!(viewing_query(&"x".repeat(513), "Alice", 2).contains(r#""tag":"""#));
+    }
+    #[test]
     fn failed_deferral_retains_identity_and_arrival_for_immediate_conservative_delivery() {
         let arrival = ("service-origin", "stable-event-identity", 42, true);
         let result = notification_dispatch(arrival, Err::<(), _>("GetDeferral failed"));
@@ -1570,8 +1650,8 @@ mod tests {
         assert!(query.contains("catch{return false}"));
         let query = viewing_query(&"x".repeat(600), &"y".repeat(200), 8);
         assert!(query.contains(r#""arrival":8"#));
-        assert!(query.contains(&"x".repeat(512)));
-        assert!(!query.contains(&"x".repeat(513)));
+        assert!(query.contains(r#""tag":"""#));
+        assert!(!query.contains(&"x".repeat(512)));
         assert!(!query.contains(&"y".repeat(161)));
         assert!(!query.contains("body"));
     }

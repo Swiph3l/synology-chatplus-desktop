@@ -2,19 +2,22 @@ import type { ProviderUnreadAdapter } from "./types";
 
 export interface ProviderReadCapabilities {
   current: "local" | "unsupported";
-  all: "local" | "unsupported";
+  all: "local" | "provider" | "unsupported";
 }
 
-// Swiph3l: These are ChatPlus acknowledgements, never claims about server-side
-// state. Unverified providers stay unavailable until safe UI read semantics are audited.
+// Swiph3l: Local acknowledgements and a verified public provider action have
+// different semantics. Experimental providers never inherit either from badges.
 export function readCapabilities(
   source: ProviderUnreadAdapter["source"],
 ): ProviderReadCapabilities {
   return {
     current: source === "discord-dom" ? "local" : "unsupported",
-    all: ["chatplus-dom", "synology-chat-dom", "discord-dom"].includes(source)
-      ? "local"
-      : "unsupported",
+    all:
+      source === "discord-dom"
+        ? "provider"
+        : ["chatplus-dom", "synology-chat-dom"].includes(source)
+          ? "local"
+          : "unsupported",
   };
 }
 

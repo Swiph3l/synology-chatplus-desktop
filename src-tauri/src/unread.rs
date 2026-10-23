@@ -113,14 +113,26 @@ struct Tracking {
     evidence_hasher: std::collections::hash_map::RandomState,
     provider_fingerprints: HashMap<String, u64>,
     local_acknowledgements: HashMap<String, Option<u64>>,
+    provider_unread_extents: HashMap<String, ProviderUnreadExtent>,
 }
+#[derive(Default)]
+struct ProviderUnreadExtent {
+    count: Option<u32>,
+    conversations: usize,
+    clicked: u32,
+    fingerprint: Option<u64>,
+    covered_arrivals: Option<HashSet<u64>>,
+}
+#[derive(Default)]
 struct ReadProof {
     through: u64,
     excluded: HashSet<u64>,
+    exact: HashSet<u64>,
 }
 impl ReadProof {
     fn includes(&self, generation: u64) -> bool {
-        generation <= self.through && !self.excluded.contains(&generation)
+        self.exact.contains(&generation)
+            || (generation <= self.through && !self.excluded.contains(&generation))
     }
 }
 pub fn remove(app: &AppHandle, id: &str) {
@@ -134,6 +146,7 @@ pub fn remove(app: &AppHandle, id: &str) {
     tracking.observed_unread_overflow.remove(id);
     tracking.provider_fingerprints.remove(id);
     tracking.local_acknowledgements.remove(id);
+    tracking.provider_unread_extents.remove(id);
     tracking.revision += 1;
     drop(tracking);
     refresh(app);
@@ -318,6 +331,11 @@ fn record_acknowledgement(tracking: &mut Tracking, id: &str) {
     let proof = ReadProof {
         through: tracking.incoming_generations.get(id).copied().unwrap_or(0),
         excluded,
+        exact: tracking
+            .read_generations
+            .get(id)
+            .map(|proof| proof.exact.clone())
+            .unwrap_or_default(),
     };
     tracking.read_generations.insert(id.into(), proof);
 }
@@ -402,13 +420,17 @@ fn consume_provider_zero(tracking: &mut Tracking, id: &str) -> Vec<u64> {
 pub fn accept_read_for(app: &AppHandle, id: &str, arrivals: &[u64]) {
     if !arrivals.is_empty() {
         if let Some(view) = app.get_webview(&crate::services::label(id)) {
-            for chunk in arrivals.chunks(READ_ARRIVAL_LIMIT) {
-                let _ = view.eval(&format!(
-                    "window.__chatplusAcceptRead?.({})",
-                    serde_json::to_string(chunk).unwrap()
-                ));
-            }
+            accept_read_in(&view, arrivals);
         }
+    }
+}
+
+fn accept_read_in(view: &tauri::Webview, arrivals: &[u64]) {
+    for chunk in arrivals.chunks(READ_ARRIVAL_LIMIT) {
+        let _ = view.eval(&format!(
+            "window.__chatplusAcceptRead?.({})",
+            serde_json::to_string(chunk).unwrap()
+        ));
     }
 }
 
@@ -780,6 +802,9 @@ fn record_provider_evidence(
         tracking
             .provider_fingerprints
             .insert(id.into(), fingerprint);
+        if !suppressed {
+            record_provider_extent(tracking, id, count, has_unread, evidence, fingerprint);
+        }
     }
     if !suppressed {
         tracking.local_acknowledgements.remove(id);
@@ -827,25 +852,375 @@ fn record_provider_evidence(
     false
 }
 
+fn record_provider_extent(
+    tracking: &mut Tracking,
+    id: &str,
+    count: Option<u32>,
+    has_unread: Option<bool>,
+    evidence: &ProviderEvidence,
+    fingerprint: u64,
+) {
+    if has_unread == Some(false) {
+        tracking.provider_unread_extents.remove(id);
+        return;
+    }
+    let extent = tracking
+        .provider_unread_extents
+        .entry(id.into())
+        .or_default();
+    if extent.fingerprint != Some(fingerprint) {
+        extent.fingerprint = Some(fingerprint);
+        extent.covered_arrivals = None;
+    }
+    if let Some(count) = count {
+        if let Some(previous) = extent.count {
+            // Swiph3l: A provider count decrease may already include a clicked message;
+            // retire that local offset first so it cannot hide another remaining message.
+            extent.clicked = extent
+                .clicked
+                .saturating_sub(previous.saturating_sub(count));
+        }
+        extent.count = Some(count);
+    }
+    if !evidence.conversations.is_empty() {
+        extent.conversations = evidence
+            .conversations
+            .iter()
+            .filter(|conversation| conversation.has_unread == Some(true))
+            .map(|conversation| &conversation.id)
+            .collect::<HashSet<_>>()
+            .len();
+    }
+}
+
+/// The native bridge must first validate its retained event, service config and epoch.
+/// This acknowledges that one local arrival, independently of provider/server read state.
+pub fn acknowledge_notification_local(
+    app: &AppHandle,
+    service: &crate::providers::ServiceConfig,
+    arrival: u64,
+) -> Result<bool, String> {
+    let id = &service.id;
+    let (changed, view) = crate::services::with_configured(app, service, || {
+        if !service.supports_unread() {
+            return Ok((false, None));
+        }
+        let unread = app.state::<Service>();
+        let mut tracking = unread.0.lock().unwrap_or_else(|error| error.into_inner());
+        let changed = acknowledge_notification(&mut tracking, id, arrival, now());
+        drop(tracking);
+        Ok((changed, app.get_webview(&crate::services::label(id))))
+    })?;
+    if changed {
+        // Swiph3l: Keep the originating view handle after releasing the transition
+        // guard. A later label reuse must not receive this session's read projection.
+        if let Some(view) = view {
+            accept_read_in(&view, &[arrival]);
+        }
+        crate::diagnostics::notification(
+            app,
+            id,
+            crate::diagnostics::NotificationEvent::ReadAccepted,
+            crate::diagnostics::NotificationReason::ExplicitLocalAcknowledgement,
+            arrival,
+        );
+        refresh(app);
+    }
+    Ok(changed)
+}
+
+fn acknowledge_notification(tracking: &mut Tracking, id: &str, arrival: u64, at: u64) -> bool {
+    let retained = tracking
+        .observed_unread_arrivals
+        .get(id)
+        .is_some_and(|arrivals| arrivals.contains(&arrival));
+    let pending = tracking
+        .pending_generations
+        .get(id)
+        .is_some_and(|arrivals| arrivals.contains(&arrival));
+    if arrival == 0 || (!retained && !pending) {
+        return false;
+    }
+    let covered_arrivals = tracking
+        .observed_unread_arrivals
+        .get(id)
+        .into_iter()
+        .flatten()
+        .chain(tracking.pending_generations.get(id).into_iter().flatten())
+        .copied()
+        .collect::<HashSet<_>>();
+    if let Some(arrivals) = tracking.observed_unread_arrivals.get_mut(id) {
+        arrivals.remove(&arrival);
+        if arrivals.is_empty() {
+            tracking.observed_unread_arrivals.remove(id);
+        }
+    }
+    finish_event(tracking, id, arrival, true);
+    // Swiph3l: A click is exact local intent even while the provider DOM is unknown.
+    // Never advance the broad read boundary: pending/other-conversation arrivals survive.
+    let proof = tracking.read_generations.entry(id.into()).or_default();
+    proof.exact.insert(arrival);
+    // Swiph3l: Match the bridge's bounded retained activation history; duplicate
+    // browser callbacks never latch a new arrival after their first observation.
+    if proof.exact.len() > READ_ARRIVAL_LIMIT {
+        if let Some(oldest) = proof.exact.iter().min().copied() {
+            proof.exact.remove(&oldest);
+        }
+    }
+    let provider_remaining = tracking
+        .provider_unread_extents
+        .get_mut(id)
+        .is_some_and(|extent| {
+            // Swiph3l: Freeze attribution at this baseline's first click. Later
+            // arrivals cannot spend a stale count that still includes other messages.
+            if extent
+                .covered_arrivals
+                .get_or_insert(covered_arrivals)
+                .remove(&arrival)
+            {
+                extent.clicked = extent.clicked.saturating_add(1);
+            }
+            extent.count.is_some_and(|count| count > extent.clicked)
+                // Swiph3l: Without an exact notification-to-row binding, a click cannot
+                // acknowledge a second provider conversation merely by counting toasts.
+                || extent.conversations > 1
+        });
+    let cleared = native_unread_complete(tracking, id) && !provider_remaining;
+    if cleared {
+        tracking
+            .local_acknowledgements
+            .insert(id.into(), tracking.provider_fingerprints.get(id).copied());
+    }
+    let state = tracking.observations.entry(id.into()).or_default();
+    if cleared {
+        state.has_unread = false;
+        state.certainty = Certainty::Unknown;
+    }
+    state.total_unread_count = None;
+    state.locally_acknowledged = true;
+    state.last_read_evidence = Some(at);
+    state.last_update = Some(at);
+    state.generation += 1;
+    tracking.revision += 1;
+    true
+}
+
+/// Opaque, single-use boundary captured before Discord's public Inbox flow starts.
+pub struct InboxReadBaseline {
+    service: crate::providers::ServiceConfig,
+    through: u64,
+    provider_fingerprint: Option<u64>,
+    bridge_epoch: Option<u64>,
+}
+
+pub fn begin_discord_inbox_read(app: &AppHandle, id: &str) -> Result<InboxReadBaseline, String> {
+    let service = crate::state::current(app)
+        .services
+        .into_iter()
+        .find(|service| {
+            service.id == id
+                && service.enabled
+                && service.provider == crate::providers::ProviderId::Discord
+        })
+        .ok_or("Discord Inbox acknowledgement unavailable for this service.")?;
+    let (through, provider_fingerprint, bridge_epoch) =
+        crate::services::with_configured(app, &service, || {
+            let unread = app.state::<Service>();
+            let tracking = unread.0.lock().unwrap_or_else(|error| error.into_inner());
+            let boundary = (
+                tracking.incoming_generations.get(id).copied().unwrap_or(0),
+                tracking.provider_fingerprints.get(id).copied(),
+            );
+            drop(tracking);
+            let epoch = app
+                .state::<crate::desktop_notifications::Service>()
+                .0
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .bridges
+                .get(id)
+                .map(|(epoch, _)| *epoch);
+            Ok((boundary.0, boundary.1, epoch))
+        })?;
+    Ok(InboxReadBaseline {
+        service,
+        through,
+        provider_fingerprint,
+        bridge_epoch,
+    })
+}
+
+/// Call only after the bounded public UI flow submitted the verified Inbox read action.
+pub fn complete_discord_inbox_read(app: &AppHandle, baseline: InboxReadBaseline) -> bool {
+    let result = crate::services::with_configured(app, &baseline.service, || {
+        let current_epoch = app
+            .state::<crate::desktop_notifications::Service>()
+            .0
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .bridges
+            .get(&baseline.service.id)
+            .map(|(epoch, _)| *epoch);
+        if !inbox_read_scope_valid(&crate::state::current(app), &baseline, current_epoch) {
+            return Err("Discord Inbox session has changed.".into());
+        }
+        let unread = app.state::<Service>();
+        let mut tracking = unread.0.lock().unwrap_or_else(|error| error.into_inner());
+        let Some(arrivals) = acknowledge_inbox_baseline(
+            &mut tracking,
+            &baseline.service.id,
+            baseline.through,
+            baseline.provider_fingerprint,
+            now(),
+        ) else {
+            return Err("Discord Inbox read boundary is no longer available.".into());
+        };
+        drop(tracking);
+        Ok((
+            arrivals,
+            app.get_webview(&crate::services::label(&baseline.service.id)),
+        ))
+    });
+    let Ok((arrivals, view)) = result else {
+        return false;
+    };
+    if let Some(view) = view {
+        accept_read_in(&view, &arrivals);
+        let _ = view.eval(&format!(
+            "window.__chatplusAcknowledgeAllLocal?.({})",
+            baseline.through
+        ));
+    }
+    crate::diagnostics::notification(
+        app,
+        &baseline.service.id,
+        crate::diagnostics::NotificationEvent::ReadAccepted,
+        crate::diagnostics::NotificationReason::ExplicitLocalAcknowledgement,
+        baseline.through,
+    );
+    refresh(app);
+    true
+}
+
+fn inbox_read_scope_valid(
+    settings: &crate::state::Settings,
+    baseline: &InboxReadBaseline,
+    current_epoch: Option<u64>,
+) -> bool {
+    current_epoch == baseline.bridge_epoch
+        && settings.services.iter().any(|service| {
+            service.id == baseline.service.id
+                && service.provider == crate::providers::ProviderId::Discord
+                && service.url == baseline.service.url
+                && service.enabled
+        })
+}
+
+fn acknowledge_inbox_baseline(
+    tracking: &mut Tracking,
+    id: &str,
+    through: u64,
+    provider_fingerprint: Option<u64>,
+    at: u64,
+) -> Option<Vec<u64>> {
+    let latest = tracking.incoming_generations.get(id).copied().unwrap_or(0);
+    if latest < through {
+        return None;
+    }
+    let mut accepted = Vec::new();
+    for retained in [
+        &mut tracking.observed_unread_arrivals,
+        &mut tracking.pending_generations,
+    ] {
+        if let Some(arrivals) = retained.get_mut(id) {
+            arrivals.retain(|arrival| {
+                if *arrival <= through {
+                    accepted.push(*arrival);
+                    false
+                } else {
+                    true
+                }
+            });
+            if arrivals.is_empty() {
+                retained.remove(id);
+            }
+        }
+    }
+    accepted.sort_unstable();
+    accepted.dedup();
+    if latest <= through {
+        tracking.observed_unread_overflow.remove(id);
+    }
+    // Swiph3l: Opening Inbox is asynchronous. The accepted click can acknowledge
+    // its captured boundary, never messages that arrived while those UI steps ran.
+    let proof = tracking.read_generations.entry(id.into()).or_default();
+    proof.through = proof.through.max(through);
+    proof.excluded.retain(|arrival| *arrival > through);
+    for remaining in [
+        &tracking.observed_unread_arrivals,
+        &tracking.pending_generations,
+    ] {
+        proof.excluded.extend(
+            remaining
+                .get(id)
+                .into_iter()
+                .flatten()
+                .filter(|arrival| **arrival <= proof.through)
+                .copied(),
+        );
+    }
+    let same_provider = tracking.provider_fingerprints.get(id).copied() == provider_fingerprint;
+    let provider_read = tracking
+        .observations
+        .get(id)
+        .is_some_and(|state| state.certainty == Certainty::KnownRead);
+    let acknowledge_provider = same_provider || provider_read;
+    if acknowledge_provider {
+        tracking.provider_unread_extents.remove(id);
+    }
+    let cleared = acknowledge_provider && native_unread_complete(tracking, id);
+    if cleared && same_provider && provider_fingerprint.is_some() {
+        tracking
+            .local_acknowledgements
+            .insert(id.into(), provider_fingerprint);
+    }
+    let state = tracking.observations.entry(id.into()).or_default();
+    if cleared {
+        state.has_unread = false;
+        state.certainty = Certainty::Unknown;
+    }
+    state.total_unread_count = None;
+    state.locally_acknowledged = true;
+    state.last_read_evidence = Some(at);
+    state.last_update = Some(at);
+    state.generation += 1;
+    tracking.revision += 1;
+    Some(accepted)
+}
+
 /// A deliberate shell action acknowledges only local state for this stable ID.
 /// It never claims that the provider's server state was changed.
-pub fn acknowledge_all_local(app: &AppHandle, id: &str) -> Result<(), String> {
-    let settings = crate::state::current(app);
-    let service = settings
-        .services
-        .iter()
-        .find(|service| service.id == id && service.enabled && service.supports_unread())
-        .ok_or("Unread acknowledgement unavailable for this service.")?;
-    if !crate::provider_read::capabilities(service).all_local {
-        return Err("Mark all as read is unavailable for this provider.".into());
-    }
-    let (through, arrivals) = {
-        let service = app.state::<Service>();
-        let mut tracking = service.0.lock().unwrap_or_else(|e| e.into_inner());
-        acknowledge_all(&mut tracking, id, now())
-    };
-    accept_read_for(app, id, &arrivals);
-    if let Some(view) = app.get_webview(&crate::services::label(id)) {
+pub fn acknowledge_all_local_for(
+    app: &AppHandle,
+    service: &crate::providers::ServiceConfig,
+) -> Result<(), String> {
+    let id = &service.id;
+    let (through, arrivals, view) = crate::services::with_configured(app, service, || {
+        if !crate::provider_read::capabilities(service).all_local {
+            return Err("Mark all as read is unavailable for this provider.".into());
+        }
+        let unread = app.state::<Service>();
+        let mut tracking = unread.0.lock().unwrap_or_else(|error| error.into_inner());
+        let (through, arrivals) = acknowledge_all(&mut tracking, id, now());
+        drop(tracking);
+        Ok((
+            through,
+            arrivals,
+            app.get_webview(&crate::services::label(id)),
+        ))
+    })?;
+    if let Some(view) = view {
+        accept_read_in(&view, &arrivals);
         let _ = view.eval(&format!(
             "window.__chatplusAcknowledgeAllLocal?.({through})"
         ));
@@ -875,8 +1250,10 @@ fn acknowledge_all(tracking: &mut Tracking, id: &str, at: u64) -> (u64, Vec<u64>
         ReadProof {
             through,
             excluded: HashSet::new(),
+            exact: HashSet::new(),
         },
     );
+    tracking.provider_unread_extents.remove(id);
     tracking
         .local_acknowledgements
         .insert(id.into(), tracking.provider_fingerprints.get(id).copied());
@@ -1046,6 +1423,664 @@ fn refresh_presentation(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inbox_completion_acknowledges_its_baseline_but_keeps_new_arrivals_and_other_instances() {
+        let mut tracking = Tracking::default();
+        tracking.provider_fingerprints.insert("work".into(), 10);
+        let old = begin_event(&mut tracking, "work", true, None);
+        latch_arrival(&mut tracking, "work", old, 1);
+        let cutoff = tracking.incoming_generations["work"];
+        let other = begin_event(&mut tracking, "personal", true, None);
+        latch_arrival(&mut tracking, "personal", other, 2);
+        let newer = begin_event(&mut tracking, "work", true, None);
+        latch_arrival(&mut tracking, "work", newer, 3);
+
+        assert_eq!(
+            acknowledge_inbox_baseline(&mut tracking, "work", cutoff, Some(10), 4),
+            Some(vec![old])
+        );
+        assert!(tracking.observations["work"].has_unread);
+        assert!(tracking.observations["personal"].has_unread);
+        assert!(tracking.pending_generations["work"].contains(&newer));
+        assert!(!tracking.pending_generations["work"].contains(&old));
+        assert!(tracking.read_generations["work"].includes(old));
+        assert!(!tracking.read_generations["work"].includes(newer));
+        assert!(!tracking.read_generations["work"].includes(other));
+        assert!(!observe_browser_event(
+            &mut tracking,
+            "work",
+            false,
+            5,
+            true,
+            old
+        ));
+        assert!(tracking.observed_unread_arrivals["work"].contains(&newer));
+        assert!(!tracking.local_acknowledgements.contains_key("work"));
+    }
+
+    #[test]
+    fn inbox_completion_clears_only_unchanged_provider_baseline_and_does_not_guess_a_future_one() {
+        let mut tracking = Tracking::default();
+        tracking.provider_fingerprints.insert("discord".into(), 10);
+        let old = begin_event(&mut tracking, "discord", true, None);
+        latch_arrival(&mut tracking, "discord", old, 1);
+        assert_eq!(
+            acknowledge_inbox_baseline(&mut tracking, "discord", old, Some(10), 2),
+            Some(vec![old])
+        );
+        assert!(!tracking.observations["discord"].has_unread);
+        assert_eq!(tracking.local_acknowledgements["discord"], Some(10));
+        assert_eq!(
+            tracking.observations["discord"].certainty,
+            Certainty::Unknown
+        );
+
+        let newer = begin_event(&mut tracking, "discord", true, None);
+        latch_arrival(&mut tracking, "discord", newer, 3);
+        tracking.provider_fingerprints.insert("discord".into(), 20);
+        assert_eq!(
+            acknowledge_inbox_baseline(&mut tracking, "discord", newer, Some(10), 4),
+            Some(vec![newer])
+        );
+        assert!(
+            tracking.observations["discord"].has_unread,
+            "new positive provider evidence is outside the captured request"
+        );
+        assert!(!tracking.local_acknowledgements.contains_key("discord"));
+    }
+
+    #[test]
+    fn inbox_completion_accepts_changed_provider_zero_without_claiming_server_read_certainty() {
+        let mut tracking = Tracking::default();
+        let old = begin_event(&mut tracking, "discord", true, None);
+        latch_arrival(&mut tracking, "discord", old, 1);
+        tracking.provider_fingerprints.insert("discord".into(), 20);
+        tracking.observations.get_mut("discord").unwrap().certainty = Certainty::KnownRead;
+        assert_eq!(
+            acknowledge_inbox_baseline(&mut tracking, "discord", old, Some(10), 2),
+            Some(vec![old])
+        );
+        assert!(!tracking.observations["discord"].has_unread);
+        assert_eq!(
+            tracking.observations["discord"].certainty,
+            Certainty::Unknown
+        );
+        assert!(!tracking.local_acknowledgements.contains_key("discord"));
+    }
+
+    #[test]
+    fn inbox_completion_preserves_later_read_proof_and_excludes_new_unread_queries() {
+        let mut tracking = Tracking::default();
+        let old = begin_event(&mut tracking, "discord", true, None);
+        latch_arrival(&mut tracking, "discord", old, 1);
+        let later_read = begin_event(&mut tracking, "discord", true, None);
+        latch_arrival(&mut tracking, "discord", later_read, 2);
+        let pending = begin_event(&mut tracking, "discord", true, None);
+        latch_arrival(&mut tracking, "discord", pending, 3);
+        assert!(acknowledge_notification(
+            &mut tracking,
+            "discord",
+            later_read,
+            4
+        ));
+        record_acknowledgement(&mut tracking, "discord");
+        assert_eq!(tracking.read_generations["discord"].through, pending);
+
+        assert_eq!(
+            acknowledge_inbox_baseline(&mut tracking, "discord", old, None, 5),
+            Some(vec![old])
+        );
+        assert!(tracking.read_generations["discord"].includes(old));
+        assert!(tracking.read_generations["discord"].includes(later_read));
+        assert!(!tracking.read_generations["discord"].includes(pending));
+        assert!(tracking.pending_generations["discord"].contains(&pending));
+        assert!(tracking.observations["discord"].has_unread);
+    }
+
+    #[test]
+    fn inbox_completion_with_unknown_dom_never_suppresses_the_first_new_provider_evidence() {
+        let mut tracking = Tracking::default();
+        let old = begin_event(&mut tracking, "discord", true, None);
+        latch_arrival(&mut tracking, "discord", old, 1);
+        acknowledge_inbox_baseline(&mut tracking, "discord", old, None, 2).unwrap();
+        assert!(!tracking.observations["discord"].has_unread);
+        assert!(!tracking.local_acknowledgements.contains_key("discord"));
+        let new_evidence = ProviderEvidence {
+            certainty: Certainty::KnownUnread,
+            ..Default::default()
+        };
+        assert!(!same_local_acknowledgement(
+            &tracking,
+            "discord",
+            Some(2),
+            Some(true),
+            &new_evidence
+        ));
+        observe(&mut tracking.observations, "discord", true, false, 3);
+        record_provider_evidence(
+            &mut tracking,
+            "discord",
+            Some(2),
+            Some(true),
+            &new_evidence,
+            3,
+            false,
+        );
+        assert!(tracking.observations["discord"].has_unread);
+    }
+
+    #[test]
+    fn inbox_completion_resolves_old_overflow_only_without_a_newer_arrival() {
+        for newer in [false, true] {
+            let mut tracking = Tracking::default();
+            for _ in 0..=READ_ARRIVAL_LIMIT {
+                let arrival = begin_event(&mut tracking, "discord", true, None);
+                latch_arrival(&mut tracking, "discord", arrival, 1);
+                finish_event(&mut tracking, "discord", arrival, true);
+            }
+            let cutoff = tracking.incoming_generations["discord"];
+            let next = if newer {
+                let arrival = begin_event(&mut tracking, "discord", true, None);
+                latch_arrival(&mut tracking, "discord", arrival, 2);
+                Some(arrival)
+            } else {
+                None
+            };
+            acknowledge_inbox_baseline(&mut tracking, "discord", cutoff, None, 3).unwrap();
+            assert_eq!(tracking.observations["discord"].has_unread, newer);
+            assert_eq!(tracking.observed_unread_overflow.contains("discord"), newer);
+            assert!(tracking.read_generations["discord"].includes(cutoff));
+            if let Some(next) = next {
+                assert!(!tracking.read_generations["discord"].includes(next));
+                assert!(tracking.pending_generations["discord"].contains(&next));
+            }
+        }
+    }
+
+    #[test]
+    fn inbox_baseline_is_invalid_after_instance_removal_config_change_or_source_replacement() {
+        use crate::providers::{NotificationColor, ProviderId, ServiceConfig};
+        let service = ServiceConfig {
+            id: "discord-work".into(),
+            provider: ProviderId::Discord,
+            name: "Work".into(),
+            url: "https://discord.com/app/".into(),
+            enabled: true,
+            notifications: true,
+            notification_color: NotificationColor::Auto,
+        };
+        let baseline = InboxReadBaseline {
+            service: service.clone(),
+            through: 1,
+            provider_fingerprint: Some(10),
+            bridge_epoch: Some(7),
+        };
+        let settings = crate::state::Settings {
+            services: vec![service.clone()],
+            ..Default::default()
+        };
+        assert!(inbox_read_scope_valid(&settings, &baseline, Some(7)));
+        assert!(!inbox_read_scope_valid(&settings, &baseline, Some(8)));
+        assert!(!inbox_read_scope_valid(&settings, &baseline, None));
+        for configured in [
+            None,
+            Some(ServiceConfig {
+                id: "discord-personal".into(),
+                ..service.clone()
+            }),
+            Some(ServiceConfig {
+                provider: ProviderId::Whatsapp,
+                ..service.clone()
+            }),
+            Some(ServiceConfig {
+                url: "https://discord.com/channels/@me/".into(),
+                ..service.clone()
+            }),
+            Some(ServiceConfig {
+                enabled: false,
+                ..service.clone()
+            }),
+        ] {
+            let settings = crate::state::Settings {
+                services: configured.into_iter().collect(),
+                ..Default::default()
+            };
+            assert!(!inbox_read_scope_valid(&settings, &baseline, Some(7)));
+        }
+        let mut tracking = Tracking::default();
+        assert_eq!(
+            acknowledge_inbox_baseline(&mut tracking, "discord-work", 1, Some(10), 2),
+            None
+        );
+        assert!(tracking.observations.is_empty());
+    }
+
+    #[test]
+    fn toast_click_is_exact_local_intent_when_provider_dom_is_unknown() {
+        let mut tracking = Tracking::default();
+        let arrival = begin_event(&mut tracking, "whatsapp-work", true, None);
+        latch_arrival(&mut tracking, "whatsapp-work", arrival, 1);
+        finish_event(&mut tracking, "whatsapp-work", arrival, true);
+        let other = begin_event(&mut tracking, "whatsapp-personal", true, None);
+        latch_arrival(&mut tracking, "whatsapp-personal", other, 2);
+
+        assert!(acknowledge_notification(
+            &mut tracking,
+            "whatsapp-work",
+            arrival,
+            3
+        ));
+        assert!(!tracking.observations["whatsapp-work"].has_unread);
+        assert_eq!(
+            tracking.observations["whatsapp-work"].certainty,
+            Certainty::Unknown
+        );
+        assert!(tracking.observations["whatsapp-work"].locally_acknowledged);
+        assert!(tracking.observations["whatsapp-personal"].has_unread);
+        assert!(tracking.read_generations["whatsapp-work"].includes(arrival));
+        assert!(!tracking.read_generations["whatsapp-work"].includes(other));
+
+        let newer = begin_event(&mut tracking, "whatsapp-work", true, None);
+        latch_arrival(&mut tracking, "whatsapp-work", newer, 4);
+        assert!(!acknowledge_notification(
+            &mut tracking,
+            "whatsapp-work",
+            arrival,
+            5
+        ));
+        assert!(tracking.observations["whatsapp-work"].has_unread);
+        assert!(tracking.observed_unread_arrivals["whatsapp-work"].contains(&newer));
+        assert!(!tracking.read_generations["whatsapp-work"].includes(newer));
+    }
+
+    #[test]
+    fn single_provider_badge_before_its_browser_arrival_does_not_make_the_click_stick() {
+        let mut tracking = Tracking::default();
+        let evidence = ProviderEvidence {
+            revision: Some(1),
+            certainty: Certainty::KnownUnread,
+            ..Default::default()
+        };
+        observe(&mut tracking.observations, "discord", true, false, 1);
+        record_provider_evidence(
+            &mut tracking,
+            "discord",
+            Some(1),
+            Some(true),
+            &evidence,
+            1,
+            false,
+        );
+        let arrival = begin_event(&mut tracking, "discord", true, None);
+        latch_arrival(&mut tracking, "discord", arrival, 2);
+        finish_event(&mut tracking, "discord", arrival, true);
+
+        assert!(acknowledge_notification(
+            &mut tracking,
+            "discord",
+            arrival,
+            3
+        ));
+        assert!(!tracking.observations["discord"].has_unread);
+        assert!(same_local_acknowledgement(
+            &tracking,
+            "discord",
+            Some(1),
+            Some(true),
+            &evidence
+        ));
+        assert!(!observe_browser_event(
+            &mut tracking,
+            "discord",
+            false,
+            4,
+            true,
+            arrival
+        ));
+        assert!(!tracking.observations["discord"].has_unread);
+    }
+
+    #[test]
+    fn clicking_a_later_toast_cannot_acknowledge_an_earlier_pending_conversation() {
+        let mut tracking = Tracking::default();
+        let earlier = begin_event(&mut tracking, "messenger", true, None);
+        latch_arrival(&mut tracking, "messenger", earlier, 1);
+        let later = begin_event(&mut tracking, "messenger", true, None);
+        latch_arrival(&mut tracking, "messenger", later, 2);
+        finish_event(&mut tracking, "messenger", later, true);
+
+        assert!(acknowledge_notification(
+            &mut tracking,
+            "messenger",
+            later,
+            3
+        ));
+        assert!(tracking.observations["messenger"].has_unread);
+        assert!(tracking.pending_generations["messenger"].contains(&earlier));
+        assert!(!tracking.read_generations["messenger"].includes(earlier));
+        assert!(tracking.read_generations["messenger"].includes(later));
+        observe_browser_event(&mut tracking, "messenger", false, 4, true, earlier);
+        assert!(tracking.observed_unread_arrivals["messenger"].contains(&earlier));
+        assert!(acknowledge_notification(
+            &mut tracking,
+            "messenger",
+            earlier,
+            5
+        ));
+        assert!(!tracking.observations["messenger"].has_unread);
+        assert!(!observe_browser_event(
+            &mut tracking,
+            "messenger",
+            false,
+            6,
+            true,
+            later
+        ));
+        assert!(!tracking.observations["messenger"].has_unread);
+    }
+
+    #[test]
+    fn a_click_overtaking_a_query_preserves_new_arrivals_and_survives_provider_read_proofs() {
+        let mut tracking = Tracking {
+            foreground_service: Some("origin".into()),
+            presentation_generation: 3,
+            ..Default::default()
+        };
+        let clicked = begin_event(&mut tracking, "origin", true, None);
+        latch_arrival(&mut tracking, "origin", clicked, 1);
+        assert!(acknowledge_notification(
+            &mut tracking,
+            "origin",
+            clicked,
+            2
+        ));
+        let newer = begin_event(&mut tracking, "origin", true, None);
+        latch_arrival(&mut tracking, "origin", newer, 3);
+        let proof = observe_provider(
+            &mut tracking,
+            "origin",
+            true,
+            true,
+            Some(3),
+            &[clicked],
+            true,
+            4,
+        );
+        assert_eq!(proof.accepted, [clicked]);
+        assert!(tracking.read_generations["origin"].includes(clicked));
+        assert!(!tracking.read_generations["origin"].includes(newer));
+        assert!(!observe_browser_event(
+            &mut tracking,
+            "origin",
+            false,
+            5,
+            true,
+            clicked
+        ));
+        assert!(tracking.observations["origin"].has_unread);
+        assert!(tracking.pending_generations["origin"].contains(&newer));
+        assert!(tracking.observed_unread_arrivals["origin"].contains(&newer));
+    }
+
+    #[test]
+    fn a_toast_click_preserves_provider_count_beyond_retained_browser_arrivals() {
+        let mut tracking = Tracking::default();
+        let evidence = ProviderEvidence {
+            certainty: Certainty::KnownUnread,
+            ..Default::default()
+        };
+        record_provider_evidence(
+            &mut tracking,
+            "discord",
+            Some(2),
+            Some(true),
+            &evidence,
+            1,
+            false,
+        );
+        let arrival = begin_event(&mut tracking, "discord", true, None);
+        latch_arrival(&mut tracking, "discord", arrival, 2);
+        finish_event(&mut tracking, "discord", arrival, true);
+        assert!(acknowledge_notification(
+            &mut tracking,
+            "discord",
+            arrival,
+            3
+        ));
+        assert!(tracking.observations["discord"].has_unread);
+        assert!(!tracking.local_acknowledgements.contains_key("discord"));
+    }
+
+    #[test]
+    fn separate_exact_clicks_can_acknowledge_two_counted_messages_without_a_global_clear() {
+        let mut tracking = Tracking::default();
+        let evidence = ProviderEvidence {
+            certainty: Certainty::KnownUnread,
+            ..Default::default()
+        };
+        record_provider_evidence(
+            &mut tracking,
+            "discord",
+            Some(2),
+            Some(true),
+            &evidence,
+            1,
+            false,
+        );
+        let first = begin_event(&mut tracking, "discord", true, None);
+        latch_arrival(&mut tracking, "discord", first, 2);
+        finish_event(&mut tracking, "discord", first, true);
+        let second = begin_event(&mut tracking, "discord", true, None);
+        latch_arrival(&mut tracking, "discord", second, 3);
+        finish_event(&mut tracking, "discord", second, true);
+        assert!(acknowledge_notification(&mut tracking, "discord", first, 4));
+        assert!(tracking.observations["discord"].has_unread);
+        record_provider_evidence(
+            &mut tracking,
+            "discord",
+            Some(2),
+            Some(true),
+            &evidence,
+            5,
+            false,
+        );
+        assert!(acknowledge_notification(
+            &mut tracking,
+            "discord",
+            second,
+            6
+        ));
+        assert!(!tracking.observations["discord"].has_unread);
+    }
+
+    #[test]
+    fn provider_count_decrease_retires_local_offsets_before_the_next_message_click() {
+        let mut tracking = Tracking::default();
+        let evidence = ProviderEvidence {
+            certainty: Certainty::KnownUnread,
+            ..Default::default()
+        };
+        record_provider_evidence(
+            &mut tracking,
+            "discord",
+            Some(3),
+            Some(true),
+            &evidence,
+            1,
+            false,
+        );
+        let first = begin_event(&mut tracking, "discord", true, None);
+        latch_arrival(&mut tracking, "discord", first, 2);
+        finish_event(&mut tracking, "discord", first, true);
+        assert!(acknowledge_notification(&mut tracking, "discord", first, 3));
+        record_provider_evidence(
+            &mut tracking,
+            "discord",
+            Some(2),
+            Some(true),
+            &evidence,
+            4,
+            false,
+        );
+        let second = begin_event(&mut tracking, "discord", true, None);
+        latch_arrival(&mut tracking, "discord", second, 5);
+        finish_event(&mut tracking, "discord", second, true);
+        assert!(acknowledge_notification(
+            &mut tracking,
+            "discord",
+            second,
+            6
+        ));
+        assert!(
+            tracking.observations["discord"].has_unread,
+            "a count drop may already have removed the first clicked message"
+        );
+    }
+
+    #[test]
+    fn newer_arrival_clicks_cannot_spend_a_stale_provider_count_for_other_messages() {
+        let mut tracking = Tracking::default();
+        let evidence = ProviderEvidence {
+            certainty: Certainty::KnownUnread,
+            revision: Some(1),
+            ..Default::default()
+        };
+        observe(&mut tracking.observations, "discord", true, false, 1);
+        record_provider_evidence(
+            &mut tracking,
+            "discord",
+            Some(3),
+            Some(true),
+            &evidence,
+            1,
+            false,
+        );
+        let first = begin_event(&mut tracking, "discord", true, None);
+        latch_arrival(&mut tracking, "discord", first, 2);
+        finish_event(&mut tracking, "discord", first, true);
+        assert!(acknowledge_notification(&mut tracking, "discord", first, 3));
+
+        for revision in [2, 3] {
+            let newer = begin_event(&mut tracking, "discord", true, None);
+            latch_arrival(&mut tracking, "discord", newer, 4);
+            finish_event(&mut tracking, "discord", newer, true);
+            let repeated = ProviderEvidence {
+                revision: Some(revision),
+                certainty: Certainty::KnownUnread,
+                ..Default::default()
+            };
+            record_provider_evidence(
+                &mut tracking,
+                "discord",
+                Some(3),
+                Some(true),
+                &repeated,
+                5,
+                false,
+            );
+            assert!(acknowledge_notification(&mut tracking, "discord", newer, 6));
+            assert!(tracking.observations["discord"].has_unread);
+        }
+        assert_eq!(tracking.provider_unread_extents["discord"].clicked, 1);
+        assert!(native_unread_complete(&tracking, "discord"));
+    }
+
+    #[test]
+    fn a_provider_snapshot_after_its_native_arrival_still_allows_a_single_exact_click() {
+        let mut tracking = Tracking::default();
+        let arrival = begin_event(&mut tracking, "discord", true, None);
+        latch_arrival(&mut tracking, "discord", arrival, 1);
+        finish_event(&mut tracking, "discord", arrival, true);
+        let evidence = ProviderEvidence {
+            certainty: Certainty::KnownUnread,
+            ..Default::default()
+        };
+        record_provider_evidence(
+            &mut tracking,
+            "discord",
+            Some(1),
+            Some(true),
+            &evidence,
+            2,
+            false,
+        );
+        assert!(acknowledge_notification(
+            &mut tracking,
+            "discord",
+            arrival,
+            3
+        ));
+        assert!(!tracking.observations["discord"].has_unread);
+    }
+
+    #[test]
+    fn a_toast_click_cannot_discard_known_other_provider_conversations() {
+        let mut tracking = Tracking::default();
+        let evidence = ProviderEvidence {
+            certainty: Certainty::KnownUnread,
+            conversations: ["dm-a", "dm-b"]
+                .into_iter()
+                .map(|id| ConversationObservation {
+                    id: id.into(),
+                    has_unread: Some(true),
+                    count: None,
+                })
+                .collect(),
+            ..Default::default()
+        };
+        observe(&mut tracking.observations, "discord", true, false, 1);
+        record_provider_evidence(
+            &mut tracking,
+            "discord",
+            None,
+            Some(true),
+            &evidence,
+            1,
+            false,
+        );
+        let arrival = begin_event(&mut tracking, "discord", true, None);
+        latch_arrival(&mut tracking, "discord", arrival, 2);
+        finish_event(&mut tracking, "discord", arrival, true);
+        assert!(acknowledge_notification(
+            &mut tracking,
+            "discord",
+            arrival,
+            3
+        ));
+        assert!(tracking.observations["discord"].has_unread);
+        assert_eq!(tracking.observations["discord"].conversations.len(), 2);
+    }
+
+    #[test]
+    fn a_click_requires_a_retained_arrival_owned_by_that_service_and_keeps_overflow_unknown() {
+        let mut tracking = Tracking::default();
+        let other = begin_event(&mut tracking, "other", true, None);
+        latch_arrival(&mut tracking, "other", other, 1);
+        let mut first = 0;
+        for _ in 0..=READ_ARRIVAL_LIMIT {
+            let arrival = begin_event(&mut tracking, "origin", true, None);
+            if first == 0 {
+                first = arrival;
+            }
+            latch_arrival(&mut tracking, "origin", arrival, 2);
+            finish_event(&mut tracking, "origin", arrival, true);
+        }
+        assert!(!acknowledge_notification(&mut tracking, "origin", other, 3));
+        assert!(!acknowledge_notification(
+            &mut tracking,
+            "removed",
+            first,
+            3
+        ));
+        assert!(!acknowledge_notification(&mut tracking, "origin", 0, 3));
+        assert!(acknowledge_notification(&mut tracking, "origin", first, 3));
+        assert!(tracking.observations["origin"].has_unread);
+        assert!(tracking.observed_unread_overflow.contains("origin"));
+        assert!(tracking.observations["other"].has_unread);
+        assert!(!tracking.read_generations["origin"].includes(other));
+    }
+
     #[test]
     fn explicit_all_local_is_service_scoped_and_late_queries_cannot_resurrect_it() {
         let mut tracking = Tracking::default();

@@ -30,4 +30,5 @@ export interface ProviderUnreadAdapter {
   providerUnreadZero?(): boolean;
   isViewingNotification(notification: ProviderNotification): boolean;
   onHostForegroundChanged?(foreground: boolean): void;
+  readAllStep?(operation: string): import("./discord-read").InboxReadStatus;
 }

@@ -190,7 +190,10 @@ impl ServiceAction {
                     cfg!(windows) && service.supports_notifications()
                 }
                 Self::MarkCurrentRead => crate::provider_read::capabilities(service).current_local,
-                Self::MarkAllRead => crate::provider_read::capabilities(service).all_local,
+                Self::MarkAllRead => {
+                    let read = crate::provider_read::capabilities(service);
+                    read.all_local || read.all_provider
+                }
                 _ => true,
             }
     }
@@ -275,7 +278,7 @@ pub fn dispatch_service(app: &AppHandle, action: ServiceAction, id: &str) -> Res
     match action {
         ServiceAction::Open => crate::services::activate(app, id),
         ServiceAction::MarkCurrentRead => crate::provider_read::mark_current_local(app, id),
-        ServiceAction::MarkAllRead => crate::provider_read::mark_all_local(app, id),
+        ServiceAction::MarkAllRead => crate::provider_read::mark_all(app, id),
         ServiceAction::AllowProviderNotifications => {
             let permission_app = app.clone();
             let permission_id = id.to_owned();
@@ -370,7 +373,9 @@ pub fn service_popup(app: &AppHandle, id: &str, x: f64, y: f64) -> Result<(), St
             action.id(id),
             match action {
                 ServiceAction::MarkCurrentRead => crate::i18n::t(app, "rail.markCurrentReadLocal"),
-                ServiceAction::MarkAllRead => crate::i18n::t(app, "rail.markAllReadLocal"),
+                ServiceAction::MarkAllRead => {
+                    crate::i18n::t(app, crate::provider_read::all_label(&service))
+                }
                 ServiceAction::AllowProviderNotifications => {
                     crate::i18n::t(app, "rail.allowProviderNotifications")
                 }

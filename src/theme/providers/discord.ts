@@ -3,6 +3,7 @@ import type {
   ProviderUnreadAdapter,
   ProviderUnreadSnapshot,
 } from "./types";
+import { createDiscordInboxRead } from "./discord-read";
 
 const snowflake = "[0-9]{17,20}";
 const messageId = new RegExp(`^chat-messages-(${snowflake})-(${snowflake})$`);
@@ -342,6 +343,7 @@ export function createDiscordAdapter(
   };
 
   return {
+    readAllStep: createDiscordInboxRead(document),
     source: "discord-dom",
     snapshot,
     providerUnreadZero: () => snapshot().hasUnread === false,

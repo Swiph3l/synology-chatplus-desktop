@@ -453,5 +453,10 @@
   "errors.messengerUrl": "Messenger-Websitzungen benötigen https://www.facebook.com/messages/.",
   "rail.allowProviderNotifications": "Anbieterbenachrichtigungen erlauben",
   "rail.providerNotificationsEnabled": "Browserberechtigung erteilt. Lade den Dienst bei Bedarf neu; die Einstellungen für Desktopbenachrichtigungen gelten weiterhin.",
-  "rail.providerNotificationsError": "Öffne den Dienst und prüfe die Windows-Benachrichtigungsberechtigung. Versuche es dann erneut."
+  "rail.providerNotificationsError": "Öffne den Dienst und prüfe die Windows-Benachrichtigungsberechtigung. Versuche es dann erneut.",
+  "rail.markDiscordInboxRead": "Posteingang als gelesen markieren",
+  "rail.discordReadAllBusy": "Die Leseaktion für den Discord-Posteingang läuft bereits.",
+  "rail.discordReadAllSubmitted": "Die Leseaktion für den Discord-Posteingang wurde übermittelt. Neuere ChatPlus-Benachrichtigungen bleiben ungelesen.",
+  "rail.discordReadAllConfirm": "Bestätige die Leseaktion in Discord. ChatPlus hat lokale Benachrichtigungen nicht gelöscht.",
+  "rail.discordReadAllUnavailable": "Die Leseaktion konnte nicht bestätigt werden. Verwende in Discord Posteingang → Ungelesen → Posteingang als gelesen markieren. ChatPlus hat lokale Benachrichtigungen nicht gelöscht."
 }

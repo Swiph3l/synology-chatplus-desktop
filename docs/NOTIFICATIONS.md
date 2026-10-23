@@ -76,7 +76,7 @@ a current proven provider zero can recover saturation without clearing a newer
 pending arrival. Missing/ambiguous provider zero is never
 guessed, so incomplete provider navigation can still retain a dot.
 
-Selection, restore, child focus, toast activation, header/sidebar clicks, synthetic
+Selection, restore, child focus, header/sidebar clicks, synthetic
 input, stale generations, unrelated conversation activity and background badge
 disappearance do not acknowledge unread. A send action cannot clear another unread
 conversation/service. Child-document blur/focus and visibility loss revoke old
@@ -101,11 +101,45 @@ message-request/spam scope can be unknown. Synology server versions may change m
 Keep these constraints explicit. [PROVIDERS.md](PROVIDERS.md) retains audited source
 references and capability differences. DOM unread mutations never synthesize toasts.
 
+### Discord DMs and mentions
+
+Use Discord's own notification preferences to prioritize direct messages and mentions.
+Keep **User Settings > Notifications > Enable Desktop Notifications** enabled, and
+leave the desired DM conversations unmuted. For each server, open **Notification
+Settings** and choose **Only @mentions**. Check channel/category overrides too:
+an explicit **All Messages** override can still notify for every message. Set those
+overrides to mentions or inherit the server preference as appropriate. Discord's
+[desktop notification guide](https://discord.com/blog/how-to-manage-your-discord-desktop-notifications)
+and [server/channel settings](https://support.discord.com/hc/en-us/articles/215253258-Notifications-Settings-101)
+describe these controls. ChatPlus does not change them automatically.
+
+If unwanted server activity remains, review **Suppress Highlights**, event alerts
+and the optional role/@everyone/@here suppression controls. Highlights operate
+independently of the server's message-notification level, so mentions-only does not
+disable them. See [Discord's Highlights documentation](https://support.discord.com/hc/en-us/articles/5304469213079-Highlights-Notifications).
+Keep ChatPlus's global and per-service notification preferences enabled and saved;
+existing mute and privacy choices remain in force.
+
+The native toast retains the sender/conversation title supplied by Discord. Its
+public message-notification formatter includes channel/thread or group-DM context
+where available; direct DMs use the sender. **Full** additionally shows the provider's
+message excerpt, while **Sender/chat** hides the body and **Generic** hides the
+sender/conversation. The service attribution identifies the configured Discord
+instance. Missing names or locations are not recovered by scraping message content.
+[PROVIDERS.md](PROVIDERS.md#discord) records the public-source audit.
+
+ChatPlus does not add a strict DM/mention filter. Discord's browser notification
+payload does not expose a reliable universal category: its message tag identifies
+a message, not its channel or mention status. The DOM adapter can recognize an exact
+message only when it is actually rendered in the current conversation. Classifying
+every other event from titles, sidebar badges or the selected route could discard
+real DMs, so unknown events remain eligible under the existing notification policy.
+
 WhatsApp uses the official `web.whatsapp.com` session with a separate profile per
 stable service ID. It never scrapes contacts/phone numbers or uses private APIs.
 Unread badge absence never establishes account-wide zero, including filtered,
-archived, collapsed and virtualized lists. Toast activation selects the correct
-instance without acknowledging unread or guessing a chat; authenticated originating
+archived, collapsed and virtualized lists. A validated toast click selects the correct
+instance and acknowledges its exact local arrival without guessing a chat; authenticated originating
 chat routing and remote read UI semantics remain unverified. See the
 [WhatsApp audit](WHATSAPP_2026-10-22.md) for evidence and remaining QA.
 
@@ -125,7 +159,7 @@ provider-side mute. Existing false preferences remain false after upgrade. Provi
 notification settings, Discord DND and Windows permissions can prevent delivery;
 ChatPlus cannot intercept an event the provider never emits.
 
-The service context menu offers `Allow provider notifications` for the exact
+The service context menu offers `More… > Allow provider notifications` for the exact
 clicked service instance. It grants browser permission to that instance's validated
 live origin/profile; reload the service if the provider retains old permission
 guidance. Saved desktop notification and mute preferences still apply, along with
@@ -150,7 +184,9 @@ report a separate permission state and send provider notifications through Tauri
 IPC, which is unavailable to remote provider pages. Windows desktop permission
 checks and toast delivery use the native sender directly.
 
-Preview modes are Full, Sender/chat (default) and Generic. Notification content is
+Preview modes are Full (default for new or unset preferences), Sender/chat and Generic. Saved
+Sender/chat and Generic choices are retained; choose Full in desktop notification
+settings to show the sender and message excerpt on an existing profile. Notification content is
 used only for requested display and is not logged/persisted. Failed submissions
 release delivery reservations for retry. Native WebView2 completion stays on its
 owning apartment, and callback/timeout/error races cannot complete the same event
@@ -172,17 +208,36 @@ uses the active service's icon/color and fixed sample text without changing unre
 ## Explicit service read actions
 
 Right-clicking a service icon opens its native context menu using the clicked
-stable service ID, without activating it. `Mark as read (local)` is available for
+stable service ID, without activating it. Open, mute/unmute and service settings
+stay at the top, with Remove separated below. `More…` groups supported read actions,
+provider permission repair and desktop notification settings. Rename remains
+available in service settings. Unsupported read actions are omitted.
+`More… > Mark as read (local)` is available for
 Discord only when the currently rendered conversation has fresh exact message
 viewing evidence; it acknowledges only those proven arrivals in that service.
-Synology current-conversation actions stay disabled because no audited exact
-message mapping is available. `Mark all as read (local)` deliberately acknowledges
-known local state for the clicked Synology or Discord instance. These actions do
-not claim a remote/server mark-read operation. The local all-read baseline prevents
-unchanged provider unread markup from immediately restoring the same dot; a new
-native arrival or changed provider evidence can restore unread.
+Synology current-conversation actions stay unavailable because no audited exact
+message mapping is available. Synology's `Mark all as read (local)` acknowledges
+known local state for that clicked instance without claiming a server-side read.
+Its local baseline prevents unchanged provider markup from immediately restoring
+the same dot; a new native arrival or changed provider evidence can restore unread.
 
-WhatsApp current/all actions are disabled until a safe Web UI interaction is
+Discord instead offers `Mark Inbox as read`. A background task opens the provider's
+public Inbox, selects Unreads and clicks its uniquely identified **Mark Inbox As
+Read** control. This requests Discord's real read operation through its own UI;
+no token, private API or internal store is used. Discord documents this Inbox scope
+as unread messages in unmuted channels plus direct/group direct messages; it does
+not promise to include every muted channel. See the official
+[Inbox FAQ](https://support.discord.com/hc/en-us/articles/360045027712-Inbox-FAQ).
+ChatPlus acknowledges only its captured pre-action arrivals after the same scoped
+control is disabled and fresh complete provider evidence confirms zero unread. It
+preserves newer arrivals or changed positive provider
+evidence. A provider confirmation stays visible for the user. Ambiguous controls,
+an unchanged action, renderer timeout or a switched/reconfigured service produce
+guidance without clearing that captured local state. The task has a bounded wait
+and never waits on the native menu thread. Current live DOM acceptance remains
+pending; tests cover conservative control selection and failure paths.
+
+WhatsApp and Messenger current/all actions are hidden until a safe Web UI interaction is
 verified. No provider mass-click loop or hidden internal API is used. Activating a
 service, focusing the app, clicking a toast or dismissing a toast is never an
 implicit `Mark all as read` action.
@@ -191,12 +246,16 @@ implicit `Mark all as read` action.
 
 Activation uses the existing process and main window, shows it if hidden, unminimizes,
 brings it foreground/focuses it and selects the originating enabled service. It never
-creates another window/process or clears unread merely by activation. After restore,
+creates another window/process. A validated retained toast click acknowledges that
+exact local arrival, preserving other arrivals and provider evidence of other unread
+conversations. A new arrival restores unread. Dismissal, timeout and ordinary window
+activation do not acknowledge messages. After restore,
 the retained originating WebView notification receives `ReportClicked` on its COM
 apartment, allowing the provider's own click handler to route the conversation.
 No route is guessed from tags/titles. The bounded activation history retains 256
-contexts; evicted or replaced-source contexts fall back to service restore only.
-Actual foreground read evidence clears afterward. Closed-process activation still
+contexts; evicted or replaced-source contexts are ignored without opening another
+account or changing unread. Acknowledgement is local and does not claim a server-side
+read. Closed-process activation still
 requires Windows acceptance; this change handles the running application.
 
 ## Privacy-safe diagnostics
