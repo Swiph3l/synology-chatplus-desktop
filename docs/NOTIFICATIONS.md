@@ -80,16 +80,17 @@ visible message must match its exact identity; a covered or offscreen row does n
 
 ## Explicit service read actions
 
-The service rail's native context menu targets the clicked stable ID. More groups
-supported read actions, provider permission repair and notification settings.
-Unsupported actions are omitted. Local acknowledgement is labelled **local** and
-makes no server-side read claim.
+The service rail's native context menu targets the clicked stable ID. Supported
+all-read actions appear directly after Open; More groups current-conversation read,
+provider permission repair and notification settings. Unsupported actions are
+omitted. Local acknowledgement is labelled **local** and makes no server-side read
+claim.
 
 | Provider                          | Mark current                                             | Mark all                                |
 | --------------------------------- | -------------------------------------------------------- | --------------------------------------- |
 | Synology ChatPlus / Synology Chat | Unavailable without exact message mapping                | Local acknowledgement for that instance |
 | Discord                           | Local acknowledgement of proven visible message arrivals | Bounded public Inbox action             |
-| WhatsApp / Messenger              | Unavailable                                              | Unavailable                             |
+| WhatsApp / Messenger              | Unavailable                                              | Local acknowledgement for that instance |
 | Mattermost                        | Unavailable                                              | Local acknowledgement for that instance |
 | Slack                             | Unavailable                                              | Unavailable                             |
 
@@ -97,9 +98,12 @@ Discord current read additionally requires the service to be active in the nativ
 foreground. It acknowledges only exact arrivals visible in that channel/thread;
 other conversations and service instances remain unread.
 
-Synology local all-read records a baseline so unchanged provider markup does not
-immediately restore the same dot. New native arrivals or changed provider evidence
-can restore unread. Configuration is revalidated before applying the action.
+Local all-read records a baseline so unchanged provider markup does not
+immediately restore the same dot. It is available for Synology, WhatsApp, Messenger
+and Mattermost without requiring a provider DOM read adapter. It changes only
+ChatPlus state; provider messages remain unread on the server. New native arrivals
+or changed provider evidence can restore unread. Configuration is revalidated
+before applying the action.
 
 Discord **Mark Inbox as read** opens its public Inbox, selects Unreads and clicks
 only a uniquely identified scoped read-all control. It requests Discord's own read

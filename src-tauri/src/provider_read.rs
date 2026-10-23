@@ -27,10 +27,17 @@ pub fn capabilities(service: &ServiceConfig) -> Capabilities {
         );
     Capabilities {
         current_local: supported && service.provider == crate::providers::ProviderId::Discord,
-        // Swiph3l: Mattermost has native arrival evidence but no DOM read proof.
-        // Its explicit local clear must not depend on a nonexistent DOM adapter.
-        all_local: (supported && service.provider != crate::providers::ProviderId::Discord)
-            || (service.enabled && service.provider == crate::providers::ProviderId::Mattermost),
+        // Swiph3l: Explicit local all-read clears ChatPlus evidence without a
+        // provider read claim; native-arrival providers need no DOM read adapter.
+        all_local: service.enabled
+            && matches!(
+                service.provider,
+                crate::providers::ProviderId::SynologyChatplus
+                    | crate::providers::ProviderId::SynologyChat
+                    | crate::providers::ProviderId::Whatsapp
+                    | crate::providers::ProviderId::Messenger
+                    | crate::providers::ProviderId::Mattermost
+            ),
         all_provider: supported && service.provider == crate::providers::ProviderId::Discord,
     }
 }
@@ -266,40 +273,42 @@ mod tests {
         }
     }
     #[test]
-    fn mattermost_local_all_is_explicit_and_independent_of_delivery_preferences() {
-        let mut service = ServiceConfig {
-            id: "mattermost-work".into(),
-            provider: ProviderId::Mattermost,
-            name: "Work".into(),
-            url: "https://mattermost.example.com/".into(),
-            enabled: true,
-            notifications: false,
-            notification_color: NotificationColor::Auto,
-        };
-        assert!(
-            !service.supports_unread(),
-            "no DOM adapter or provider read proof is implied"
-        );
-        assert_eq!(
-            capabilities(&service),
-            Capabilities {
-                current_local: false,
-                all_local: true,
-                all_provider: false,
-            }
-        );
-        assert_eq!(all_label(&service), "rail.markAllReadLocal");
-        service.notifications = true;
-        assert!(capabilities(&service).all_local);
-        service.enabled = false;
-        assert_eq!(
-            capabilities(&service),
-            Capabilities {
-                current_local: false,
-                all_local: false,
-                all_provider: false,
-            }
-        );
+    fn native_arrival_providers_offer_only_explicit_local_all_independent_of_mute() {
+        for provider in [
+            ProviderId::Whatsapp,
+            ProviderId::Messenger,
+            ProviderId::Mattermost,
+        ] {
+            let mut service = ServiceConfig {
+                id: "work-second".into(),
+                provider,
+                name: "Work".into(),
+                url: "https://example.com/".into(),
+                enabled: true,
+                notifications: false,
+                notification_color: NotificationColor::Auto,
+            };
+            assert_eq!(
+                capabilities(&service),
+                Capabilities {
+                    current_local: false,
+                    all_local: true,
+                    all_provider: false,
+                }
+            );
+            assert_eq!(all_label(&service), "rail.markAllReadLocal");
+            service.notifications = true;
+            assert!(capabilities(&service).all_local);
+            service.enabled = false;
+            assert_eq!(
+                capabilities(&service),
+                Capabilities {
+                    current_local: false,
+                    all_local: false,
+                    all_provider: false,
+                }
+            );
+        }
     }
 
     #[test]
@@ -322,16 +331,11 @@ mod tests {
                 notifications: true,
                 notification_color: NotificationColor::Auto,
             };
-            let supported = matches!(
-                provider,
-                ProviderId::SynologyChatplus | ProviderId::SynologyChat | ProviderId::Discord
-            );
             assert_eq!(
                 capabilities(&service),
                 Capabilities {
                     current_local: provider == ProviderId::Discord,
-                    all_local: (supported && provider != ProviderId::Discord)
-                        || provider == ProviderId::Mattermost,
+                    all_local: !matches!(provider, ProviderId::Discord | ProviderId::Slack),
                     all_provider: provider == ProviderId::Discord,
                 }
             );

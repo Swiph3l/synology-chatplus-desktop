@@ -6,7 +6,8 @@ export interface ProviderReadCapabilities {
 }
 
 // Swiph3l: Local acknowledgements and a verified public provider action have
-// different semantics. Experimental providers never inherit either from badges.
+// different semantics. Local all-read is an explicit acknowledgement of captured
+// ChatPlus arrivals, independent of any provider DOM or server-side read support.
 export function readCapabilities(
   source: ProviderUnreadAdapter["source"],
 ): ProviderReadCapabilities {
@@ -15,7 +16,12 @@ export function readCapabilities(
     all:
       source === "discord-dom"
         ? "provider"
-        : ["chatplus-dom", "synology-chat-dom"].includes(source)
+        : [
+              "chatplus-dom",
+              "synology-chat-dom",
+              "whatsapp-dom",
+              "messenger-dom",
+            ].includes(source)
           ? "local"
           : "unsupported",
   };

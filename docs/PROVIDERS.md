@@ -47,9 +47,11 @@ their caller's label and URL. The WebView2 observation bridge checks the configu
 service, current source origin and document/session identity before accepting
 bounded unread or notification input.
 
-The native rail menu targets the clicked stable ID. Open, mute/unmute, Service
-settings and Remove stay at the top level; More groups supported read actions,
-browser permission repair and desktop notification settings. Rename is available
+The native rail menu targets the clicked stable ID. Open, supported all-read,
+mute/unmute, Service settings and Remove stay at the top level. More groups
+supported current-conversation read, browser permission repair and desktop
+notification settings. Synology, WhatsApp, Messenger and Mattermost offer explicitly
+labelled local all-read; Discord uses its public Inbox action. Rename is available
 in Service settings. Unsupported read actions are omitted. These controls do not
 change provider-side mute, membership or server administration.
 
@@ -148,11 +150,14 @@ Visible badge counts are not promoted to an account total. Missing badges or
 filtered, archived, collapsed and virtualized lists remain unknown, never a global
 zero.
 
-There is no reliable privacy-safe current-chat/message mapping. Current/all read
-actions and exact foreground suppression are unavailable. Native browser events
-provide notification content; DOM observations do not scrape messages or fabricate
-toasts. Activation selects the correct instance and may invoke the provider's own
-retained click handler without guessing a conversation URL or acknowledging unread.
+There is no reliable privacy-safe current-chat/message mapping. Current read,
+provider-wide read-all and exact foreground suppression are unavailable. **Mark all
+as read (local)** explicitly clears only that instance's ChatPlus unread state;
+it does not read WhatsApp messages on the server. Later arrivals or changed
+provider evidence can restore unread. Native browser events provide notification
+content; DOM observations do not scrape messages or fabricate toasts. Activation
+selects the correct instance and may invoke the provider's own retained click
+handler without guessing a conversation URL or acknowledging unread.
 The integration remains Experimental. ChatPlus Desktop is independent of WhatsApp
 and Meta.
 
@@ -165,7 +170,9 @@ WebView2 identity and isolated service profile are retained.
 The dedicated DOM adapter reports unknown. Browser notification arrivals supply
 unread and native delivery; Facebook navigation badges, contact labels, title
 counts and missing/filtered lists are not message evidence. Counts, conversation
-correlation and current/all read actions are unavailable.
+correlation and provider read actions are unavailable. **Mark all as read (local)**
+clears only that instance's ChatPlus unread state; it does not read messages on
+the server. Later native arrivals restore unread.
 
 This is a whole-origin Facebook session: navigation and browser notifications can
 include non-Messenger Facebook content. ChatPlus cannot reliably classify every

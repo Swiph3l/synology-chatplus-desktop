@@ -29,19 +29,16 @@ test("read capabilities distinguish scoped local acknowledgement from unsupporte
     current: "local",
     all: "provider",
   });
-  for (const source of ["chatplus-dom", "synology-chat-dom"])
+  for (const source of [
+    "chatplus-dom",
+    "synology-chat-dom",
+    "whatsapp-dom",
+    "messenger-dom",
+  ])
     assert.deepEqual(readCapabilities(source), {
       current: "unsupported",
       all: "local",
     });
-  assert.deepEqual(readCapabilities("whatsapp-dom"), {
-    current: "unsupported",
-    all: "unsupported",
-  });
-  assert.deepEqual(readCapabilities("messenger-dom"), {
-    current: "unsupported",
-    all: "unsupported",
-  });
 });
 
 test("explicit current read retains unknown and unrelated arrivals and requires a stable mapped pane", () => {

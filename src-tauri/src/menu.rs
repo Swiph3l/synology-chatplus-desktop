@@ -222,6 +222,9 @@ fn service_actions(service: &ServiceConfig) -> Vec<ServiceMenuEntry> {
         return Vec::new();
     }
     let mut actions = vec![Action(ServiceAction::Open)];
+    if ServiceAction::MarkAllRead.allowed(service) {
+        actions.push(Action(ServiceAction::MarkAllRead));
+    }
     if service.supports_notifications() {
         actions.push(Action(if service.notifications {
             ServiceAction::Mute
@@ -230,11 +233,10 @@ fn service_actions(service: &ServiceConfig) -> Vec<ServiceMenuEntry> {
         }));
     }
     actions.push(Action(ServiceAction::Settings));
-    // Swiph3l: Keep daily actions short. Only verified capabilities belong in the
-    // advanced submenu; permission repair must remain reachable for embedded views.
+    // Swiph3l: Keep one daily all-read action directly accessible, with its provider
+    // or local label; scoped current-read and permission repair stay in More.
     let more = [
         ServiceAction::MarkCurrentRead,
-        ServiceAction::MarkAllRead,
         ServiceAction::AllowProviderNotifications,
         ServiceAction::Notifications,
     ]
@@ -770,7 +772,7 @@ mod tests {
         use crate::providers::ProviderId;
         use ServiceMenuEntry::{Action, More};
         let mut service = configured("first", ProviderId::SynologyChatplus);
-        let mut advanced = vec![ServiceAction::MarkAllRead];
+        let mut advanced = Vec::new();
         if cfg!(windows) {
             advanced.push(ServiceAction::AllowProviderNotifications);
         }
@@ -779,6 +781,7 @@ mod tests {
             service_actions(&service),
             vec![
                 Action(ServiceAction::Open),
+                Action(ServiceAction::MarkAllRead),
                 Action(ServiceAction::Mute),
                 Action(ServiceAction::Settings),
                 More(advanced),
@@ -852,7 +855,7 @@ mod tests {
         );
     }
     #[test]
-    fn experimental_provider_submenus_keep_permission_repair_and_hide_unverified_reads() {
+    fn experimental_provider_menus_offer_local_all_without_unverified_current_reads() {
         for provider in [
             crate::providers::ProviderId::Whatsapp,
             crate::providers::ProviderId::Messenger,
@@ -861,11 +864,16 @@ mod tests {
             let second = configured("account-b", provider);
             for service in [&first, &second] {
                 let actions = visible_actions(service);
-                assert_eq!(service_actions(service).len(), 5);
+                assert_eq!(service_actions(service).len(), 6);
                 assert!(!actions.contains(&ServiceAction::MarkCurrentRead));
-                assert!(!actions.contains(&ServiceAction::MarkAllRead));
+                assert!(service_actions(service)
+                    .contains(&ServiceMenuEntry::Action(ServiceAction::MarkAllRead)));
                 assert!(!ServiceAction::MarkCurrentRead.allowed(service));
-                assert!(!ServiceAction::MarkAllRead.allowed(service));
+                assert!(ServiceAction::MarkAllRead.allowed(service));
+                assert_eq!(
+                    crate::provider_read::all_label(service),
+                    "rail.markAllReadLocal"
+                );
                 assert_eq!(
                     actions.contains(&ServiceAction::AllowProviderNotifications),
                     cfg!(windows)
@@ -911,6 +919,45 @@ mod tests {
         ] {
             assert!(!action.menu_enabled(&service, Some("discord-work")));
         }
+    }
+    #[test]
+    fn read_all_is_one_top_level_action_with_provider_or_local_semantics() {
+        use crate::providers::ProviderId;
+        for (provider, label) in [
+            (ProviderId::SynologyChatplus, "rail.markAllReadLocal"),
+            (ProviderId::SynologyChat, "rail.markAllReadLocal"),
+            (ProviderId::Discord, "rail.markDiscordInboxRead"),
+            (ProviderId::Whatsapp, "rail.markAllReadLocal"),
+            (ProviderId::Messenger, "rail.markAllReadLocal"),
+            (ProviderId::Mattermost, "rail.markAllReadLocal"),
+        ] {
+            let mut service = configured("work-second", provider);
+            for notifications in [true, false] {
+                service.notifications = notifications;
+                let entries = service_actions(&service);
+                assert_eq!(
+                    entries.get(1),
+                    Some(&ServiceMenuEntry::Action(ServiceAction::MarkAllRead)),
+                    "the daily read-all action follows Open"
+                );
+                assert_eq!(
+                    visible_actions(&service)
+                        .iter()
+                        .filter(|action| **action == ServiceAction::MarkAllRead)
+                        .count(),
+                    1,
+                    "More must not duplicate the top-level action"
+                );
+                assert_eq!(crate::provider_read::all_label(&service), label);
+                assert!(ServiceAction::MarkAllRead.menu_enabled(&service, Some("personal-first")));
+                assert_eq!(
+                    ServiceAction::parse(&ServiceAction::MarkAllRead.id(&service.id)),
+                    Some((ServiceAction::MarkAllRead, "work-second"))
+                );
+            }
+        }
+        let service = configured("unsupported", ProviderId::Slack);
+        assert!(!visible_actions(&service).contains(&ServiceAction::MarkAllRead));
     }
     #[test]
     fn mute_updates_only_target_preference_and_revalidates_stale_actions() {
@@ -982,7 +1029,7 @@ mod tests {
                 Some((action, "mattermost-private"))
             );
         }
-        let mut advanced = vec![ServiceAction::MarkAllRead];
+        let mut advanced = Vec::new();
         if cfg!(windows) {
             advanced.push(ServiceAction::AllowProviderNotifications);
         }
@@ -991,6 +1038,7 @@ mod tests {
             service_actions(&clicked),
             vec![
                 ServiceMenuEntry::Action(ServiceAction::Open),
+                ServiceMenuEntry::Action(ServiceAction::MarkAllRead),
                 ServiceMenuEntry::Action(ServiceAction::Mute),
                 ServiceMenuEntry::Action(ServiceAction::Settings),
                 ServiceMenuEntry::More(advanced),
