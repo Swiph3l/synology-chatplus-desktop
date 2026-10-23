@@ -225,7 +225,7 @@ body.services-page {
   width: 8px;
   height: 8px;
   background: var(--notification-color, var(--accent));
-  border: 2px solid var(--surface);
+  border: 1px solid #111;
   border-radius: 50%;
 }
 .notification-badge {
@@ -251,7 +251,7 @@ body.services-page {
   min-width: 16px;
   min-height: 16px;
   padding: 0 3px;
-  border: 2px solid var(--surface);
+  border: 1px solid #111;
   border-radius: 9px;
   font-size: 9px;
 }

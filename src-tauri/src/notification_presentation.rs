@@ -148,17 +148,15 @@ fn icon_rgba(source: &tauri::image::Image<'_>, color: [u8; 3]) -> Vec<u8> {
                 .copy_from_slice(&source.rgba()[source_index..source_index + 4]);
         }
     }
-    // Swiph3l: Match the rail's top-right service-color dot. A thin two-tone
-    // separator keeps even black/white custom colors visible on either Windows theme.
-    for y in 5..35 {
-        for x in 93..123 {
+    // Swiph3l: Match the rail's thin dark outline without a pale halo, while
+    // preserving the user's service color in the entire center of the dot.
+    for y in 6..34 {
+        for x in 94..122 {
             let distance = (x as f32 + 0.5 - 108.).powi(2) + (y as f32 + 0.5 - 20.).powi(2);
             let pixel = if distance <= 12_f32.powi(2) {
                 [color[0], color[1], color[2], 255]
             } else if distance <= 14_f32.powi(2) {
-                [248, 250, 252, 255]
-            } else if distance <= 15_f32.powi(2) {
-                [25, 29, 35, 255]
+                [17, 17, 17, 255]
             } else {
                 continue;
             };
@@ -244,7 +242,7 @@ pub fn icon_path(
     std::fs::create_dir_all(&directory).map_err(|_| "Icon cache unavailable")?;
     let path = directory.join(format!(
         // Keep prior cache files intact for notifications already in Action Center.
-        "v2-{provider:?}-{:02x}{:02x}{:02x}.png",
+        "v3-{provider:?}-{:02x}{:02x}{:02x}.png",
         color[0], color[1], color[2]
     ));
     if !path.is_file() {
@@ -433,17 +431,23 @@ mod tests {
         }
     }
     #[test]
-    fn unframed_provider_art_preserves_translucent_pixels_and_black_white_dots() {
+    fn unframed_provider_art_preserves_alpha_and_uses_only_a_thin_dark_dot_outline() {
         let pixel = [70, 120, 180, 127];
         let source = tauri::image::Image::new_owned(pixel.to_vec(), 1, 1);
-        for color in [[0, 0, 0], [255, 255, 255]] {
+        for color in [[0, 0, 0], [255, 255, 255], [18, 171, 239]] {
             let rgba = icon_rgba(&source, color);
             let at = |x: usize, y: usize| &rgba[(y * 128 + x) * 4..(y * 128 + x) * 4 + 4];
             assert_eq!(at(64, 64), pixel);
             assert_eq!(at(4, 64), [0, 0, 0, 0]);
             assert_eq!(at(108, 20), [color[0], color[1], color[2], 255]);
-            assert_eq!(at(121, 20), [248, 250, 252, 255]);
-            assert_eq!(at(122, 20), [25, 29, 35, 255]);
+            assert_eq!(at(119, 20), [color[0], color[1], color[2], 255]);
+            assert_eq!(at(120, 20), [17, 17, 17, 255]);
+            assert_eq!(at(121, 20), [17, 17, 17, 255]);
+            assert_eq!(at(122, 20), [0, 0, 0, 0]);
+            assert_eq!(at(108, 8), [color[0], color[1], color[2], 255]);
+            assert_eq!(at(108, 7), [17, 17, 17, 255]);
+            assert_eq!(at(108, 6), [17, 17, 17, 255]);
+            assert_eq!(at(108, 5), [0, 0, 0, 0]);
         }
     }
 }
