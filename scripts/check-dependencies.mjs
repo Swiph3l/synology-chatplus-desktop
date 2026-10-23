@@ -37,12 +37,43 @@ function lockedPackages(cargoLock) {
     }));
 }
 
+function checkNodeTypes(packageJson, packageLock) {
+  // Swiph3l: TypeScript must reject APIs unavailable on the oldest supported Node
+  // line. Keep the engine format explicit instead of approximating arbitrary semver.
+  const engine = packageJson.engines?.node;
+  const ranges =
+    typeof engine === "string" ? engine.trim().split(/\s*\|\|\s*/) : [];
+  const majors = ranges.map((range) => /^\^(\d+)\.\d+\.\d+$/.exec(range)?.[1]);
+  if (majors.length === 0 || majors.some((major) => major === undefined)) {
+    throw new Error(
+      'Declare engines.node as explicit caret ranges, for example "^22.12.0 || ^24.0.0", before checking the Node typing baseline.',
+    );
+  }
+  const oldest = Math.min(...majors.map(Number));
+  const spec = packageJson.devDependencies?.["@types/node"];
+  const locked = packageLock.packages?.["node_modules/@types/node"]?.version;
+  const declaredMajor = /^[~^=]?(\d+)\.\d+\.\d+$/.exec(spec ?? "")?.[1];
+  const lockedMajor = /^(\d+)\.\d+\.\d+$/.exec(locked ?? "")?.[1];
+  if (
+    declaredMajor === undefined ||
+    lockedMajor === undefined ||
+    Number(declaredMajor) !== oldest ||
+    Number(lockedMajor) !== oldest ||
+    packageLock.packages?.[""]?.devDependencies?.["@types/node"] !== spec
+  ) {
+    throw new Error(
+      `Keep the declared and locked @types/node major at ${oldest}, matching the oldest engines.node runtime; update the typing baseline together with runtime support.`,
+    );
+  }
+}
+
 export function checkDependencyAlignment({
   packageJson,
   packageLock,
   cargoToml,
   cargoLock,
 }) {
+  checkNodeTypes(packageJson, packageLock);
   // Swiph3l: Tauri patch versions may differ across ecosystems, but an API/native
   // minor migration must be reviewed together before either build can proceed.
   const apiSpec = packageJson.dependencies?.["@tauri-apps/api"];
@@ -127,6 +158,6 @@ if (
     readDependencySources(fileURLToPath(new URL("../", import.meta.url))),
   );
   console.log(
-    "Tauri API/native minor versions and WebView COM interfaces are aligned.",
+    "Node typing baseline, Tauri API/native minor versions and WebView COM interfaces are aligned.",
   );
 }

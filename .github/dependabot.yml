@@ -6,6 +6,10 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    ignore:
+      # Swiph3l: Newer Node typings can admit APIs absent from our oldest supported runtime.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       # Swiph3l: Groups cannot span ecosystems; check:dependencies guards API/native alignment.
       tauri-javascript:

@@ -7,11 +7,19 @@ import {
 
 function fixture() {
   return {
-    packageJson: { dependencies: { "@tauri-apps/api": "2.12.3" } },
+    packageJson: {
+      engines: { node: "^22.12.0 || ^24.0.0" },
+      dependencies: { "@tauri-apps/api": "2.12.3" },
+      devDependencies: { "@types/node": "^22.20.5" },
+    },
     packageLock: {
       packages: {
-        "": { dependencies: { "@tauri-apps/api": "2.12.3" } },
+        "": {
+          dependencies: { "@tauri-apps/api": "2.12.3" },
+          devDependencies: { "@types/node": "^22.20.5" },
+        },
         "node_modules/@tauri-apps/api": { version: "2.12.3" },
+        "node_modules/@types/node": { version: "22.20.5" },
       },
     },
     cargoToml: `[dependencies]\ntauri = { version = "~2.12.5" }\nwindows = { version = "0.62" }\nwebview2-com = { version = "0.39" }\n[dev-dependencies]\ntauri = { version = "~2.12.5", features = ["test"] }`,
@@ -49,7 +57,7 @@ dependencies = [
   };
 }
 
-test("the checked-in application keeps Tauri API/native and WebView interfaces aligned", () => {
+test("the checked-in application aligns Node typings, Tauri and WebView interfaces", () => {
   checkDependencyAlignment(readDependencySources(process.cwd()));
 });
 
@@ -88,4 +96,66 @@ test("npm declaration and resolved lock must both describe the tested API", () =
   const sources = fixture();
   sources.packageLock.packages[""].dependencies["@tauri-apps/api"] = "2.11.1";
   assert.throws(() => checkDependencyAlignment(sources), /npm lockfile/);
+});
+
+test("Node typings follow the oldest runtime regardless of engine-range ordering", () => {
+  const sources = fixture();
+  sources.packageJson.engines.node = "^24.0.0 || ^22.12.0";
+  checkDependencyAlignment(sources);
+  sources.packageJson.engines.node = "^24.0.0";
+  sources.packageJson.devDependencies["@types/node"] = "~24.1.0";
+  sources.packageLock.packages[""].devDependencies["@types/node"] = "~24.1.0";
+  sources.packageLock.packages["node_modules/@types/node"].version = "24.1.2";
+  checkDependencyAlignment(sources);
+});
+
+test("a coherent Node 26 typing update fails while Node 22 remains supported", () => {
+  const sources = fixture();
+  sources.packageJson.devDependencies["@types/node"] = "^26.6.5";
+  sources.packageLock.packages[""].devDependencies["@types/node"] = "^26.6.5";
+  sources.packageLock.packages["node_modules/@types/node"].version = "26.6.5";
+  assert.throws(
+    () => checkDependencyAlignment(sources),
+    /@types\/node major at 22/,
+  );
+});
+
+test("stale or absent Node typing declarations and lock records fail independently", () => {
+  for (const change of [
+    (sources) => {
+      sources.packageLock.packages["node_modules/@types/node"].version =
+        "26.6.5";
+    },
+    (sources) => {
+      sources.packageJson.devDependencies["@types/node"] = "^26.6.5";
+    },
+    (sources) => {
+      sources.packageLock.packages[""].devDependencies["@types/node"] =
+        "~22.20.5";
+    },
+    (sources) => {
+      delete sources.packageJson.devDependencies["@types/node"];
+    },
+    (sources) => {
+      delete sources.packageLock.packages["node_modules/@types/node"];
+    },
+  ]) {
+    const sources = fixture();
+    change(sources);
+    assert.throws(
+      () => checkDependencyAlignment(sources),
+      /@types\/node major at 22/,
+    );
+  }
+});
+
+test("unsupported or absent engine syntax requires an explicit runtime-policy review", () => {
+  for (const node of [undefined, ">=22", "^22.12.0 || >=24", "22.x", ""]) {
+    const sources = fixture();
+    sources.packageJson.engines.node = node;
+    assert.throws(
+      () => checkDependencyAlignment(sources),
+      /explicit caret ranges/,
+    );
+  }
 });
