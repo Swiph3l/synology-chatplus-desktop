@@ -34,6 +34,11 @@ leaving the event loop responsive. Cancel is the default; closing or Escape neve
 opens a browser. An optional gentle chime plays once after display and respects the
 saved notification-sound mute preference, without a stock warning-sound fallback.
 
+Retire the completed request's exact window without sending another close request.
+A fresh click may wait for native destruction and label removal before creating
+its own prompt. Late close/destruction callbacks must affect only the matching
+request; they must never cancel or approve the successor's destination.
+
 Open requires the active, visible prompt. Recheck the external-link preference,
 enabled service identity and original source document before opening the retained
 destination. A changed source document, hidden parent, stale response or bounded

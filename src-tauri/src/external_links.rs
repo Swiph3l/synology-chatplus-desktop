@@ -10,9 +10,80 @@ use tauri_plugin_opener::OpenerExt;
 
 const LABEL: &str = "external-link";
 const PROMPT_LIFETIME: Duration = Duration::from_secs(5 * 60);
+const TEARDOWN_LIFETIME: Duration = Duration::from_secs(3);
 
 #[derive(Default)]
-pub struct Service(Mutex<Option<Pending>>);
+pub struct Service(Mutex<PromptLifecycle<Pending>>);
+
+struct PromptLifecycle<T> {
+    pending: Option<T>,
+    retiring: Option<String>,
+}
+
+impl<T> Default for PromptLifecycle<T> {
+    fn default() -> Self {
+        Self {
+            pending: None,
+            retiring: None,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum CreationGate {
+    Ready,
+    Waiting,
+    Cancelled,
+}
+
+impl<T> PromptLifecycle<T> {
+    fn reserve(&mut self, pending: T) -> bool {
+        if self.pending.is_some() {
+            return false;
+        }
+        self.pending = Some(pending);
+        true
+    }
+
+    fn creation_gate(&self, matches: impl FnOnce(&T) -> bool, label_present: bool) -> CreationGate {
+        if !self.pending.as_ref().is_some_and(matches) {
+            CreationGate::Cancelled
+        } else if self.retiring.is_some() || label_present {
+            CreationGate::Waiting
+        } else {
+            CreationGate::Ready
+        }
+    }
+
+    fn frontend_request(
+        &self,
+        matches: impl FnOnce(&T) -> bool,
+        creating: impl FnOnce(&T) -> bool,
+    ) -> Option<&T> {
+        self.pending
+            .as_ref()
+            .filter(|pending| self.retiring.is_none() && matches(pending) && creating(pending))
+    }
+
+    fn retire(
+        &mut self,
+        request_id: &str,
+        matches: impl FnOnce(&T) -> bool,
+        owns_window: impl FnOnce(&T) -> bool,
+    ) -> Option<T> {
+        let pending = take_matching(&mut self.pending, matches)?;
+        if owns_window(&pending) {
+            self.retiring = Some(request_id.to_owned());
+        }
+        Some(pending)
+    }
+
+    fn destroyed(&mut self, request_id: &str) {
+        if self.retiring.as_deref() == Some(request_id) {
+            self.retiring = None;
+        }
+    }
+}
 
 #[derive(Clone)]
 struct Context {
@@ -29,6 +100,8 @@ struct Pending {
     context: Context,
     created: Instant,
     built: bool,
+    creating: bool,
+    window: Option<tauri::WebviewWindow>,
     mounted: bool,
     shown: bool,
     parent_disabled: bool,
@@ -115,6 +188,8 @@ pub fn request(app: &AppHandle, service: &ServiceConfig, target: &url::Url, sour
         context,
         created: Instant::now(),
         built: false,
+        creating: false,
+        window: None,
         mounted: false,
         shown: false,
         parent_disabled: false,
@@ -125,10 +200,9 @@ pub fn request(app: &AppHandle, service: &ServiceConfig, target: &url::Url, sour
         let mut slot = service.0.lock().unwrap_or_else(|error| error.into_inner());
         // Swiph3l: Duplicate navigation/popup callbacks cannot stack dialogs, and
         // a later click cannot reuse an earlier request's destination or approval.
-        if slot.is_some() || app.get_webview_window(LABEL).is_some() {
+        if !slot.reserve(pending) {
             return;
         }
-        *slot = Some(pending);
     }
     let handle = app.clone();
     let worker_id = request_id.clone();
@@ -138,8 +212,12 @@ pub fn request(app: &AppHandle, service: &ServiceConfig, target: &url::Url, sour
         .name("external-link-confirmation".into())
         .spawn(move || {
             if create_window(&handle, &worker_id).is_err() {
+                let requested = pending_context(&handle, Some(&worker_id)).is_some();
                 cancel(&handle, &worker_id);
-                failed(&handle);
+                release_unbuilt(&handle, &worker_id);
+                if requested {
+                    failed(&handle);
+                }
                 return;
             }
             loop {
@@ -201,6 +279,7 @@ fn pending_context(app: &AppHandle, request_id: Option<&str>) -> Option<Context>
     let service = app.state::<Service>();
     let pending = service.0.lock().unwrap_or_else(|error| error.into_inner());
     pending
+        .pending
         .as_ref()
         .filter(|pending| {
             request_id.is_none_or(|id| id == pending.request_id)
@@ -214,8 +293,10 @@ pub fn prompt(app: &AppHandle) -> Result<PromptPayload, String> {
     let (request_id, context) = {
         let pending = service.0.lock().unwrap_or_else(|error| error.into_inner());
         let pending = pending
-            .as_ref()
-            .filter(|pending| pending.created.elapsed() < PROMPT_LIFETIME)
+            .frontend_request(
+                |pending| pending.created.elapsed() < PROMPT_LIFETIME,
+                |pending| pending.creating,
+            )
             .ok_or("External-link request is no longer available.")?;
         (pending.request_id.clone(), pending.context.clone())
     };
@@ -235,7 +316,7 @@ pub fn prompt(app: &AppHandle) -> Result<PromptPayload, String> {
 }
 
 pub fn ready(app: &AppHandle, request_id: &str) -> Result<(), String> {
-    if pending_context(app, Some(request_id)).is_none() {
+    if !frontend_request(app, request_id) {
         return Err("External-link request is no longer available.".into());
     }
     let handle = app.clone();
@@ -245,6 +326,7 @@ pub fn ready(app: &AppHandle, request_id: &str) -> Result<(), String> {
             let service = handle.state::<Service>();
             let mut slot = service.0.lock().unwrap_or_else(|error| error.into_inner());
             if let Some(pending) = slot
+                .pending
                 .as_mut()
                 .filter(|pending| pending.request_id == request_id)
             {
@@ -261,6 +343,7 @@ fn show_if_ready(app: &AppHandle, request_id: &str) {
         let service = app.state::<Service>();
         let mut slot = service.0.lock().unwrap_or_else(|error| error.into_inner());
         let Some(pending) = slot
+            .pending
             .as_mut()
             .filter(|pending| pending.request_id == request_id)
         else {
@@ -269,9 +352,10 @@ fn show_if_ready(app: &AppHandle, request_id: &str) {
         if !mark_shown(pending.built, pending.mounted, &mut pending.shown) {
             return;
         }
-        pending.context.clone()
+        (pending.context.clone(), pending.window.clone())
     };
-    let Some(window) = app.get_webview_window(LABEL) else {
+    let (context, window) = context;
+    let Some(window) = window else {
         complete(app, request_id, false);
         return;
     };
@@ -288,6 +372,7 @@ fn show_if_ready(app: &AppHandle, request_id: &str) {
         let service = app.state::<Service>();
         let mut slot = service.0.lock().unwrap_or_else(|error| error.into_inner());
         if let Some(pending) = slot
+            .pending
             .as_mut()
             .filter(|pending| pending.request_id == request_id)
         {
@@ -305,7 +390,7 @@ fn show_if_ready(app: &AppHandle, request_id: &str) {
 }
 
 pub fn respond(app: &AppHandle, request_id: &str, accepted: bool) -> Result<(), String> {
-    if pending_context(app, Some(request_id)).is_none() {
+    if !frontend_request(app, request_id) {
         return Err("External-link request is no longer available.".into());
     }
     let handle = app.clone();
@@ -314,14 +399,72 @@ pub fn respond(app: &AppHandle, request_id: &str, accepted: bool) -> Result<(), 
         .map_err(|_| "Could not close the external-link confirmation.".into())
 }
 
+fn frontend_request(app: &AppHandle, request_id: &str) -> bool {
+    app.state::<Service>()
+        .0
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .frontend_request(
+            |pending| {
+                pending.request_id == request_id && pending.created.elapsed() < PROMPT_LIFETIME
+            },
+            |pending| pending.creating,
+        )
+        .is_some()
+}
+
 fn cancel(app: &AppHandle, request_id: &str) {
     let handle = app.clone();
     let request_id = request_id.to_owned();
     let _ = app.run_on_main_thread(move || complete(&handle, &request_id, false));
 }
 
-fn take_pending(slot: &mut Option<Pending>, request_id: &str) -> Option<Pending> {
-    take_matching(slot, |pending| pending.request_id == request_id)
+fn cancel_from_close_event(app: &AppHandle, request_id: &str) {
+    let handle = app.clone();
+    let request_id = request_id.to_owned();
+    // Swiph3l: Main-thread dispatch can execute inline. Leave the native close
+    // event before consuming/restoring and posting the one explicit destruction.
+    let fallback = app.clone();
+    let fallback_id = request_id.clone();
+    if std::thread::Builder::new()
+        .name("external-link-close".into())
+        .spawn(move || cancel(&handle, &request_id))
+        .is_err()
+    {
+        cancel(&fallback, &fallback_id);
+    }
+}
+
+fn release_unbuilt(app: &AppHandle, request_id: &str) {
+    let handle = app.clone();
+    let request_id = request_id.to_owned();
+    let _ = app.run_on_main_thread(move || {
+        if handle.get_webview_window(LABEL).is_none() {
+            handle
+                .state::<Service>()
+                .0
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .destroyed(&request_id);
+        }
+    });
+}
+
+fn destroyed(app: &AppHandle, request_id: &str) {
+    finish(app, request_id, false, true);
+    app.state::<Service>()
+        .0
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .destroyed(request_id);
+}
+
+fn take_pending(slot: &mut PromptLifecycle<Pending>, request_id: &str) -> Option<Pending> {
+    slot.retire(
+        request_id,
+        |pending| pending.request_id == request_id,
+        |pending| pending.creating || pending.window.is_some(),
+    )
 }
 
 fn take_matching<T>(slot: &mut Option<T>, matches: impl FnOnce(&T) -> bool) -> Option<T> {
@@ -341,6 +484,10 @@ fn mark_shown(built: bool, mounted: bool, shown: &mut bool) -> bool {
 }
 
 fn complete(app: &AppHandle, request_id: &str, accepted: bool) {
+    finish(app, request_id, accepted, false);
+}
+
+fn finish(app: &AppHandle, request_id: &str, accepted: bool, already_destroyed: bool) {
     let pending = {
         let service = app.state::<Service>();
         let mut slot = service.0.lock().unwrap_or_else(|error| error.into_inner());
@@ -352,13 +499,15 @@ fn complete(app: &AppHandle, request_id: &str, accepted: bool) {
     let valid = accepted
         && pending.shown
         && pending.created.elapsed() < PROMPT_LIFETIME
-        && prompt_active(app)
+        && pending.window.as_ref().is_some_and(prompt_active)
         && context_live(app, &pending.context);
     if pending.parent_disabled {
         let _ = pending.context.parent.set_enabled(true);
     }
-    if let Some(window) = app.get_webview_window(LABEL) {
-        let _ = window.close();
+    if let Some(window) = pending.window.as_ref().filter(|_| !already_destroyed) {
+        // Swiph3l: Closing is asynchronous. Destroy this request's exact window
+        // once, without generating a second CloseRequested or touching a successor.
+        let _ = window.destroy();
     }
     let _ = pending.finished.send(());
     // Swiph3l: Consume the one-shot request before any browser launch. Frontend
@@ -376,10 +525,37 @@ fn complete(app: &AppHandle, request_id: &str, accepted: bool) {
     }
 }
 
-fn prompt_active(app: &AppHandle) -> bool {
-    let Some(window) = app.get_webview_window(LABEL) else {
-        return false;
-    };
+#[cfg(windows)]
+fn claim_creation(app: &AppHandle, request_id: &str) -> Result<(), ()> {
+    let started = Instant::now();
+    loop {
+        let label_present = app.get_webview_window(LABEL).is_some();
+        let gate = {
+            let service = app.state::<Service>();
+            let mut lifecycle = service.0.lock().unwrap_or_else(|error| error.into_inner());
+            let gate = lifecycle.creation_gate(
+                |pending| {
+                    pending.request_id == request_id && pending.created.elapsed() < PROMPT_LIFETIME
+                },
+                label_present,
+            );
+            if gate == CreationGate::Ready {
+                if let Some(pending) = lifecycle.pending.as_mut() {
+                    pending.creating = true;
+                }
+            }
+            gate
+        };
+        match gate {
+            CreationGate::Ready => return Ok(()),
+            CreationGate::Cancelled => return Err(()),
+            CreationGate::Waiting if started.elapsed() >= TEARDOWN_LIFETIME => return Err(()),
+            CreationGate::Waiting => std::thread::sleep(Duration::from_millis(20)),
+        }
+    }
+}
+
+fn prompt_active(window: &tauri::WebviewWindow) -> bool {
     if !window.is_visible().unwrap_or(false)
         || !window.is_enabled().unwrap_or(false)
         || window.is_minimized().unwrap_or(true)
@@ -409,6 +585,9 @@ fn request_id() -> Result<String, ()> {
 #[cfg(windows)]
 fn create_window(app: &AppHandle, request_id: &str) -> Result<(), ()> {
     use tauri::{WebviewUrl, WebviewWindowBuilder};
+    // A new click may arrive before Destroyed unregisters the previous fixed
+    // label. Retain that click once and wait off-thread instead of discarding it.
+    claim_creation(app, request_id)?;
     let context = pending_context(app, Some(request_id)).ok_or(())?;
     if !context_live(app, &context) {
         return Err(());
@@ -437,18 +616,36 @@ fn create_window(app: &AppHandle, request_id: &str) -> Result<(), ()> {
     .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
     .build()
     .map_err(|_| ())?;
-    window.remove_menu().map_err(|_| ())?;
-    crate::shell::theme_window(&window, &theme).map_err(|_| ())?;
     let handle = app.clone();
     let close_id = request_id.to_owned();
-    window.on_window_event(move |event| {
-        if matches!(
-            event,
-            WindowEvent::CloseRequested { .. } | WindowEvent::Destroyed
-        ) {
-            complete(&handle, &close_id, false);
+    window.on_window_event(move |event| match event {
+        WindowEvent::CloseRequested { api, .. } => {
+            api.prevent_close();
+            cancel_from_close_event(&handle, &close_id);
         }
+        WindowEvent::Destroyed => destroyed(&handle, &close_id),
+        _ => {}
     });
+    let attached = {
+        let service = app.state::<Service>();
+        let mut lifecycle = service.0.lock().unwrap_or_else(|error| error.into_inner());
+        if let Some(pending) = lifecycle
+            .pending
+            .as_mut()
+            .filter(|pending| pending.request_id == request_id)
+        {
+            pending.window = Some(window.clone());
+            true
+        } else {
+            false
+        }
+    };
+    if !attached {
+        let _ = window.destroy();
+        return Err(());
+    }
+    window.remove_menu().map_err(|_| ())?;
+    crate::shell::theme_window(&window, &theme).map_err(|_| ())?;
     let handle = app.clone();
     let request_id = request_id.to_owned();
     app.run_on_main_thread(move || {
@@ -456,6 +653,7 @@ fn create_window(app: &AppHandle, request_id: &str) -> Result<(), ()> {
             let service = handle.state::<Service>();
             let mut slot = service.0.lock().unwrap_or_else(|error| error.into_inner());
             if let Some(pending) = slot
+                .pending
                 .as_mut()
                 .filter(|pending| pending.request_id == request_id)
             {
@@ -475,6 +673,24 @@ fn create_window(_: &AppHandle, _: &str) -> Result<(), ()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct ModelPrompt {
+        id: &'static str,
+        url: url::Url,
+        creating: bool,
+        window: Option<&'static str>,
+        parent_disabled: bool,
+    }
+
+    fn model_prompt(id: &'static str, url: &url::Url, active: bool) -> ModelPrompt {
+        ModelPrompt {
+            id,
+            url: url.clone(),
+            creating: active,
+            window: active.then_some(id),
+            parent_disabled: active,
+        }
+    }
 
     fn fixture() -> (state::Settings, ServiceConfig, url::Url) {
         let mut settings = state::Settings::default();
@@ -548,6 +764,134 @@ mod tests {
         slot = Some(("request-c", "https://example.com/new"));
         assert!(take_matching(&mut slot, |pending| pending.0 == "request-b").is_none());
         assert_eq!(slot.unwrap().0, "request-c");
+    }
+
+    #[test]
+    fn x_cancel_and_accept_allow_an_immediate_new_click_after_async_window_destruction() {
+        let (settings, service, first_url) = fixture();
+        for decision in ["x", "cancel", "accept"] {
+            for next_url in [
+                first_url.clone(),
+                "https://example.com/second?value=%2F".parse().unwrap(),
+            ] {
+                let mut lifecycle = PromptLifecycle::default();
+                assert!(lifecycle.reserve(model_prompt("first", &first_url, true)));
+                let first = lifecycle
+                    .retire(
+                        "first",
+                        |pending| pending.id == "first",
+                        |pending| pending.creating || pending.window.is_some(),
+                    )
+                    .unwrap();
+                assert_eq!(first.window, Some("first"));
+                assert!(first.parent_disabled);
+                let opened = std::cell::RefCell::new(Vec::new());
+                let opener = |target: &str| {
+                    opened.borrow_mut().push(target.to_owned());
+                    Ok(())
+                };
+                open_confirmed(
+                    decision == "accept",
+                    &settings,
+                    &service,
+                    &first.url,
+                    opener,
+                )
+                .unwrap();
+
+                // The parent's next click is accepted while the old label still exists.
+                assert!(lifecycle.reserve(model_prompt("second", &next_url, false)));
+                assert!(!lifecycle.reserve(model_prompt("duplicate", &next_url, false)));
+                assert_eq!(
+                    lifecycle.creation_gate(|pending| pending.id == "second", true),
+                    CreationGate::Waiting
+                );
+                assert!(lifecycle
+                    .frontend_request(|pending| pending.id == "second", |pending| pending.creating)
+                    .is_none());
+                assert!(lifecycle
+                    .retire("first", |pending| pending.id == "first", |_| true)
+                    .is_none());
+
+                // Destroyed can precede removal from Tauri's manager; both gates matter.
+                lifecycle.destroyed("first");
+                assert_eq!(
+                    lifecycle.creation_gate(|pending| pending.id == "second", true),
+                    CreationGate::Waiting
+                );
+                assert_eq!(
+                    lifecycle.creation_gate(|pending| pending.id == "second", false),
+                    CreationGate::Ready
+                );
+                let second = lifecycle.pending.as_mut().unwrap();
+                second.creating = true;
+                second.window = Some("second");
+                second.parent_disabled = true;
+                assert_eq!(
+                    lifecycle
+                        .frontend_request(
+                            |pending| pending.id == "second",
+                            |pending| pending.creating
+                        )
+                        .unwrap()
+                        .url,
+                    next_url
+                );
+
+                let second = lifecycle
+                    .retire(
+                        "second",
+                        |pending| pending.id == "second",
+                        |pending| pending.window.is_some(),
+                    )
+                    .unwrap();
+                assert_eq!(second.window, Some("second"));
+                assert!(second.parent_disabled);
+                open_confirmed(true, &settings, &service, &second.url, opener).unwrap();
+                assert_eq!(opened.borrow().last(), Some(&next_url.as_str().to_owned()));
+                assert_eq!(
+                    opened.borrow().len(),
+                    if decision == "accept" { 2 } else { 1 }
+                );
+                lifecycle.destroyed("first");
+                assert_eq!(lifecycle.retiring.as_deref(), Some("second"));
+                lifecycle.destroyed("second");
+                assert!(lifecycle.retiring.is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn cancelling_a_queued_successor_cannot_retire_or_restore_the_old_window() {
+        let (_, _, url) = fixture();
+        let mut lifecycle = PromptLifecycle::default();
+        assert!(lifecycle.reserve(model_prompt("old", &url, true)));
+        lifecycle
+            .retire(
+                "old",
+                |pending| pending.id == "old",
+                |pending| pending.window.is_some(),
+            )
+            .unwrap();
+        assert!(lifecycle.reserve(model_prompt("queued", &url, false)));
+        let queued = lifecycle
+            .retire(
+                "queued",
+                |pending| pending.id == "queued",
+                |pending| pending.creating || pending.window.is_some(),
+            )
+            .unwrap();
+        assert_eq!(queued.window, None);
+        assert!(!queued.parent_disabled);
+        assert_eq!(lifecycle.retiring.as_deref(), Some("old"));
+        lifecycle.destroyed("queued");
+        assert_eq!(lifecycle.retiring.as_deref(), Some("old"));
+        assert!(lifecycle.reserve(model_prompt("latest", &url, false)));
+        lifecycle.destroyed("old");
+        assert_eq!(
+            lifecycle.creation_gate(|pending| pending.id == "latest", false),
+            CreationGate::Ready
+        );
     }
 
     #[test]
