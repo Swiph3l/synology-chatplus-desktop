@@ -175,10 +175,14 @@ of at most 240 Unicode characters. Sender/chat hides the body. Generic also hide
 the sender and custom service name, retaining provider identity. Missing sender or
 conversation context is not recovered by scraping content.
 
-Toasts use bundled provider artwork framed in the saved notification color; Auto
-follows the app accent. The `notification-icons` cache contains provider/color PNG
-artwork only, without names, URLs, credentials or message text. Notification
-content is bounded in memory for display and routing, never logged or persisted.
+Toasts use bundled provider artwork on a transparent background with a small
+top-right dot in the saved notification color, matching the service rail; Auto
+follows the app accent. A light separator and thin dark edge keep black and white
+dots visible on either Windows theme. The versioned `notification-icons` cache
+contains provider/color PNG artwork only, without names, URLs, credentials or
+message text. Existing cache files remain available for notifications already in
+Action Center. Notification content is bounded in memory for display and routing,
+never logged or persisted.
 
 ### Discord categories
 

@@ -132,46 +132,38 @@ fn provider_art(provider: ProviderId) -> tauri::Result<tauri::image::Image<'stat
 fn icon_rgba(source: &tauri::image::Image<'_>, color: [u8; 3]) -> Vec<u8> {
     const SIZE: u32 = 128;
     let mut rgba = vec![0; (SIZE * SIZE * 4) as usize];
-    // A rounded tile carries the chosen service color; a neutral inset keeps
-    // the provider artwork readable even when the user selects black or white.
-    for y in 0..SIZE {
-        for x in 0..SIZE {
-            let corner_x = x.clamp(20, 107) as f32;
-            let corner_y = y.clamp(20, 107) as f32;
-            if (x as f32 - corner_x).powi(2) + (y as f32 - corner_y).powi(2) <= 20_f32.powi(2) {
-                rgba[((y * SIZE + x) * 4) as usize..((y * SIZE + x) * 4 + 4) as usize]
-                    .copy_from_slice(&[color[0], color[1], color[2], 255]);
-            }
-        }
-    }
-    let scale = 88.0 / source.width().max(source.height()) as f32;
+    let scale = 104.0 / source.width().max(source.height()) as f32;
     let width = (source.width() as f32 * scale).round().max(1.) as u32;
     let height = (source.height() as f32 * scale).round().max(1.) as u32;
     let left = (SIZE - width) / 2;
     let top = (SIZE - height) / 2;
-    for y in 14..114 {
-        for x in 14..114 {
-            let corner_x = x.clamp(28, 99) as f32;
-            let corner_y = y.clamp(28, 99) as f32;
-            if (x as f32 - corner_x).powi(2) + (y as f32 - corner_y).powi(2) <= 14_f32.powi(2) {
-                rgba[((y * SIZE + x) * 4) as usize..((y * SIZE + x) * 4 + 4) as usize]
-                    .copy_from_slice(&[248, 250, 252, 255]);
-            }
-        }
-    }
     for y in 0..height {
         for x in 0..width {
             let sx = x * source.width() / width;
             let sy = y * source.height() / height;
             let source_index = ((sy * source.width() + sx) * 4) as usize;
             let target_index = (((top + y) * SIZE + left + x) * 4) as usize;
-            let alpha = source.rgba()[source_index + 3] as u32;
-            for channel in 0..3 {
-                rgba[target_index + channel] = ((source.rgba()[source_index + channel] as u32
-                    * alpha
-                    + rgba[target_index + channel] as u32 * (255 - alpha))
-                    / 255) as u8;
-            }
+            // Preserve straight alpha: there is no longer an opaque tile behind the logo.
+            rgba[target_index..target_index + 4]
+                .copy_from_slice(&source.rgba()[source_index..source_index + 4]);
+        }
+    }
+    // Swiph3l: Match the rail's top-right service-color dot. A thin two-tone
+    // separator keeps even black/white custom colors visible on either Windows theme.
+    for y in 5..35 {
+        for x in 93..123 {
+            let distance = (x as f32 + 0.5 - 108.).powi(2) + (y as f32 + 0.5 - 20.).powi(2);
+            let pixel = if distance <= 12_f32.powi(2) {
+                [color[0], color[1], color[2], 255]
+            } else if distance <= 14_f32.powi(2) {
+                [248, 250, 252, 255]
+            } else if distance <= 15_f32.powi(2) {
+                [25, 29, 35, 255]
+            } else {
+                continue;
+            };
+            let index = ((y * SIZE + x) * 4) as usize;
+            rgba[index..index + 4].copy_from_slice(&pixel);
         }
     }
     rgba
@@ -251,7 +243,8 @@ pub fn icon_path(
         .join("notification-icons");
     std::fs::create_dir_all(&directory).map_err(|_| "Icon cache unavailable")?;
     let path = directory.join(format!(
-        "v1-{provider:?}-{:02x}{:02x}{:02x}.png",
+        // Keep prior cache files intact for notifications already in Action Center.
+        "v2-{provider:?}-{:02x}{:02x}{:02x}.png",
         color[0], color[1], color[2]
     ));
     if !path.is_file() {
@@ -426,6 +419,10 @@ mod tests {
             assert_eq!(decoded.rgba(), rgba);
             assert_eq!(
                 &rgba[(4 * 128 + 64) * 4..(4 * 128 + 64) * 4 + 4],
+                &[0, 0, 0, 0]
+            );
+            assert_eq!(
+                &rgba[(20 * 128 + 108) * 4..(20 * 128 + 108) * 4 + 4],
                 &[18, 171, 239, 255]
             );
             assert_eq!(&rgba[..4], &[0, 0, 0, 0]);
@@ -433,6 +430,20 @@ mod tests {
                 &rgba[(64 * 128 + 64) * 4..(64 * 128 + 64) * 4 + 3],
                 &[18, 171, 239]
             );
+        }
+    }
+    #[test]
+    fn unframed_provider_art_preserves_translucent_pixels_and_black_white_dots() {
+        let pixel = [70, 120, 180, 127];
+        let source = tauri::image::Image::new_owned(pixel.to_vec(), 1, 1);
+        for color in [[0, 0, 0], [255, 255, 255]] {
+            let rgba = icon_rgba(&source, color);
+            let at = |x: usize, y: usize| &rgba[(y * 128 + x) * 4..(y * 128 + x) * 4 + 4];
+            assert_eq!(at(64, 64), pixel);
+            assert_eq!(at(4, 64), [0, 0, 0, 0]);
+            assert_eq!(at(108, 20), [color[0], color[1], color[2], 255]);
+            assert_eq!(at(121, 20), [248, 250, 252, 255]);
+            assert_eq!(at(122, 20), [25, 29, 35, 255]);
         }
     }
 }
