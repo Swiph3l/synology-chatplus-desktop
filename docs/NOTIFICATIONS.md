@@ -66,12 +66,19 @@ inputs cannot acknowledge that pane. Route/content changes, blur, visibility los
 and newer arrivals revoke stale gestures. Header/sidebar clicks and synthetic
 input are insufficient.
 
-Reliable provider zero with fresh engagement can retire completed arrivals without
-an exact notification tag. In-flight arrivals cannot clear early; native completion
-may retry a still-current proof. Exact Discord message proofs can retire a subset
-while unrelated or unknown unread remains. Only native-confirmed proofs retire
-renderer tokens. Proof history is bounded to 256 arrivals; saturation stays unread
-until reliable provider-zero evidence permits recovery.
+Reliable scoped provider zero with fresh engagement can retire completed arrivals
+without an exact notification tag. In-flight arrivals cannot clear early; native
+completion retries a still-current exact or zero proof. Observed navigation,
+content replacement, scrolling away from latest, blur and new arrivals invalidate
+the retry, including an observed departure followed by return to the same pane.
+
+Native arrival tokens and retained positive provider evidence are separate. Exact
+accepted reads can remove an arrival-only dot once all native work is complete,
+while provider certainty remains unknown. A retained positive provider observation,
+other unread arrivals, pending work or overflow still prevents that clear. Unknown
+DOM alone never retires either kind of evidence. Proof history is bounded to 256
+arrivals; saturation stays unread until reliable provider-zero evidence permits
+recovery.
 
 Focus, restore, selection, toast activation/dismissal, elapsed time and background
 badge disappearance never substitute for this evidence. Loading older history or

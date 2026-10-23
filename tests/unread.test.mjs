@@ -114,8 +114,8 @@ function fixture({
       latest = atLatest;
       changed();
     },
-    renderMessage() {
-      contentRevision += 1;
+    renderMessage(revision = contentRevision + 1) {
+      contentRevision = revision;
       changed();
     },
     aggregateUnavailable(value = true) {
@@ -862,6 +862,132 @@ test("provider zero can recover saturated arrival history only through new trust
   f.flush();
   assert.deepEqual(f.messages.at(-1).readArrivals, [258]);
   assert.equal(f.messages.at(-1).readScope, undefined);
+});
+
+for (const aggregate of ["positive", "unknown", "empty"]) {
+  function exactReadFixture() {
+    const f = fixture({
+      marker: aggregate === "positive",
+      source: "discord-dom",
+    });
+    f.foreground(true, 7, 1);
+    f.window.__chatplusIsViewingNotification({
+      tag: "conversation-a",
+      arrival: 1,
+    });
+    if (aggregate === "unknown") f.aggregateUnavailable();
+    f.gesture();
+    f.flush();
+    assert.equal(f.messages.at(-1).acknowledgement, 7);
+    assert.deepEqual(f.messages.at(-1).readArrivals, [1]);
+    assert.equal(f.messages.at(-1).readScope, undefined);
+    return f;
+  }
+
+  test(`native completion retries an exact ${aggregate} proof without another gesture and retires accepted evidence`, () => {
+    const f = exactReadFixture();
+    const beforeComplete = f.messages.length;
+    // Native withheld acceptance while the arrival's viewing query was pending.
+    f.window.__chatplusCompleteArrival(1);
+    f.flush();
+    assert.equal(f.messages.length, beforeComplete + 1);
+    assert.equal(f.messages.at(-1).acknowledgement, 7);
+    assert.deepEqual(f.messages.at(-1).readArrivals, [1]);
+    assert.equal(f.messages.at(-1).hasUnread, aggregate === "positive");
+    assert.equal(
+      f.messages.at(-1).proofOnly,
+      aggregate === "unknown" || undefined,
+    );
+    assert.equal(f.messages.at(-1).readScope, undefined);
+    f.window.__chatplusAcceptRead([1]);
+    f.flush();
+    const accepted = f.messages.length;
+    f.window.__chatplusCompleteArrival(1);
+    f.flush();
+    assert.equal(f.messages.length, accepted);
+  });
+
+  for (const [name, change] of [
+    ["content replacement", (f) => f.renderMessage()],
+    ["navigation", (f) => f.conversation("conversation-b")],
+    ["browser blur", (f) => f.focus(false)],
+    ["native foreground loss", (f) => f.foreground(false, 8, 1)],
+    ["generation change", (f) => f.foreground(true, 8, 1)],
+    ["new arrival", (f) => f.foreground(true, 7, 2)],
+    [
+      "early new arrival query",
+      (f) =>
+        f.window.__chatplusIsViewingNotification({
+          tag: "conversation-a",
+          arrival: 2,
+        }),
+    ],
+  ]) {
+    test(`an exact ${aggregate} retry cannot survive ${name}`, () => {
+      const f = exactReadFixture();
+      change(f);
+      f.flush();
+      const beforeComplete = f.messages.length;
+      f.window.__chatplusCompleteArrival(1);
+      f.flush();
+      assert.equal(f.messages.length, beforeComplete);
+    });
+  }
+
+  for (const [name, leave, restore] of [
+    [
+      "navigation",
+      (f) => f.conversation("conversation-b"),
+      (f) => f.conversation("conversation-a"),
+    ],
+    ["content", (f) => f.renderMessage(), (f) => f.renderMessage(0)],
+    [
+      "latest viewport",
+      (f) => f.conversation("conversation-a", false),
+      (f) => f.conversation("conversation-a", true),
+    ],
+    ["mounted content", (f) => f.tabs(false), (f) => f.tabs(true)],
+  ]) {
+    test(`an exact ${aggregate} retry cannot revive when ${name} returns after an observed change`, () => {
+      const f = exactReadFixture();
+      leave(f);
+      f.flush();
+      restore(f);
+      f.flush();
+      const beforeComplete = f.messages.length;
+      f.window.__chatplusCompleteArrival(1);
+      f.flush();
+      assert.equal(f.messages.length, beforeComplete);
+    });
+  }
+}
+
+test("exact completion retries only pending visible arrivals while another conversation remains unread", () => {
+  const f = fixture({ marker: true, source: "discord-dom" });
+  f.foreground(true, 9, 3);
+  for (const arrival of [1, 2, 3])
+    f.window.__chatplusIsViewingNotification({
+      tag: arrival === 3 ? "conversation-b" : "conversation-a",
+      arrival,
+    });
+  f.gesture();
+  f.flush();
+  assert.deepEqual(f.messages.at(-1).readArrivals, [1, 2]);
+  f.window.__chatplusAcceptRead([1]);
+  f.flush();
+  f.window.__chatplusCompleteArrival(2);
+  f.flush();
+  assert.equal(f.messages.at(-1).acknowledgement, 9);
+  assert.equal(f.messages.at(-1).hasUnread, true);
+  assert.deepEqual(f.messages.at(-1).readArrivals, [2]);
+  assert.equal(f.messages.at(-1).readScope, undefined);
+  f.window.__chatplusAcceptRead([2]);
+  f.flush();
+  f.conversation("conversation-b");
+  f.gesture();
+  f.flush();
+  assert.equal(f.messages.at(-1).acknowledgement, 9);
+  assert.deepEqual(f.messages.at(-1).readArrivals, [3]);
 });
 
 test("native completion retries a still-current trusted zero after a pending arrival without another user gesture", () => {

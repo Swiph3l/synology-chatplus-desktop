@@ -105,6 +105,7 @@ struct Tracking {
     pending_generations: HashMap<String, HashSet<u64>>,
     observed_unread_arrivals: HashMap<String, HashSet<u64>>,
     observed_unread_overflow: HashSet<String>,
+    provider_unread_latched: HashSet<String>,
     incoming_sequence: u64,
     foreground_service: Option<String>,
     presentation_generation: u64,
@@ -133,6 +134,7 @@ pub fn remove(app: &AppHandle, id: &str) {
     tracking.pending_generations.remove(id);
     tracking.observed_unread_arrivals.remove(id);
     tracking.observed_unread_overflow.remove(id);
+    tracking.provider_unread_latched.remove(id);
     tracking.provider_fingerprints.remove(id);
     tracking.local_acknowledgements.remove(id);
     tracking.revision += 1;
@@ -1012,6 +1014,7 @@ fn acknowledge_inbox_baseline(
     if cleared {
         state.has_unread = false;
         state.certainty = Certainty::Unknown;
+        tracking.provider_unread_latched.remove(id);
     }
     state.total_unread_count = None;
     state.locally_acknowledged = true;
@@ -1069,6 +1072,7 @@ fn acknowledge_all(tracking: &mut Tracking, id: &str, at: u64) -> (u64, Vec<u64>
         .into_iter()
         .collect();
     tracking.observed_unread_overflow.remove(id);
+    tracking.provider_unread_latched.remove(id);
     tracking.read_generations.insert(
         id.into(),
         ReadProof {
@@ -1132,6 +1136,15 @@ fn observe_provider_scoped(
     provider_zero: bool,
 ) -> ProviderObservation {
     let valid_read = read_acknowledged(tracking, id, foreground, acknowledgement);
+    if !proof_only {
+        if has_unread {
+            tracking.provider_unread_latched.insert(id.into());
+        } else if valid_read {
+            // Swiph3l: A trusted known-zero retires provider evidence separately
+            // from newer/pending browser arrivals, which remain unread below.
+            tracking.provider_unread_latched.remove(id);
+        }
+    }
     let mut accepted = Vec::new();
     let retained_before = tracking
         .observed_unread_arrivals
@@ -1149,12 +1162,28 @@ fn observe_provider_scoped(
         .get(id)
         .map_or(0, HashSet::len)
         < retained_before;
-    // Swiph3l: Exact reads can progress while another conversation remains unread
-    // or badges are unknown; an unknown snapshot must never invent an aggregate state.
+    // Swiph3l: An unknown aggregate cannot retire positive provider evidence.
+    // Exact read proof may retire the dot owned only by completed native arrivals,
+    // without asserting that the provider's whole account is known read.
     if proof_only {
-        let changed = proofs_changed;
+        let clear_arrival_only = valid_read
+            && !accepted.is_empty()
+            && native_unread_complete(tracking, id)
+            && !tracking.provider_unread_latched.contains(id);
+        let cleared = clear_arrival_only
+            && tracking
+                .observations
+                .get(id)
+                .is_some_and(|state| state.has_unread);
+        let changed = proofs_changed || cleared;
         if changed {
             if let Some(state) = tracking.observations.get_mut(id) {
+                if cleared {
+                    state.has_unread = false;
+                    state.certainty = Certainty::Unknown;
+                    state.total_unread_count = None;
+                    state.last_update = Some(at);
+                }
                 state.generation += 1;
                 state.last_read_evidence = Some(at);
             }
@@ -1409,6 +1438,7 @@ mod tests {
     #[test]
     fn inbox_completion_clears_only_unchanged_provider_baseline_and_does_not_guess_a_future_one() {
         let mut tracking = Tracking::default();
+        observe_provider(&mut tracking, "discord", true, false, None, &[], false, 0);
         tracking.provider_fingerprints.insert("discord".into(), 10);
         let old = begin_event(&mut tracking, "discord", true, None);
         latch_arrival(&mut tracking, "discord", old, 1);
@@ -1417,6 +1447,7 @@ mod tests {
             Some(vec![old])
         );
         assert!(!tracking.observations["discord"].has_unread);
+        assert!(!tracking.provider_unread_latched.contains("discord"));
         assert_eq!(tracking.local_acknowledgements["discord"], Some(10));
         assert_eq!(
             tracking.observations["discord"].certainty,
@@ -1426,6 +1457,7 @@ mod tests {
         let newer = begin_event(&mut tracking, "discord", true, None);
         latch_arrival(&mut tracking, "discord", newer, 3);
         tracking.provider_fingerprints.insert("discord".into(), 20);
+        observe_provider(&mut tracking, "discord", true, false, None, &[], false, 3);
         assert_eq!(
             acknowledge_inbox_baseline(&mut tracking, "discord", newer, Some(10), 4),
             Some(vec![newer])
@@ -1435,6 +1467,7 @@ mod tests {
             "new positive provider evidence is outside the captured request"
         );
         assert!(!tracking.local_acknowledgements.contains_key("discord"));
+        assert!(tracking.provider_unread_latched.contains("discord"));
     }
 
     #[test]
@@ -1615,6 +1648,26 @@ mod tests {
     #[test]
     fn explicit_all_local_is_service_scoped_and_late_queries_cannot_resurrect_it() {
         let mut tracking = Tracking::default();
+        observe_provider(
+            &mut tracking,
+            "discord-work",
+            true,
+            false,
+            None,
+            &[],
+            false,
+            0,
+        );
+        observe_provider(
+            &mut tracking,
+            "discord-personal",
+            true,
+            false,
+            None,
+            &[],
+            false,
+            0,
+        );
         let first = begin_event(&mut tracking, "discord-work", true, None);
         latch_arrival(&mut tracking, "discord-work", first, 1);
         let other = begin_event(&mut tracking, "discord-personal", true, None);
@@ -1629,6 +1682,10 @@ mod tests {
         );
         assert!(tracking.observations["discord-work"].locally_acknowledged);
         assert!(tracking.observations["discord-personal"].has_unread);
+        assert!(!tracking.provider_unread_latched.contains("discord-work"));
+        assert!(tracking
+            .provider_unread_latched
+            .contains("discord-personal"));
         assert!(!observe_browser_event(
             &mut tracking,
             "discord-work",
@@ -2978,47 +3035,245 @@ mod tests {
     }
 
     #[test]
-    fn unknown_proof_only_accepts_exact_reads_but_preserves_the_aggregate_observation() {
+    fn unknown_exact_reads_preserve_pending_overflow_other_arrivals_and_stale_contexts() {
+        for guard in [
+            "background",
+            "stale",
+            "other-selected",
+            "no-proof",
+            "wrong-token",
+            "pending",
+            "newer-pending",
+            "other-arrival",
+            "overflow",
+        ] {
+            let mut tracking = Tracking {
+                foreground_service: Some("origin".into()),
+                presentation_generation: 7,
+                ..Default::default()
+            };
+            let current = begin_event(&mut tracking, "origin", true, None);
+            if guard == "pending" {
+                latch_arrival(&mut tracking, "origin", current, 1);
+            } else {
+                observe_browser_event(&mut tracking, "origin", false, 1, true, current);
+            }
+            let other = begin_event(&mut tracking, "other", true, None);
+            observe_browser_event(&mut tracking, "other", false, 2, true, other);
+            let mut arrivals = vec![current];
+            let mut foreground = true;
+            let mut acknowledgement = Some(7);
+            match guard {
+                "background" => foreground = false,
+                "stale" => acknowledgement = Some(6),
+                "other-selected" => tracking.foreground_service = Some("other".into()),
+                "no-proof" => arrivals.clear(),
+                "wrong-token" => arrivals = vec![other],
+                "newer-pending" | "other-arrival" => {
+                    let next = begin_event(&mut tracking, "origin", true, None);
+                    latch_arrival(&mut tracking, "origin", next, 3);
+                    if guard == "other-arrival" {
+                        finish_event(&mut tracking, "origin", next, true);
+                    }
+                }
+                "overflow" => {
+                    tracking.observed_unread_overflow.insert("origin".into());
+                }
+                _ => {}
+            }
+            observe_provider(
+                &mut tracking,
+                "origin",
+                false,
+                foreground,
+                acknowledgement,
+                &arrivals,
+                true,
+                4,
+            );
+            assert!(tracking.observations["origin"].has_unread, "{guard}");
+            assert!(tracking.observations["other"].has_unread, "{guard}");
+            assert!(
+                tracking.observed_unread_arrivals["other"].contains(&other),
+                "{guard}"
+            );
+        }
+    }
+
+    #[test]
+    fn exact_unknown_read_clears_only_its_arrivals_and_duplicate_queries_cannot_restore_them() {
         let mut tracking = Tracking {
             foreground_service: Some("origin".into()),
-            presentation_generation: 3,
+            presentation_generation: 7,
             ..Default::default()
         };
         let arrival = begin_event(&mut tracking, "origin", true, None);
         observe_browser_event(&mut tracking, "origin", false, 1, true, arrival);
-        let rejected = observe_provider(
-            &mut tracking,
-            "origin",
-            false,
-            false,
-            Some(3),
-            &[arrival],
-            true,
-            2,
-        );
-        assert!(rejected.accepted.is_empty());
-        assert!(!rejected.changed);
         let read = observe_provider(
             &mut tracking,
             "origin",
             false,
             true,
-            Some(3),
+            Some(7),
             &[arrival],
             true,
-            3,
+            2,
         );
         assert_eq!(read.accepted, [arrival]);
-        assert!(read.changed);
-        assert!(tracking.observations["origin"].has_unread);
-        assert_eq!(tracking.observations["origin"].last_update, Some(1));
-        assert!(tracking.read_generations["origin"].includes(arrival));
-        let known_zero =
-            observe_provider(&mut tracking, "origin", false, true, Some(3), &[], false, 4);
-        assert!(known_zero.changed);
         assert!(!tracking.observations["origin"].has_unread);
+        assert_eq!(
+            tracking.observations["origin"].certainty,
+            Certainty::Unknown
+        );
+        assert!(!observe_browser_event(
+            &mut tracking,
+            "origin",
+            false,
+            3,
+            true,
+            arrival
+        ));
+        let duplicate = begin_event(&mut tracking, "origin", false, Some(arrival));
+        assert_eq!(duplicate, arrival);
+        assert!(!observe_browser_event(
+            &mut tracking,
+            "origin",
+            false,
+            4,
+            false,
+            duplicate
+        ));
+        assert!(!tracking.observations["origin"].has_unread);
+        let next = begin_event(&mut tracking, "origin", true, None);
+        observe_browser_event(&mut tracking, "origin", false, 5, true, next);
+        observe_provider(
+            &mut tracking,
+            "origin",
+            false,
+            true,
+            Some(7),
+            &[arrival],
+            true,
+            6,
+        );
+        assert!(tracking.observations["origin"].has_unread);
+        assert!(tracking.observed_unread_arrivals["origin"].contains(&next));
+    }
 
-        tracking.foreground_service = Some("empty".into());
+    #[test]
+    fn trusted_provider_zero_retires_provider_evidence_without_consuming_pending_arrivals() {
+        let mut tracking = Tracking {
+            foreground_service: Some("origin".into()),
+            presentation_generation: 7,
+            ..Default::default()
+        };
+        observe_provider(&mut tracking, "origin", true, false, None, &[], false, 0);
+        let pending = begin_event(&mut tracking, "origin", true, None);
+        latch_arrival(&mut tracking, "origin", pending, 1);
+        for (foreground, generation) in [(false, Some(7)), (true, Some(6))] {
+            observe_provider(
+                &mut tracking,
+                "origin",
+                false,
+                foreground,
+                generation,
+                &[],
+                false,
+                2,
+            );
+            assert!(tracking.provider_unread_latched.contains("origin"));
+        }
+        observe_provider(&mut tracking, "origin", false, true, Some(7), &[], false, 3);
+        assert!(!tracking.provider_unread_latched.contains("origin"));
+        assert!(tracking.observations["origin"].has_unread);
+        assert!(tracking.pending_generations["origin"].contains(&pending));
+        finish_event(&mut tracking, "origin", pending, true);
+        observe_provider(
+            &mut tracking,
+            "origin",
+            false,
+            true,
+            Some(7),
+            &[pending],
+            true,
+            4,
+        );
+        assert!(!tracking.observations["origin"].has_unread);
+        assert_eq!(
+            tracking.observations["origin"].certainty,
+            Certainty::Unknown
+        );
+    }
+
+    #[test]
+    fn unknown_exact_read_clears_arrival_only_but_preserves_positive_provider_evidence() {
+        for provider_positive in [false, true] {
+            let mut tracking = Tracking {
+                foreground_service: Some("origin".into()),
+                presentation_generation: 3,
+                ..Default::default()
+            };
+            let arrival = begin_event(&mut tracking, "origin", true, None);
+            observe_browser_event(&mut tracking, "origin", false, 1, true, arrival);
+            if provider_positive {
+                observe_provider(&mut tracking, "origin", true, false, None, &[], false, 1);
+            }
+            let rejected = observe_provider(
+                &mut tracking,
+                "origin",
+                false,
+                false,
+                Some(3),
+                &[arrival],
+                true,
+                2,
+            );
+            assert!(rejected.accepted.is_empty());
+            assert!(!rejected.changed);
+            let read = observe_provider(
+                &mut tracking,
+                "origin",
+                false,
+                true,
+                Some(3),
+                &[arrival],
+                true,
+                3,
+            );
+            assert_eq!(read.accepted, [arrival]);
+            assert!(read.changed);
+            assert_eq!(
+                tracking.observations["origin"].has_unread,
+                provider_positive
+            );
+            assert_eq!(
+                tracking.provider_unread_latched.contains("origin"),
+                provider_positive
+            );
+            assert_eq!(
+                tracking.observations["origin"].last_update,
+                Some(if provider_positive { 1 } else { 3 })
+            );
+            if !provider_positive {
+                assert_eq!(
+                    tracking.observations["origin"].certainty,
+                    Certainty::Unknown
+                );
+                assert_eq!(tracking.observations["origin"].total_unread_count, None);
+            }
+            assert!(tracking.read_generations["origin"].includes(arrival));
+            let known_zero =
+                observe_provider(&mut tracking, "origin", false, true, Some(3), &[], false, 4);
+            assert_eq!(known_zero.changed, provider_positive);
+            assert!(!tracking.observations["origin"].has_unread);
+            assert!(!tracking.provider_unread_latched.contains("origin"));
+        }
+
+        let mut tracking = Tracking {
+            foreground_service: Some("empty".into()),
+            presentation_generation: 3,
+            ..Default::default()
+        };
         for has_unread in [false, true] {
             let unknown = observe_provider(
                 &mut tracking,

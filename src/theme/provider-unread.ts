@@ -204,10 +204,18 @@ export function installUnreadAdapter(
     // Swiph3l: Foreground trusted interaction is conversation-specific read evidence;
     // service selection or retained WebView focus alone is not.
     const content = adapter.contentContext();
+    const context = adapter.readContext();
+    // Swiph3l: Returning to the same pane/content cannot revive a proof after an
+    // observed navigation, replacement or scroll away from latest. Keep new input.
+    if (
+      pendingRead !== null &&
+      (pendingRead.context !== context || pendingRead.content !== content)
+    )
+      pendingRead = null;
     const genuineRead =
       visible() &&
       interaction !== null &&
-      adapter.readContext() === interaction &&
+      context === interaction &&
       content !== null &&
       interactionContent === content;
     const readArrivals: number[] = [];
@@ -233,6 +241,17 @@ export function installUnreadAdapter(
       (providerZero ||
         (!arrivalOverflow &&
           (unseenArrivals.size === 0 || readArrivals.length > 0)));
+    // Swiph3l: Exact and provider-zero proofs can beat native query completion.
+    // Retain only this fresh gesture; completion must revalidate its whole scope.
+    if (acknowledged && unseenArrivals.size > 0)
+      pendingRead = {
+        context: interaction!,
+        content: interactionContent!,
+        generation,
+        incomingSequence,
+        sequence: interactionSequence,
+        sawUnread: interactionSawUnread,
+      };
     if (state.hasUnread === null) {
       // Swiph3l: Missing aggregate UI cannot become zero, but an exact current-message read must still progress independently of another unread/unknown conversation.
       if (acknowledged && readArrivals.length > 0) {
@@ -276,17 +295,6 @@ export function installUnreadAdapter(
     );
     lastUnread = false;
     if (acknowledged) {
-      // Swiph3l: A trusted read can beat native query completion. Retain only this
-      // exact gesture context so completion can retry it without a clear timer.
-      if (providerZero && unseenArrivals.size > 0)
-        pendingRead = {
-          context: interaction!,
-          content: interactionContent!,
-          generation,
-          incomingSequence,
-          sequence: interactionSequence,
-          sawUnread: interactionSawUnread,
-        };
       interaction = null;
     }
     interactionSawUnread = false;
