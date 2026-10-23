@@ -193,6 +193,7 @@
   "rail.settingsError": "Impossible d’ouvrir les paramètres.",
   "rail.add": "Ajouter un service",
   "rail.settings": "Paramètres",
+  "rail.moreActions": "Plus…",
   "menu.open": "Ouvrir",
   "menu.mute": "Désactiver les notifications de bureau",
   "menu.unmute": "Réactiver les notifications de bureau",

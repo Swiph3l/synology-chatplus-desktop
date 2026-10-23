@@ -193,6 +193,7 @@
   "rail.settingsError": "設定を開けませんでした。",
   "rail.add": "サービスを追加",
   "rail.settings": "設定",
+  "rail.moreActions": "その他…",
   "menu.open": "開く",
   "menu.mute": "デスクトップ通知をミュート",
   "menu.unmute": "デスクトップ通知のミュートを解除",

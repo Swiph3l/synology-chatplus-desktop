@@ -193,6 +193,7 @@
   "rail.settingsError": "No se pudo abrir Configuración.",
   "rail.add": "Añadir servicio",
   "rail.settings": "Configuración",
+  "rail.moreActions": "Más…",
   "menu.open": "Abrir",
   "menu.mute": "Silenciar notificaciones de escritorio",
   "menu.unmute": "Activar notificaciones de escritorio",

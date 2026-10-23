@@ -194,6 +194,10 @@ impl ServiceAction {
                 _ => true,
             }
     }
+    fn menu_enabled(self, service: &ServiceConfig, active_service: Option<&str>) -> bool {
+        self.allowed(service)
+            && (self != Self::MarkCurrentRead || active_service == Some(service.id.as_str()))
+    }
     fn settings_field(self) -> Option<&'static str> {
         match self {
             Self::Notifications => Some("notifications"),
@@ -204,30 +208,40 @@ impl ServiceAction {
         }
     }
 }
-fn service_actions(service: &ServiceConfig) -> Vec<ServiceAction> {
+#[derive(Debug, PartialEq, Eq)]
+enum ServiceMenuEntry {
+    Action(ServiceAction),
+    More(Vec<ServiceAction>),
+}
+fn service_actions(service: &ServiceConfig) -> Vec<ServiceMenuEntry> {
+    use ServiceMenuEntry::{Action, More};
     if !service.enabled {
         return Vec::new();
     }
-    let mut actions = vec![ServiceAction::Open];
-    if service.supports_unread() {
-        actions.extend([ServiceAction::MarkCurrentRead, ServiceAction::MarkAllRead]);
-    }
+    let mut actions = vec![Action(ServiceAction::Open)];
     if service.supports_notifications() {
-        if cfg!(windows) {
-            actions.push(ServiceAction::AllowProviderNotifications);
-        }
-        actions.push(if service.notifications {
+        actions.push(Action(if service.notifications {
             ServiceAction::Mute
         } else {
             ServiceAction::Unmute
-        });
-        actions.push(ServiceAction::Notifications);
+        }));
     }
-    actions.extend([
-        ServiceAction::Rename,
-        ServiceAction::Settings,
-        ServiceAction::Remove,
-    ]);
+    actions.push(Action(ServiceAction::Settings));
+    // Swiph3l: Keep daily actions short. Only verified capabilities belong in the
+    // advanced submenu; permission repair must remain reachable for embedded views.
+    let more = [
+        ServiceAction::MarkCurrentRead,
+        ServiceAction::MarkAllRead,
+        ServiceAction::AllowProviderNotifications,
+        ServiceAction::Notifications,
+    ]
+    .into_iter()
+    .filter(|action| action.allowed(service))
+    .collect::<Vec<_>>();
+    if !more.is_empty() {
+        actions.push(More(more));
+    }
+    actions.push(Action(ServiceAction::Remove));
     actions
 }
 
@@ -320,7 +334,8 @@ fn popup_position(
     ))
 }
 pub fn service_popup(app: &AppHandle, id: &str, x: f64, y: f64) -> Result<(), String> {
-    let service = configured_service(&state::current(app), id)?;
+    let settings = state::current(app);
+    let service = configured_service(&settings, id)?;
     let window = app.get_window("main").ok_or("Open a service first.")?;
     let size = window
         .inner_size()
@@ -349,36 +364,47 @@ pub fn service_popup(app: &AppHandle, id: &str, x: f64, y: f64) -> Result<(), St
     .map_err(|_| "Could not create service menu.")?;
     menu.append(&PredefinedMenuItem::separator(app).map_err(|_| "Could not create service menu.")?)
         .map_err(|_| "Could not create service menu.")?;
-    for action in service_actions(&service) {
-        if action == ServiceAction::Remove {
-            menu.append(
-                &PredefinedMenuItem::separator(app)
-                    .map_err(|_| "Could not create service menu.")?,
-            )
-            .map_err(|_| "Could not create service menu.")?;
-        }
-        menu.append(
-            &MenuItem::with_id(
-                app,
-                action.id(id),
-                match action {
-                    ServiceAction::MarkCurrentRead => {
-                        crate::i18n::t(app, "rail.markCurrentReadLocal")
-                    }
-                    ServiceAction::MarkAllRead => crate::i18n::t(app, "rail.markAllReadLocal"),
-                    ServiceAction::AllowProviderNotifications => {
-                        crate::i18n::t(app, "rail.allowProviderNotifications")
-                    }
-                    _ => crate::i18n::localize(&state::current(app).language, action.title()),
-                },
-                action.allowed(&service)
-                    && (action != ServiceAction::MarkCurrentRead
-                        || state::current(app).active_service.as_deref() == Some(id)),
-                None::<&str>,
-            )
-            .map_err(|_| "Could not create service menu item.")?,
+    let item = |action: ServiceAction| {
+        MenuItem::with_id(
+            app,
+            action.id(id),
+            match action {
+                ServiceAction::MarkCurrentRead => crate::i18n::t(app, "rail.markCurrentReadLocal"),
+                ServiceAction::MarkAllRead => crate::i18n::t(app, "rail.markAllReadLocal"),
+                ServiceAction::AllowProviderNotifications => {
+                    crate::i18n::t(app, "rail.allowProviderNotifications")
+                }
+                _ => crate::i18n::localize(&settings.language, action.title()),
+            },
+            action.menu_enabled(&service, settings.active_service.as_deref()),
+            None::<&str>,
         )
-        .map_err(|_| "Could not create service menu.")?;
+        .map_err(|_| "Could not create service menu item.")
+    };
+    for entry in service_actions(&service) {
+        match entry {
+            ServiceMenuEntry::Action(action) => {
+                if action == ServiceAction::Remove {
+                    menu.append(
+                        &PredefinedMenuItem::separator(app)
+                            .map_err(|_| "Could not create service menu.")?,
+                    )
+                    .map_err(|_| "Could not create service menu.")?;
+                }
+                menu.append(&item(action)?)
+                    .map_err(|_| "Could not create service menu.")?;
+            }
+            ServiceMenuEntry::More(actions) => {
+                let more = Submenu::new(app, crate::i18n::t(app, "rail.moreActions"), true)
+                    .map_err(|_| "Could not create service submenu.")?;
+                for action in actions {
+                    more.append(&item(action)?)
+                        .map_err(|_| "Could not create service submenu.")?;
+                }
+                menu.append(&more)
+                    .map_err(|_| "Could not create service menu.")?;
+            }
+        }
     }
     // Retain the native menu until replaced, including platforms where popup returns before dismissal.
     *app.state::<MenuState>()
@@ -725,35 +751,45 @@ mod tests {
             notification_color: crate::providers::NotificationColor::Auto,
         }
     }
+    fn visible_actions(service: &ServiceConfig) -> Vec<ServiceAction> {
+        service_actions(service)
+            .into_iter()
+            .flat_map(|entry| match entry {
+                ServiceMenuEntry::Action(action) => vec![action],
+                ServiceMenuEntry::More(actions) => actions,
+            })
+            .collect()
+    }
     #[test]
     fn service_menu_actions_follow_real_capabilities_and_mute_state() {
         use crate::providers::ProviderId;
+        use ServiceMenuEntry::{Action, More};
         let mut service = configured("first", ProviderId::SynologyChatplus);
-        assert_eq!(service_actions(&service), {
-            let mut actions = vec![
-                ServiceAction::Open,
-                ServiceAction::MarkCurrentRead,
-                ServiceAction::MarkAllRead,
-                ServiceAction::Mute,
-                ServiceAction::Notifications,
-                ServiceAction::Rename,
-                ServiceAction::Settings,
-                ServiceAction::Remove,
-            ];
-            if cfg!(windows) {
-                actions.insert(3, ServiceAction::AllowProviderNotifications);
-            }
-            actions
-        });
+        let mut advanced = vec![ServiceAction::MarkAllRead];
+        if cfg!(windows) {
+            advanced.push(ServiceAction::AllowProviderNotifications);
+        }
+        advanced.push(ServiceAction::Notifications);
+        assert_eq!(
+            service_actions(&service),
+            vec![
+                Action(ServiceAction::Open),
+                Action(ServiceAction::Mute),
+                Action(ServiceAction::Settings),
+                More(advanced),
+                Action(ServiceAction::Remove),
+            ]
+        );
+        assert!(!visible_actions(&service).contains(&ServiceAction::Rename));
         service.notifications = false;
-        assert!(service_actions(&service).contains(&ServiceAction::Unmute));
-        assert!(!service_actions(&service).contains(&ServiceAction::Mute));
+        assert!(visible_actions(&service).contains(&ServiceAction::Unmute));
+        assert!(!visible_actions(&service).contains(&ServiceAction::Mute));
         for provider in [ProviderId::SynologyChat, ProviderId::Discord] {
             service.provider = provider;
-            assert!(service_actions(&service).contains(&ServiceAction::Unmute));
+            assert!(visible_actions(&service).contains(&ServiceAction::Unmute));
             assert!(ServiceAction::Notifications.allowed(&service));
             service.notifications = true;
-            assert!(service_actions(&service).contains(&ServiceAction::Mute));
+            assert!(visible_actions(&service).contains(&ServiceAction::Mute));
             service.notifications = false;
         }
         for provider in [ProviderId::Slack, ProviderId::Mattermost] {
@@ -761,10 +797,9 @@ mod tests {
             assert_eq!(
                 service_actions(&service),
                 vec![
-                    ServiceAction::Open,
-                    ServiceAction::Rename,
-                    ServiceAction::Settings,
-                    ServiceAction::Remove
+                    Action(ServiceAction::Open),
+                    Action(ServiceAction::Settings),
+                    Action(ServiceAction::Remove)
                 ]
             );
             for action in [
@@ -782,8 +817,10 @@ mod tests {
     #[test]
     fn service_menu_ids_route_the_clicked_instance_without_server_admin_actions() {
         let service = configured("second-123", crate::providers::ProviderId::SynologyChatplus);
-        for action in service_actions(&service) {
+        let mut ids = std::collections::HashSet::new();
+        for action in visible_actions(&service) {
             let id = action.id(&service.id);
+            assert!(ids.insert(id.clone()));
             assert_eq!(ServiceAction::parse(&id), Some((action, "second-123")));
             assert!(Action::parse(&id).is_none());
         }
@@ -806,8 +843,7 @@ mod tests {
         );
     }
     #[test]
-    fn experimental_provider_permission_actions_target_exact_instances_and_disable_unverified_reads(
-    ) {
+    fn experimental_provider_submenus_keep_permission_repair_and_hide_unverified_reads() {
         for provider in [
             crate::providers::ProviderId::Whatsapp,
             crate::providers::ProviderId::Messenger,
@@ -815,9 +851,10 @@ mod tests {
             let first = configured("account-a", provider);
             let second = configured("account-b", provider);
             for service in [&first, &second] {
-                let actions = service_actions(service);
-                assert!(actions.contains(&ServiceAction::MarkCurrentRead));
-                assert!(actions.contains(&ServiceAction::MarkAllRead));
+                let actions = visible_actions(service);
+                assert_eq!(service_actions(service).len(), 5);
+                assert!(!actions.contains(&ServiceAction::MarkCurrentRead));
+                assert!(!actions.contains(&ServiceAction::MarkAllRead));
                 assert!(!ServiceAction::MarkCurrentRead.allowed(service));
                 assert!(!ServiceAction::MarkAllRead.allowed(service));
                 assert_eq!(
@@ -838,6 +875,32 @@ mod tests {
                 ServiceAction::AllowProviderNotifications.id(&first.id),
                 ServiceAction::AllowProviderNotifications.id(&second.id)
             );
+        }
+    }
+    #[test]
+    fn supported_current_read_stays_in_more_and_requires_the_active_enabled_instance() {
+        let mut service = configured("discord-work", crate::providers::ProviderId::Discord);
+        assert!(service_actions(&service).iter().any(|entry| matches!(
+            entry,
+            ServiceMenuEntry::More(actions) if actions.contains(&ServiceAction::MarkCurrentRead)
+        )));
+        assert!(!service_actions(&service)
+            .contains(&ServiceMenuEntry::Action(ServiceAction::MarkCurrentRead)));
+        assert!(ServiceAction::MarkCurrentRead.menu_enabled(&service, Some("discord-work")));
+        assert!(!ServiceAction::MarkCurrentRead.menu_enabled(&service, Some("discord-personal")));
+        assert!(!ServiceAction::MarkCurrentRead.menu_enabled(&service, None));
+        assert!(ServiceAction::MarkAllRead.menu_enabled(&service, Some("discord-personal")));
+        service.enabled = false;
+        assert!(service_actions(&service).is_empty());
+        for action in [
+            ServiceAction::Open,
+            ServiceAction::MarkCurrentRead,
+            ServiceAction::MarkAllRead,
+            ServiceAction::AllowProviderNotifications,
+            ServiceAction::Settings,
+            ServiceAction::Remove,
+        ] {
+            assert!(!action.menu_enabled(&service, Some("discord-work")));
         }
     }
     #[test]
@@ -904,7 +967,7 @@ mod tests {
         let clicked = configured_service(&settings, "mattermost-private").unwrap();
         assert_eq!(clicked.id, "mattermost-private");
         assert!(configured_service(&settings, "mattermost").is_err());
-        for action in service_actions(&clicked) {
+        for action in visible_actions(&clicked) {
             assert_eq!(
                 ServiceAction::parse(&action.id(&clicked.id)),
                 Some((action, "mattermost-private"))
@@ -913,10 +976,9 @@ mod tests {
         assert_eq!(
             service_actions(&clicked),
             vec![
-                ServiceAction::Open,
-                ServiceAction::Rename,
-                ServiceAction::Settings,
-                ServiceAction::Remove
+                ServiceMenuEntry::Action(ServiceAction::Open),
+                ServiceMenuEntry::Action(ServiceAction::Settings),
+                ServiceMenuEntry::Action(ServiceAction::Remove)
             ]
         );
     }
