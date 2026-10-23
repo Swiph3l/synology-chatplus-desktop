@@ -60,7 +60,7 @@ function fixture({
   dms = "",
   privateList = privateSidebar(),
   chat = conversation(),
-  path = `/channels/${guild}/${channel}`,
+  path = `/channels/@me/${channel}`,
 } = {}) {
   const parsed = parseHTML(
     `<html><body><div data-list-id="guildsnav" role="tree"><div id="guild-list-unread-dms" role="group">${dms}</div><div role="group" id="root-guilds">${rows}</div></div>${privateList}${chat}<button id="header">Header</button></body></html>`,
@@ -161,10 +161,8 @@ function fixture({
   };
 }
 
-test("Discord guild/DM evidence is scoped and mention totals are never presented as unread message counts", () => {
+test("Discord rail evidence is DM-only and mention totals remain unknown counts", () => {
   for (const options of [
-    { rows: guildRow({ pill: "visible__new" }) },
-    { rows: guildRow({ pill: "visible__new selected__new", badge: "2" }) },
     {
       dms: '<div class="listItem__new"><span class="numberBadge__new">9+</span></div>',
     },
@@ -174,124 +172,138 @@ test("Discord guild/DM evidence is scoped and mention totals are never presented
     },
   ]) {
     const f = fixture(options);
-    assert.deepEqual(f.adapter.snapshot(), { hasUnread: true, count: null });
+    assert.deepEqual(f.adapter.snapshot(), {
+      hasUnread: true,
+      count: null,
+      unreadScope: "direct-messages",
+    });
+    assert.equal(f.adapter.providerUnreadZero(), false);
+    assert.equal(f.adapter.providerAllUnreadZero(), false);
+    assert.equal(f.adapter.tracksNotificationArrivals, false);
   }
   const f = fixture({
+    rows: guildRow({ pill: "visible__new", badge: "2" }),
     chat:
       conversation() +
-      '<div class="numberBadge__new">5</div><div class="unreadPill__new">Message divider</div><div id="sidebar-tab-item-invented"><span data-testid="tab-item-indicator"></span></div>',
+      '<div class="numberBadge__new">5</div><div class="unreadPill__new">Message divider</div>',
   });
   f.document.title = "(50) Discord";
-  assert.deepEqual(f.adapter.snapshot(), { hasUnread: false, count: null });
-});
-
-test("hover/selection cannot manufacture Discord unread or erase an ambiguous aggregate", () => {
-  for (const pill of [
-    "visible__new selected__new",
-    "visible__new hovered__new",
-  ]) {
-    const unknown = fixture({
-      rows: guildRow({ pill, label: "Guild, localized status" }),
-    });
-    unknown.document
-      .querySelector("[data-dnd-name]")
-      .insertAdjacentHTML(
-        "beforeend",
-        '<span class="iconBadge__new">Media status</span>',
-      );
-    assert.equal(unknown.adapter.snapshot().hasUnread, null);
-    const clear = fixture({
-      rows: guildRow({ pill, label: "Serwer", name: "Serwer" }),
-    });
-    assert.equal(
-      clear.adapter.snapshot().hasUnread,
-      null,
-      "selected/hovered name equality cannot prove hidden channels or threads read in any locale",
-    );
-    const unread = fixture({
-      rows: guildRow({ pill, label: "Guild, localized unread status" }),
-    });
-    assert.equal(
-      unread.adapter.snapshot().hasUnread,
-      true,
-      "without a media badge the provider label change means unread/mentions",
-    );
-  }
-});
-
-test("Discord Home promotions are excluded while Favorites keeps its message aggregate", () => {
-  const f = fixture();
-  f.document
-    .querySelector('[data-list-id="guildsnav"]')
-    .insertAdjacentHTML("afterbegin", guildRow({ id: "home", badge: "5" }));
-  assert.equal(f.adapter.snapshot().hasUnread, false);
-  f.document
-    .querySelector('[data-list-id="guildsnav"]')
-    .insertAdjacentHTML(
-      "afterbegin",
-      guildRow({ id: "favorites", pill: "visible__new" }),
-    );
-  assert.equal(f.adapter.snapshot().hasUnread, true);
-  const pill = f.document
-    .querySelector('[data-list-item-id="guildsnav___favorites"]')
-    .closest('[class*="listItem_"]')
-    .querySelector("span");
-  pill.className = "item__new visible__new selected__new";
+  assert.deepEqual(f.adapter.snapshot(), {
+    hasUnread: false,
+    count: null,
+    unreadScope: "direct-messages",
+  });
+  assert.equal(f.adapter.providerUnreadZero(), true);
   assert.equal(
-    f.adapter.snapshot().hasUnread,
-    null,
-    "selected Favorites cannot clear a hidden unread conversation",
+    f.adapter.providerAllUnreadZero(),
+    false,
+    "unread guilds block Inbox zero, not the DM dot",
   );
 });
 
-test("Discord requires complete aggregate groups before a global clear", () => {
-  const incomplete = fixture({ rows: guildRow({ size: 2 }) });
-  assert.equal(incomplete.adapter.snapshot().hasUnread, null);
-  const duplicated = fixture({
-    rows:
-      guildRow({ size: 2 }) +
-      guildRow({ id: otherGuild, size: 2, position: 1 }),
+test("guilds, Favorites, collapsed folders and media ambiguity never light the DM dot", () => {
+  for (const rows of [
+    guildRow({ pill: "visible__new" }),
+    guildRow({ pill: "visible__new selected__new", badge: "2" }),
+    guildRow({
+      pill: "visible__new hovered__new",
+      label: "Guild, localized unread",
+    }),
+    guildRow({ id: "favorites", pill: "visible__new" }),
+    guildRow({ id: folder, expanded: false, pill: "visible__new" }),
+    guildRow({
+      id: folder,
+      expanded: false,
+      pill: "visible__new selected__new",
+    }),
+    guildRow({ id: folder, expanded: true }) +
+      `<ul id="folder-items-${folder}" role="group">${guildRow({ pill: "visible__new" })}</ul>`,
+  ]) {
+    const f = fixture({ rows });
+    assert.equal(f.adapter.snapshot().hasUnread, false);
+    assert.equal(f.adapter.providerUnreadZero(), true);
+    assert.equal(f.adapter.providerAllUnreadZero(), false);
+  }
+  const media = fixture({
+    rows: guildRow({
+      pill: "visible__new selected__new",
+      label: "Localized media",
+    }),
   });
-  assert.equal(duplicated.adapter.snapshot().hasUnread, null);
+  media.document
+    .querySelector("[data-dnd-name]")
+    .insertAdjacentHTML(
+      "beforeend",
+      '<span class="iconBadge__new">Media status</span>',
+    );
+  assert.equal(media.adapter.snapshot().hasUnread, false);
+  assert.equal(media.adapter.providerAllUnreadZero(), false);
+  const home = fixture();
+  home.document
+    .querySelector('[data-list-id="guildsnav"]')
+    .insertAdjacentHTML("afterbegin", guildRow({ id: "home", badge: "5" }));
+  assert.equal(home.adapter.snapshot().hasUnread, false);
+  assert.equal(
+    home.adapter.providerAllUnreadZero(),
+    true,
+    "Home promotions do not become messages",
+  );
+});
+
+test("DM zero is separate from complete global guild and folder evidence", () => {
+  for (const rows of [
+    guildRow({ size: 2 }),
+    guildRow({ size: 2 }) + guildRow({ id: otherGuild, size: 2, position: 1 }),
+    "",
+  ]) {
+    const f = fixture({ rows });
+    assert.equal(f.adapter.snapshot().hasUnread, false);
+    assert.equal(f.adapter.providerUnreadZero(), true);
+    assert.equal(
+      f.adapter.providerAllUnreadZero(),
+      false,
+      "partial guilds cannot certify Inbox read-all",
+    );
+  }
   const complete = fixture({
     rows:
       guildRow({ size: 2 }) +
       guildRow({ id: otherGuild, size: 2, position: 2 }),
   });
-  assert.equal(complete.adapter.snapshot().hasUnread, false);
+  assert.equal(complete.adapter.providerAllUnreadZero(), true);
   complete.document.getElementById("root-guilds").replaceChildren();
-  assert.equal(
-    complete.adapter.snapshot().hasUnread,
-    null,
-    "temporary missing/virtualized guilds remain unknown",
-  );
-  const missingDms = fixture();
-  missingDms.document.getElementById("guild-list-unread-dms").remove();
-  assert.equal(missingDms.adapter.snapshot().hasUnread, null);
+  assert.equal(complete.adapter.snapshot().hasUnread, false);
+  assert.equal(complete.adapter.providerAllUnreadZero(), false);
+  const expanded = fixture({
+    rows:
+      guildRow({ id: folder, expanded: true }) +
+      `<ul id="folder-items-${folder}" role="group">${guildRow()}</ul>`,
+  });
+  assert.equal(expanded.adapter.providerAllUnreadZero(), true);
+  expanded.document
+    .querySelector("#folder-items-42 [data-list-item-id]")
+    .setAttribute("aria-setsize", "2");
+  assert.equal(expanded.adapter.snapshot().hasUnread, false);
+  assert.equal(expanded.adapter.providerAllUnreadZero(), false);
 });
 
-test("Discord cannot infer global zero from the mention-only DM group or an incomplete private sidebar", () => {
-  const missing = fixture({ privateList: "" });
+test("partial, muted, selected or hidden other DMs remain unknown and guild positives cannot replace them", () => {
+  const missing = fixture({
+    privateList: "",
+    rows: guildRow({ pill: "visible__new" }),
+  });
   assert.equal(missing.adapter.snapshot().hasUnread, null);
-  assert.equal(missing.adapter.readContext(), channel);
-  assert.equal(missing.interact(), channel);
-  assert.equal(
-    missing.adapter.snapshot().hasUnread,
-    null,
-    "reading another guild cannot clear an ordinary muted DM absent from the mention group",
-  );
+  assert.equal(missing.adapter.providerUnreadZero(), false);
   for (const row of [
     privateRow({ size: 3 }),
     privateRow({ position: 1 }),
     privateRow({ state: "muted__new" }),
     privateRow({ state: "interactiveSelected__new" }),
   ]) {
-    assert.equal(
-      fixture({ privateList: privateSidebar(row) }).adapter.snapshot()
-        .hasUnread,
-      null,
-      "virtualized, muted and selected DM rows do not prove all DMs read",
-    );
+    const f = fixture({ privateList: privateSidebar(row) });
+    assert.equal(f.adapter.snapshot().hasUnread, null);
+    assert.equal(f.adapter.providerUnreadZero(), false);
+    assert.equal(f.adapter.providerAllUnreadZero(), false);
   }
   const hovered = fixture();
   const row = hovered.document.querySelector('[class*="dm__"]');
@@ -302,13 +314,7 @@ test("Discord cannot infer global zero from the mention-only DM group or an inco
   const divider = fixture({
     privateList: `<ul data-list-id="private-channels-generated"><li class="channel__current" aria-setsize="3" aria-posinset="1"><a href="/channels/@me">Friends</a></li><div class="sectionDivider__current"></div>${privateRow({ size: 3, position: 3 })}</ul>`,
   });
-  assert.equal(
-    divider.adapter.snapshot().hasUnread,
-    null,
-    "the audited divider omits cloned aria metadata; its missing position cannot be filled by assumption",
-  );
-  const complete = fixture();
-  assert.equal(complete.adapter.snapshot().hasUnread, false);
+  assert.equal(divider.adapter.snapshot().hasUnread, null);
   const request = fixture();
   request.document
     .querySelector('[data-list-id^="private-channels-"]')
@@ -316,76 +322,72 @@ test("Discord cannot infer global zero from the mention-only DM group or an inco
       "beforeend",
       '<li><a href="/message-requests">Localized requests</a></li>',
     );
-  assert.equal(
-    request.adapter.snapshot().hasUnread,
-    null,
-    "ordinary private rows exclude request/spam channels",
-  );
+  assert.equal(request.adapter.snapshot().hasUnread, null);
   const missingAnchor = fixture();
   missingAnchor.document.querySelector('[class*="dm__"] a').remove();
   assert.equal(missingAnchor.adapter.snapshot().hasUnread, null);
-  complete.document
+  const hidden = fixture();
+  hidden.document
     .querySelector('[data-list-id^="private-channels-"]')
     .setAttribute("hidden", "");
-  assert.equal(complete.adapter.snapshot().hasUnread, null);
-  const positive = fixture({
-    privateList: "",
-    rows: guildRow({ pill: "visible__new" }),
-  });
-  positive.document.getElementById("guild-list-unread-dms").remove();
-  assert.equal(
-    positive.adapter.snapshot().hasUnread,
-    true,
-    "positive guild evidence stays authoritative when DM completeness is unknown",
-  );
+  assert.equal(hidden.adapter.snapshot().hasUnread, null);
+  const noGroup = fixture();
+  noGroup.document.getElementById("guild-list-unread-dms").remove();
+  assert.equal(noGroup.adapter.snapshot().hasUnread, null);
 });
 
-test("collapsed and expanded Discord folders preserve their provider aggregate meaning", () => {
-  const collapsedUnread = fixture({
-    rows: guildRow({ id: folder, expanded: false, pill: "visible__new" }),
-  });
-  assert.equal(collapsedUnread.adapter.snapshot().hasUnread, true);
-  const selectedCollapsed = fixture({
-    rows: guildRow({
-      id: folder,
-      expanded: false,
-      pill: "visible__new selected__new",
-    }),
-  });
-  assert.equal(selectedCollapsed.adapter.snapshot().hasUnread, null);
-  const expanded = fixture({
-    rows:
-      guildRow({ id: folder, expanded: true }) +
-      `<ul id="folder-items-${folder}" role="group">${guildRow({ pill: "visible__new", label: "Localized unread" })}</ul>`,
-  });
+test("only the exact latest visible current DM can resolve its own selected row", () => {
+  const options = {
+    privateList: privateSidebar(
+      privateRow({ id: channel, state: "interactiveSelected__new" }),
+    ),
+  };
+  const f = fixture(options);
+  assert.equal(f.adapter.snapshot().hasUnread, false);
+  assert.equal(f.adapter.providerUnreadZero(), true);
   assert.equal(
-    expanded.adapter.snapshot().hasUnread,
-    true,
-    "expanded folder pill is disabled; children own its evidence",
-  );
-  expanded.document.querySelector("#folder-items-42 span").className =
-    "item__new selected__new visible__new";
-  const link = expanded.document.querySelector(
-    "#folder-items-42 [data-list-item-id]",
-  );
-  link.setAttribute("aria-label", "Guild");
-  assert.equal(
-    expanded.adapter.snapshot().hasUnread,
-    null,
-    "a selected child guild cannot prove the folder globally read",
-  );
-  expanded.document.querySelector("#folder-items-42 span").className =
-    "item__new";
-  assert.equal(
-    expanded.adapter.snapshot().hasUnread,
+    f.adapter.providerAllUnreadZero(),
     false,
-    "complete unselected child evidence can still prove read",
+    "the current-DM exception is not provider-wide Inbox evidence",
   );
-  link.setAttribute("aria-setsize", "2");
+  f.document.querySelector('[class*="scroller__"]').scrollTop = 100;
   assert.equal(
-    expanded.adapter.snapshot().hasUnread,
+    f.adapter.snapshot().hasUnread,
     null,
-    "an incomplete expanded folder cannot clear hidden guilds",
+    "old history does not resolve a selected row",
+  );
+  f.document.querySelector('[class*="scroller__"]').scrollTop = 300;
+  f.document.elementFromPoint = () => f.document.getElementById("header");
+  assert.equal(
+    f.adapter.snapshot().hasUnread,
+    null,
+    "a covered pane is not viewed",
+  );
+  const guildPane = fixture({
+    ...options,
+    path: `/channels/${guild}/${channel}`,
+  });
+  assert.equal(
+    guildPane.adapter.snapshot().hasUnread,
+    null,
+    "the same channel snowflake in a guild route is outside DM scope",
+  );
+  const other = fixture({
+    privateList: `<ul data-list-id="private-channels-generated"><li class="channel__current" aria-setsize="3" aria-posinset="1"><a href="/channels/@me">Friends</a></li>${privateRow({ id: channel, size: 3, position: 2, state: "interactiveSelected__new" })}${privateRow({ size: 3, position: 3, state: "muted__new" })}</ul>`,
+  });
+  assert.equal(
+    other.adapter.snapshot().hasUnread,
+    null,
+    "a viewed DM cannot resolve another muted DM",
+  );
+  const unreadOther = fixture({
+    ...options,
+    dms: '<span class="numberBadge__new">1</span>',
+  });
+  assert.equal(
+    unreadOther.adapter.snapshot().hasUnread,
+    true,
+    "another dedicated DM badge remains authoritative",
   );
 });
 
@@ -579,12 +581,19 @@ test("Discord notification hit testing rejects ancestor lists, sibling messages 
   assert.equal(f.adapter.isViewingNotification({ tag: message }), false);
 });
 
-test("Discord thread routes only acknowledge the actual thread message viewport", () => {
+test("guild and thread viewports can suppress exact toasts but cannot acknowledge DM unread", () => {
   const f = fixture({
     path: `/channels/${guild}/${otherChannel}/threads/${channel}`,
   });
-  assert.equal(f.adapter.readContext(), channel);
+  assert.equal(f.adapter.readContext(), null);
+  assert.equal(f.adapter.contentContext(), null);
+  assert.equal(f.interact(), null);
   assert.equal(f.adapter.isViewingNotification({ tag: message }), true);
+  const guildPane = fixture({ path: `/channels/${guild}/${channel}` });
+  assert.equal(guildPane.adapter.readContext(), null);
+  assert.equal(guildPane.adapter.contentContext(), null);
+  assert.equal(guildPane.interact(), null);
+  assert.equal(guildPane.adapter.isViewingNotification({ tag: message }), true);
   const wrong = fixture({
     path: `/channels/${guild}/${otherChannel}/threads/${channel}`,
     chat: conversation({ id: otherChannel }),

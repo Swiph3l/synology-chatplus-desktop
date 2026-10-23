@@ -99,7 +99,11 @@ function completeGroup(group: Element): Element[] | null {
     : null;
 }
 
-function completePrivateList(list: Element, document: Document): boolean {
+function completePrivateList(
+  list: Element,
+  document: Document,
+  viewedCurrent: string | null = null,
+): boolean {
   // Swiph3l: The ordinary private sidebar excludes message requests/spam. Their separate row appears whenever either store is nonempty, so an ordinary DM list cannot clear that hidden scope.
   if (list.querySelector('a[href="/message-requests"]')) return false;
   const rows = [
@@ -136,12 +140,19 @@ function completePrivateList(list: Element, document: Document): boolean {
       )
     )
       return false;
+    // Swiph3l: Only the exact unobscured latest DM pane can resolve its own
+    // selected/hovered row. Native foreground input is still required to read;
+    // other rows and the provider-wide Inbox check retain the stricter rule.
     return (
-      !row.matches(":hover") &&
-      !semanticDescendant(row, "muted") &&
-      !semanticDescendant(row, "mutedIcon") &&
-      !semanticDescendant(row, "selected") &&
-      !semanticDescendant(row, "interactiveSelected")
+      (viewedCurrent !== null &&
+        new RegExp(`^/channels/@me/${viewedCurrent}/?$`).test(
+          dm.getAttribute("href") ?? "",
+        )) ||
+      (!row.matches(":hover") &&
+        !semanticDescendant(row, "muted") &&
+        !semanticDescendant(row, "mutedIcon") &&
+        !semanticDescendant(row, "selected") &&
+        !semanticDescendant(row, "interactiveSelected"))
     );
   });
 }
@@ -258,6 +269,18 @@ function conversationViewport(
   return candidates.length === 1 ? candidates[0] : null;
 }
 
+function directMessageViewport(
+  document: Document,
+  latest: boolean,
+): ConversationViewport | null {
+  const path = document.defaultView?.location.pathname ?? "";
+  return new RegExp(`^/channels/@me/${snowflake}(?:/${snowflake})?/?$`).test(
+    path,
+  )
+    ? conversationViewport(document, latest)
+    : null;
+}
+
 export function createDiscordAdapter(
   document: Document,
 ): ProviderUnreadAdapter {
@@ -293,6 +316,43 @@ export function createDiscordAdapter(
   view?.addEventListener("focus", preventBackgroundFocus, true);
 
   const snapshot = (): ProviderUnreadSnapshot => {
+    const dms = document.getElementById("guild-list-unread-dms");
+    const privateLists = [
+      ...document.querySelectorAll('[data-list-id^="private-channels-"]'),
+    ];
+    if (
+      privateLists.some((list) =>
+        [...list.querySelectorAll('a[href^="/channels/@me/"]')].some(
+          (dm) =>
+            new RegExp(`^/channels/@me/${snowflake}/?$`).test(
+              dm.getAttribute("href") ?? "",
+            ) &&
+            semanticDescendant(semanticAncestor(dm, "dm") ?? dm, "unreadPill"),
+        ),
+      )
+    ) {
+      return { hasUnread: true, count: null, unreadScope: "direct-messages" };
+    }
+    if (dms && badgePresent(dms))
+      return { hasUnread: true, count: null, unreadScope: "direct-messages" };
+    // Swiph3l: The rail dot is private-message-only. Empty mention badges cannot
+    // clear hidden/muted/request DMs; guild unread belongs only to Inbox proof.
+    const complete =
+      dms &&
+      privateLists.length === 1 &&
+      completePrivateList(
+        privateLists[0],
+        document,
+        directMessageViewport(document, true)?.channel ?? null,
+      );
+    return {
+      hasUnread: complete ? false : null,
+      count: null,
+      unreadScope: "direct-messages",
+    };
+  };
+
+  const providerSnapshot = (): ProviderUnreadSnapshot => {
     const rail = document.querySelector('[data-list-id="guildsnav"]');
     const dms = document.getElementById("guild-list-unread-dms");
     const privateLists = [
@@ -345,7 +405,13 @@ export function createDiscordAdapter(
   return {
     readAllStep: createDiscordInboxRead(document),
     source: "discord-dom",
+    // Swiph3l: Browser tags identify messages but not DM versus guild scope.
+    // They still drive toast delivery/viewing, never the DM-only unread latch.
+    tracksNotificationArrivals: false,
     snapshot,
+    // Swiph3l: Inbox read-all is provider-wide. A DM-only zero must never certify
+    // unread guilds, folders or Favorites as read.
+    providerAllUnreadZero: () => providerSnapshot().hasUnread === false,
     providerUnreadZero: () => snapshot().hasUnread === false,
     onHostForegroundChanged(foreground) {
       if (hostForeground === foreground) return;
@@ -354,9 +420,9 @@ export function createDiscordAdapter(
       if (!foreground) blur();
       else if (browserHasFocus()) view?.dispatchEvent(new Event("focus"));
     },
-    readContext: () => conversationViewport(document, true)?.channel ?? null,
+    readContext: () => directMessageViewport(document, true)?.channel ?? null,
     contentContext() {
-      const viewport = conversationViewport(document, false);
+      const viewport = directMessageViewport(document, false);
       if (!viewport) return null;
       // Swiph3l: A conversation gesture must stay attached to actual message content. Scroll position and older virtualized rows can change independently, so use the newest retained message snowflake.
       const newest = viewport.rows
@@ -370,7 +436,7 @@ export function createDiscordAdapter(
       return `${viewport.channel}:${newest}`;
     },
     interactionContext(event) {
-      const viewport = conversationViewport(document, false);
+      const viewport = directMessageViewport(document, false);
       const target = event
         .composedPath()
         .find(

@@ -58,8 +58,8 @@ function fixture(provider) {
   const host = {
     __chatplusProvider: provider,
     location: {
-      href: `https://provider.example/channels/${guild}/${channel}#channels/42`,
-      pathname: `/channels/${guild}/${channel}`,
+      href: `https://provider.example/channels/${provider === "discord" ? "@me" : guild}/${channel}#channels/42`,
+      pathname: `/channels/${provider === "discord" ? "@me" : guild}/${channel}`,
       hash: "#channels/42",
     },
     Event: dom.Event,
@@ -166,8 +166,15 @@ function fixture(provider) {
         .classList.toggle("highlight", unread);
     } else {
       document
-        .querySelector(".item__current")
-        .classList.toggle("visible__current", unread);
+        .querySelector("#guild-list-unread-dms .numberBadge__current")
+        ?.remove();
+      if (unread)
+        document
+          .getElementById("guild-list-unread-dms")
+          .insertAdjacentHTML(
+            "beforeend",
+            '<span class="numberBadge__current">1</span>',
+          );
     }
     changed();
   };
@@ -282,8 +289,8 @@ for (const [name, provider, source] of providers) {
       assert.equal(f.messages.at(-1).readScope, "provider-zero");
       assert.deepEqual(
         f.messages.at(-1).readArrivals,
-        [1],
-        "trusted foreground conversation input plus proven provider zero retires the completed arrival without an exact tag",
+        provider === "discord" ? [] : [1],
+        "trusted foreground input proves the provider's read scope; raw Discord events are not DM tokens",
       );
     });
   }
@@ -305,7 +312,10 @@ for (const [name, provider] of providers) {
       f.gesture(f.composer, input);
       assert.equal(f.messages.at(-1).acknowledgement, 2);
       assert.equal(f.messages.at(-1).readScope, "provider-zero");
-      assert.deepEqual(f.messages.at(-1).readArrivals, [1]);
+      assert.deepEqual(
+        f.messages.at(-1).readArrivals,
+        provider === "discord" ? [] : [1],
+      );
     });
   }
 
@@ -338,7 +348,7 @@ for (const [name, provider] of providers) {
     assert.equal(f.messages.at(-1).acknowledgement, null);
   });
 
-  test(`${name}: native completion retries a trusted restored composer read that beat its notification query`, () => {
+  test(`${name}: native completion ${provider === "discord" ? "cannot replay a DM proof without retained browser tokens" : "retries a trusted restored composer read that beat its notification query"}`, () => {
     const f = fixture(provider);
     f.host.__chatplusSetForeground(false, 1, 1);
     f.arrival();
@@ -350,8 +360,14 @@ for (const [name, provider] of providers) {
     const beforeComplete = f.messages.length;
     f.host.__chatplusCompleteArrival(1);
     f.flush();
-    assert.equal(f.messages.length, beforeComplete + 1);
+    assert.equal(
+      f.messages.length,
+      beforeComplete + (provider === "discord" ? 0 : 1),
+    );
     assert.equal(f.messages.at(-1).acknowledgement, 2);
-    assert.deepEqual(f.messages.at(-1).readArrivals, [1]);
+    assert.deepEqual(
+      f.messages.at(-1).readArrivals,
+      provider === "discord" ? [] : [1],
+    );
   });
 }

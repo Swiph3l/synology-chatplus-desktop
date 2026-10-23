@@ -16,7 +16,7 @@ function fixture(provider, frame = false) {
   const { window: dom, document } = parseHTML(`<html><body class="eos-scope">
     <div><div id="sidebar-tab-item-messages"><span data-testid="tab-item-indicator"></span></div></div>
     <div class="syno-chat"><div class="channel-list-main"><div class="channel-list-view"><div class="channel-list-item highlight"></div></div></div></div>
-    <div data-list-id="private-channels-example"><span class="unreadPill_current"></span></div>
+    <div data-list-id="private-channels-example"><a href="/channels/@me/333333333333333333"><span class="unreadPill_current"></span></a></div>
     <div id="pane-side"><div role="grid"><div role="row"><span data-testid="unread-count">2</span></div></div></div>
     <div role="navigation"><div role="grid"><div role="row"><span aria-label="Unread"></span></div></div></div>
   </body></html>`);
@@ -77,6 +77,8 @@ for (const [provider, source] of [
       provider === "messenger" ? null : true,
     );
     assert.equal(f.messages[0].acknowledgement, null);
+    if (provider === "discord")
+      assert.equal(f.messages[0].unreadScope, "direct-messages");
     assert.equal(typeof f.host.__chatplusSetForeground, "function");
     assert.equal(typeof f.host.__chatplusIsViewingNotification, "function");
     assert.equal(f.document.querySelector("#chatplus-desktop-theme"), null);

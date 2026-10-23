@@ -108,7 +108,9 @@ function discordFixture(otherUnread = true) {
       ${guildRow(otherGuild, otherUnread ? "visible__current" : "", 2)}</div>
     </div>
     <ul data-list-id="private-channels-current">
-      <li class="channel__current" aria-setsize="1" aria-posinset="1"><a href="/channels/@me">Friends</a></li>
+      <li class="channel__current" aria-setsize="3" aria-posinset="1"><a href="/channels/@me">Friends</a></li>
+      <li class="channel__current dm__current" aria-setsize="3" aria-posinset="2"><div class="interactiveSelected__current"><a href="/channels/@me/${channel}">Current DM</a></div></li>
+      <li class="channel__current dm__current" aria-setsize="3" aria-posinset="3"><a href="/channels/@me/${otherChannel}">${otherUnread ? '<span class="unreadPill__current"></span>' : ""}</a></li>
     </ul>
     <div class="chatContent_current"><div class="messagesWrapper__current">
       <div class="scroller__current"><ol data-list-id="chat-messages">
@@ -124,7 +126,7 @@ function discordFixture(otherUnread = true) {
     value: "visible",
   });
   const host = Object.assign(new EventTarget(), {
-    location: { pathname: `/channels/${guild}/${channel}` },
+    location: { pathname: `/channels/@me/${channel}` },
     MutationObserver: parsed.window.MutationObserver,
     getComputedStyle: (node) => ({
       display: node.style.display || "block",
@@ -180,29 +182,65 @@ function discordFixture(otherUnread = true) {
   };
 }
 
-test("Discord service activation and selected guild label cannot produce a global read", async () => {
+test("Discord DM-zero observation and service activation cannot produce an automatic read", async () => {
   const f = discordFixture(false);
   try {
-    assert.equal(f.adapter.snapshot().hasUnread, null);
+    assert.equal(f.adapter.snapshot().hasUnread, false);
+    assert.equal(f.adapter.providerUnreadZero(), true);
+    assert.equal(f.adapter.providerAllUnreadZero(), false);
     f.host.__chatplusSetForeground(true, 7);
     await settle();
     assert.ok(f.messages.length > 0);
     assert.ok(f.messages.every((event) => event.acknowledgement === null));
     assert.ok(f.messages.every((event) => event.readScope !== "provider-zero"));
-    assert.equal(
-      f.host.__chatplusMarkCurrentRead(),
-      false,
-      "no known exact arrival exists",
-    );
   } finally {
     f.stop();
   }
 });
 
-test("Discord explicit current read works after rail focus, acknowledges two visible messages and preserves an unrelated channel", async () => {
+test("Discord explicit DM read rejects other unread or unknown DMs and never reads a guild pane", async () => {
   const f = discordFixture();
   try {
     f.host.__chatplusSetForeground(true, 7);
+    await settle();
+    assert.equal(
+      f.host.__chatplusMarkCurrentRead(),
+      false,
+      "another unread DM survives current read",
+    );
+    assert.ok(f.messages.every((event) => event.acknowledgement === null));
+    const other = f.document.querySelector(
+      `a[href="/channels/@me/${otherChannel}"]`,
+    );
+    other.querySelector("span").remove();
+    other.insertAdjacentHTML(
+      "beforeend",
+      '<span class="muted__current"></span>',
+    );
+    assert.equal(
+      f.host.__chatplusMarkCurrentRead(),
+      false,
+      "another ambiguous muted DM survives current read",
+    );
+    other.querySelector("span").remove();
+    f.host.location.pathname = `/channels/${guild}/${channel}`;
+    assert.equal(
+      f.host.__chatplusMarkCurrentRead(),
+      false,
+      "guild view cannot acknowledge the DM-only dot",
+    );
+    f.host.location.pathname = `/channels/@me/${channel}`;
+    f.host.__chatplusSetForeground(false, 8);
+    assert.equal(f.host.__chatplusMarkCurrentRead(), false);
+  } finally {
+    f.stop();
+  }
+});
+
+test("Discord explicit complete DM read ignores unclassified toast tokens and keeps Inbox scope separate", async () => {
+  const f = discordFixture(false);
+  try {
+    f.host.__chatplusSetForeground(true, 7, 3);
     for (const [arrival, tag] of [
       [1, firstMessage],
       [2, secondMessage],
@@ -210,34 +248,31 @@ test("Discord explicit current read works after rail focus, acknowledges two vis
     ])
       f.host.__chatplusIsViewingNotification({ arrival, tag });
     await settle();
+    assert.ok(f.messages.every((event) => event.acknowledgement === null));
     f.focus(false);
-    assert.equal(f.document.hasFocus(), false, "the rail owns browser focus");
+    assert.equal(
+      f.document.hasFocus(),
+      false,
+      "the rail owns browser focus for the explicit action",
+    );
     assert.equal(f.host.__chatplusMarkCurrentRead(), true);
     const event = f.messages.at(-1);
     assert.equal(event.reason, "explicit-current-local");
-    assert.equal(event.hasUnread, true, "the unrelated guild still has unread");
-    assert.deepEqual(event.readArrivals, [1, 2]);
+    assert.equal(event.hasUnread, false);
+    assert.equal(event.unreadScope, "direct-messages");
+    assert.deepEqual(
+      event.readArrivals,
+      [],
+      "unclassified browser events are not DM read tokens",
+    );
     assert.equal(event.acknowledgement, 7);
+    assert.equal(event.readScope, "provider-zero");
+    f.adapter.readAllStep = () => "submitted";
     assert.equal(
-      event.readScope,
-      undefined,
-      "current read never claims provider zero",
+      f.host.__chatplusReadAllStep("bounded-test"),
+      "waiting",
+      "DM zero cannot certify guilds read by Inbox",
     );
-    f.host.__chatplusAcceptRead([1, 2]);
-    await settle();
-    assert.equal(
-      f.host.__chatplusMarkCurrentRead(),
-      false,
-      "unrelated arrival cannot match this pane",
-    );
-    f.host.location.pathname = `/channels/${otherGuild}/${otherChannel}`;
-    assert.equal(
-      f.host.__chatplusMarkCurrentRead(),
-      false,
-      "stale route content cannot widen acknowledgement",
-    );
-    f.host.__chatplusSetForeground(false, 8);
-    assert.equal(f.host.__chatplusMarkCurrentRead(), false);
   } finally {
     f.stop();
   }

@@ -231,15 +231,17 @@ pub fn begin_incoming_for(
     first_observation: bool,
     previous_generation: Option<u64>,
 ) -> IncomingGeneration {
+    let tracks_unread = browser_arrivals_tracked(&crate::state::current(app), id);
     let service = app.state::<Service>();
     let mut tracking = service.0.lock().unwrap_or_else(|e| e.into_inner());
-    revoke_input(&mut tracking, id, first_observation);
-    let read = begin_event(&mut tracking, id, first_observation, previous_generation);
-    let changed = first_observation && latch_arrival(&mut tracking, id, read, now());
-    let generation = IncomingGeneration {
-        read,
-        visibility: tracking.visibility_generation,
-    };
+    let (generation, changed) = begin_browser_event(
+        &mut tracking,
+        id,
+        first_observation,
+        previous_generation,
+        now(),
+        tracks_unread,
+    );
     drop(tracking);
     if first_observation {
         crate::diagnostics::notification(
@@ -247,14 +249,14 @@ pub fn begin_incoming_for(
             id,
             crate::diagnostics::NotificationEvent::Detected,
             crate::diagnostics::NotificationReason::BrowserEvent,
-            read,
+            generation.read,
         );
         crate::diagnostics::notification(
             app,
             id,
             crate::diagnostics::NotificationEvent::NotificationArrival,
             crate::diagnostics::NotificationReason::BrowserEvent,
-            read,
+            generation.read,
         );
     }
     if changed {
@@ -263,16 +265,49 @@ pub fn begin_incoming_for(
             id,
             crate::diagnostics::NotificationEvent::UnreadLatched,
             crate::diagnostics::NotificationReason::BrowserEvent,
-            read,
+            generation.read,
         );
         refresh(app);
     }
-    // Swiph3l: Background arrivals also need a renderer read barrier; retaining
-    // each service's latest sequence lets restore retry a missed projection.
+    // Background arrivals still advance the gesture barrier; notification-only
+    // Discord events do not own pending unread or retain unread renderer tags.
     if first_observation {
         sync_presentation(app);
     }
     generation
+}
+
+pub(crate) fn provider_tracks_browser_arrivals(provider: crate::providers::ProviderId) -> bool {
+    // Swiph3l: Discord browser notifications also include servers and other events.
+    // Only the dedicated public DM DOM can establish its DM-scoped unread dot.
+    provider != crate::providers::ProviderId::Discord
+}
+
+fn browser_arrivals_tracked(settings: &crate::state::Settings, id: &str) -> bool {
+    settings.services.iter().any(|service| {
+        service.id == id && service.enabled && provider_tracks_browser_arrivals(service.provider)
+    })
+}
+
+fn begin_browser_event(
+    tracking: &mut Tracking,
+    id: &str,
+    first_observation: bool,
+    previous_generation: Option<u64>,
+    at: u64,
+    tracks_unread: bool,
+) -> (IncomingGeneration, bool) {
+    revoke_input(tracking, id, first_observation);
+    let read = begin_event(tracking, id, first_observation, previous_generation);
+    let changed = tracks_unread && first_observation && latch_arrival(tracking, id, read, at);
+    if !tracks_unread {
+        finish_event(tracking, id, read, first_observation);
+    }
+    let generation = IncomingGeneration {
+        read,
+        visibility: tracking.visibility_generation,
+    };
+    (generation, changed)
 }
 
 fn revoke_input(tracking: &mut Tracking, id: &str, first_observation: bool) -> bool {
@@ -506,15 +541,17 @@ pub fn incoming_for(
     provider_viewed: bool,
 ) -> bool {
     let viewed = actively_viewed(app, id, visibility, provider_viewed);
+    let tracks_unread = browser_arrivals_tracked(&crate::state::current(app), id);
     let service = app.state::<Service>();
     let mut tracking = service.0.lock().unwrap_or_else(|e| e.into_inner());
-    let changed = observe_browser_event(
+    let changed = observe_browser_event_with_policy(
         &mut tracking,
         id,
         viewed,
         now(),
         first_observation,
         generation,
+        tracks_unread,
     );
     drop(tracking);
     if changed {
@@ -528,6 +565,30 @@ pub fn incoming_for(
         refresh(app);
     }
     viewed
+}
+
+fn observe_browser_event_with_policy(
+    tracking: &mut Tracking,
+    id: &str,
+    actively_viewed: bool,
+    at: u64,
+    first_observation: bool,
+    generation: u64,
+    tracks_unread: bool,
+) -> bool {
+    if tracks_unread {
+        observe_browser_event(
+            tracking,
+            id,
+            actively_viewed,
+            at,
+            first_observation,
+            generation,
+        )
+    } else {
+        finish_event(tracking, id, generation, first_observation);
+        false
+    }
 }
 
 fn observe_browser_event(
@@ -2802,6 +2863,127 @@ mod tests {
                 assert_eq!(source.accepts(other), provider == other);
             }
         }
+    }
+
+    #[test]
+    fn only_discord_browser_events_are_excluded_from_native_unread_ownership() {
+        use crate::providers::ProviderId;
+        for provider in [
+            ProviderId::SynologyChatplus,
+            ProviderId::SynologyChat,
+            ProviderId::Whatsapp,
+            ProviderId::Messenger,
+            ProviderId::Mattermost,
+            ProviderId::Slack,
+        ] {
+            assert!(provider_tracks_browser_arrivals(provider), "{provider:?}");
+            let mut tracking = Tracking::default();
+            let (arrival, changed) = begin_browser_event(
+                &mut tracking,
+                "origin",
+                true,
+                None,
+                1,
+                provider_tracks_browser_arrivals(provider),
+            );
+            assert!(changed, "{provider:?}");
+            assert!(tracking.pending_generations["origin"].contains(&arrival.read));
+            assert!(tracking.observed_unread_arrivals["origin"].contains(&arrival.read));
+            observe_browser_event_with_policy(
+                &mut tracking,
+                "origin",
+                false,
+                2,
+                true,
+                arrival.read,
+                provider_tracks_browser_arrivals(provider),
+            );
+            assert!(tracking.observations["origin"].has_unread);
+            assert!(!tracking.pending_generations.contains_key("origin"));
+        }
+        assert!(!provider_tracks_browser_arrivals(ProviderId::Discord));
+    }
+
+    #[test]
+    fn unclassified_discord_notification_neither_creates_a_dot_nor_blocks_a_dm_read() {
+        let mut tracking = Tracking {
+            foreground_service: Some("discord".into()),
+            presentation_generation: 7,
+            ..Default::default()
+        };
+        let (event, changed) = begin_browser_event(&mut tracking, "discord", true, None, 1, false);
+        assert!(!changed);
+        assert!(
+            event.read > 0,
+            "toast routing still has a monotonic event generation"
+        );
+        assert!(!tracking.observations.contains_key("discord"));
+        assert!(!tracking.pending_generations.contains_key("discord"));
+        assert!(!tracking.observed_unread_arrivals.contains_key("discord"));
+        assert!(!observe_browser_event_with_policy(
+            &mut tracking,
+            "discord",
+            false,
+            2,
+            true,
+            event.read,
+            false
+        ));
+        assert!(!tracking.observations.contains_key("discord"));
+
+        observe_provider(&mut tracking, "discord", true, false, None, &[], false, 3);
+        assert!(
+            tracking.observations["discord"].has_unread,
+            "positive DM DOM remains authoritative"
+        );
+        let other = begin_event(&mut tracking, "other", true, None);
+        latch_arrival(&mut tracking, "other", other, 3);
+        observe_provider(
+            &mut tracking,
+            "discord",
+            false,
+            true,
+            Some(7),
+            &[],
+            false,
+            4,
+        );
+        assert!(
+            tracking.observations["discord"].has_unread,
+            "a gesture from before the event is stale"
+        );
+        let current = tracking.presentation_generation;
+        observe_provider(
+            &mut tracking,
+            "discord",
+            false,
+            true,
+            Some(current),
+            &[],
+            false,
+            5,
+        );
+        assert!(
+            !tracking.observations["discord"].has_unread,
+            "unclassified server events cannot block scoped DM zero proof"
+        );
+        assert!(tracking.observations["other"].has_unread);
+        assert!(tracking.pending_generations["other"].contains(&other));
+        let (duplicate, changed) =
+            begin_browser_event(&mut tracking, "discord", false, Some(event.read), 6, false);
+        assert_eq!(duplicate.read, event.read);
+        assert!(!changed);
+        assert!(!observe_browser_event_with_policy(
+            &mut tracking,
+            "discord",
+            false,
+            7,
+            false,
+            duplicate.read,
+            false
+        ));
+        assert!(!tracking.observations["discord"].has_unread);
+        assert!(native_unread_complete(&tracking, "discord"));
     }
 
     #[test]

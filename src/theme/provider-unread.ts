@@ -105,6 +105,7 @@ export function installUnreadAdapter(
         : null,
     conversations: state.conversations,
     currentConversation: state.currentConversation ?? adapter.readContext(),
+    unreadScope: state.unreadScope,
   });
   const observeState = () => {
     observedState = normalize(adapter.snapshot());
@@ -178,6 +179,7 @@ export function installUnreadAdapter(
               : "known-read",
         currentConversation: observedState.currentConversation,
         conversations: observedState.conversations,
+        unreadScope: observedState.unreadScope,
       })
     ) {
       lastKey = key;
@@ -316,7 +318,8 @@ export function installUnreadAdapter(
     }
     if (newArrival) {
       incomingSequence = nextIncoming;
-      retain(nextIncoming, null);
+      if (adapter.tracksNotificationArrivals !== false)
+        retain(nextIncoming, null);
     }
     foreground = value;
     generation = nextGeneration;
@@ -335,7 +338,20 @@ export function installUnreadAdapter(
       return false;
     const state = observeState();
     const arrivals = currentReadArrivals(adapter, unseenArrivals);
-    if (arrivals.length === 0) return false;
+    // Swiph3l: Discord's DM badge uses scoped DOM evidence, not unclassified
+    // browser arrivals. An explicit current action may acknowledge a complete
+    // DM zero only from a stable, latest mapped conversation.
+    const context = adapter.readContext();
+    const content = adapter.contentContext();
+    const scopedZero =
+      adapter.tracksNotificationArrivals === false &&
+      state.hasUnread === false &&
+      adapter.providerUnreadZero?.() === true &&
+      context !== null &&
+      content !== null &&
+      adapter.readContext() === context &&
+      adapter.contentContext() === content;
+    if (arrivals.length === 0 && !scopedZero) return false;
     revokeRead();
     interactionSequence += 1;
     return publish(
@@ -345,6 +361,7 @@ export function installUnreadAdapter(
       generation,
       arrivals,
       state.hasUnread === null,
+      scopedZero ? "provider-zero" : undefined,
     );
   };
   host.__chatplusReadAllStep = (operation) => {
@@ -361,7 +378,8 @@ export function installUnreadAdapter(
     // public action must also leave fresh complete provider evidence of zero;
     // partial/unknown DOM and network errors cannot clear the captured baseline.
     return observeState().hasUnread === false &&
-      adapter.providerUnreadZero?.() === true
+      (adapter.providerAllUnreadZero?.() ?? adapter.providerUnreadZero?.()) ===
+        true
       ? "submitted"
       : "waiting";
   };
@@ -386,7 +404,8 @@ export function installUnreadAdapter(
         revokeRead();
       }
       incomingSequence = Math.max(incomingSequence, arrival!);
-      retain(arrival!, notification);
+      if (adapter.tracksNotificationArrivals !== false)
+        retain(arrival!, notification);
     }
     // Swiph3l: Renderer visibility may be stale by native callback time. This query only retains tags/returns evidence; it cannot mint a lasting read proof.
     return visible() && adapter.isViewingNotification(notification);

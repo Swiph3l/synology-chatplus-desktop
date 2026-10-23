@@ -1,8 +1,10 @@
 # Notifications and unread
 
 Notification delivery and unread are separate lifecycles. An incoming event can
-remain unread when its toast is muted, suppressed or rejected by Windows. Service
-selection, focus, toast clicks and toast dismissal never acknowledge unread.
+remain unread when its toast is muted, suppressed or rejected by Windows. Discord's
+dot is DM-only and uses scoped DOM evidence; unclassified browser events still
+deliver toasts without owning that dot. Service selection, focus, toast clicks and
+toast dismissal never acknowledge unread.
 
 Provider coverage and origin rules are in [Service providers](PROVIDERS.md).
 
@@ -93,17 +95,18 @@ provider permission repair and notification settings. Unsupported actions are
 omitted. Local acknowledgement is labelled **local** and makes no server-side read
 claim.
 
-| Provider                          | Mark current                                             | Mark all                                |
-| --------------------------------- | -------------------------------------------------------- | --------------------------------------- |
-| Synology ChatPlus / Synology Chat | Unavailable without exact message mapping                | Local acknowledgement for that instance |
-| Discord                           | Local acknowledgement of proven visible message arrivals | Bounded public Inbox action             |
-| WhatsApp / Messenger              | Unavailable                                              | Local acknowledgement for that instance |
-| Mattermost                        | Unavailable                                              | Local acknowledgement for that instance |
-| Slack                             | Unavailable                                              | Unavailable                             |
+| Provider                          | Mark current                                                | Mark all                                |
+| --------------------------------- | ----------------------------------------------------------- | --------------------------------------- |
+| Synology ChatPlus / Synology Chat | Unavailable without exact message mapping                   | Local acknowledgement for that instance |
+| Discord                           | Local acknowledgement from a latest DM and complete DM zero | Bounded public Inbox action             |
+| WhatsApp / Messenger              | Unavailable                                                 | Local acknowledgement for that instance |
+| Mattermost                        | Unavailable                                                 | Local acknowledgement for that instance |
+| Slack                             | Unavailable                                                 | Unavailable                             |
 
-Discord current read additionally requires the service to be active in the native
-foreground. It acknowledges only exact arrivals visible in that channel/thread;
-other conversations and service instances remain unread.
+Discord current read requires the service to be active in the native foreground,
+a stable visible latest DM pane and reliable complete DM zero. Other unread or
+unknown DMs prevent that zero. Guild/channel panes cannot acknowledge the DM dot;
+other service instances remain independent.
 
 Local all-read records a baseline so unchanged provider markup does not
 immediately restore the same dot. It is available for Synology, WhatsApp, Messenger
@@ -196,6 +199,21 @@ Action Center. Notification content is bounded in memory for display and routing
 never logged or persisted.
 
 ### Discord categories
+
+The rail, title, tray and taskbar dot/count represent private-message unread only.
+Dedicated DM badges and the ordinary private-channel list supply that state;
+guilds, folders and Favorites cannot light it. The exact current latest DM can
+resolve its own selected-row ambiguity, but clearing still requires fresh trusted
+conversation input or the explicit current-read action. Other muted, incomplete or
+request/spam scopes remain unknown. Discord observations must carry
+`unreadScope: "direct-messages"`; native parsing rejects legacy/global snapshots.
+
+Raw browser events contain message IDs without a reliable DM category. They retain
+routing and gesture generations but do not create unread tokens or pending-read
+barriers for Discord. A DM acknowledgement cannot suppress an unrelated guild
+toast. Exact visible-message matching still controls foreground toast suppression.
+The public Inbox operation separately requires a complete provider-wide zero;
+DM zero alone cannot confirm that guild messages were read.
 
 Use Discord's own desktop notification preferences, server **Only @mentions**
 setting and channel/category overrides to choose DM/mention delivery. Highlights,

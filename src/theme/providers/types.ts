@@ -1,6 +1,7 @@
 export interface ProviderUnreadSnapshot {
   hasUnread: boolean | null;
   count: number | null;
+  unreadScope?: "direct-messages";
   conversations?: Array<{
     id: string;
     hasUnread: boolean;
@@ -28,6 +29,8 @@ export interface ProviderUnreadAdapter {
   contentContext(): string | null;
   interactionContext(event: Event): string | null;
   providerUnreadZero?(): boolean;
+  providerAllUnreadZero?(): boolean;
+  tracksNotificationArrivals?: boolean;
   isViewingNotification(notification: ProviderNotification): boolean;
   onHostForegroundChanged?(foreground: boolean): void;
   readAllStep?(operation: string): import("./discord-read").InboxReadStatus;

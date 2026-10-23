@@ -14,7 +14,7 @@ Web UI and may have account, browser or server-version compatibility limits.
 | ----------------- | ------------ | ---------------------------------------- | ---------------------------- | -------------- |
 | Synology ChatPlus | Primary      | Aggregate DOM                            | Yes                          | Yes            |
 | Synology Chat     | Experimental | Aggregate DOM                            | Yes                          | No             |
-| Discord           | Experimental | Aggregate DOM and exact message identity | Yes                          | No             |
+| Discord           | Experimental | DM-scoped DOM; exact identity for toasts | Yes                          | No             |
 | WhatsApp          | Experimental | Positive badges only; otherwise unknown  | Yes                          | No             |
 | Messenger         | Experimental | Browser notification arrivals only       | Yes                          | No             |
 | Slack             | Experimental | Unavailable                              | No                           | No             |
@@ -116,18 +116,24 @@ The entry URL is `https://discord.com/app/`; login uses the normal provider UI a
 WebView profile. No token handling, private stores, webpack APIs or security-check
 bypasses are used.
 
-Unread evidence combines guild/folder/Favorites and private-channel navigation.
-Home promotions, hover/selection pills and mention totals cannot establish global
-unread or zero. A global zero requires complete, consistent guild/folder metadata
-and the ordinary private sidebar. Selected, hovered or muted DM rows, missing
-positions, ambiguous media labels and request/spam scope can leave the aggregate
-unknown. A mention-only DM group cannot establish that every conversation is read.
+The rail uses only dedicated DM badges and ordinary private-channel navigation;
+guilds, folders, Favorites and unclassified browser events cannot light its dot.
+Missing positions, muted or ambiguous other DM rows and request/spam scopes remain
+unknown. Only the exact visible latest current DM can resolve its own selected-row
+ambiguity, with fresh native-validated engagement still required for a clear.
+An empty mention group alone cannot establish that every DM is read.
+
+DM zero and provider-wide zero are separate adapter capabilities. The public Inbox
+operation retains complete guild/folder/Favorites and private-sidebar validation;
+DM zero cannot certify guild messages as read. Native parsing requires the explicit
+`direct-messages` unread scope. Browser notifications keep their delivery/routing
+lifecycle but own no Discord unread tokens or read barriers.
 
 Native foreground floors public `document.hasFocus()` and drives public blur/focus
 transitions. This prevents minimized or background WebViews from appearing active
 to Discord. Generation-only updates do not repeatedly refocus the page.
 
-Exact read/suppression proof requires the notification's message snowflake in the
+Exact toast suppression requires the notification's message snowflake in the
 matching route's visible, unobscured latest viewport. A channel ID, similar title,
 offscreen message or unrelated content change is insufficient. History/error bars
 block proof. Current-content identity follows the newest rendered message, so

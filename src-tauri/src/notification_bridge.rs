@@ -526,7 +526,11 @@ impl PendingNotification {
             );
             return false;
         }
-        if crate::unread::acknowledged_after(app, &self.service.id, self.generation) {
+        // Swiph3l: Discord's DM-only read scope cannot suppress an unclassified
+        // server/channel notification merely because its generation was observed.
+        let owns_unread = crate::unread::provider_tracks_browser_arrivals(self.service.provider);
+        if owns_unread && crate::unread::acknowledged_after(app, &self.service.id, self.generation)
+        {
             crate::unread::accept_read_for(app, &self.service.id, &[self.generation]);
             crate::diagnostics::notification(
                 app,
@@ -564,7 +568,10 @@ impl PendingNotification {
         }
         // Swiph3l: A readonly query may retire its tag only after native visibility
         // revalidation and only when this arrival owns no cached unread.
-        if viewed && !crate::unread::arrival_requires_read(app, &self.service.id, self.generation) {
+        if owns_unread
+            && viewed
+            && !crate::unread::arrival_requires_read(app, &self.service.id, self.generation)
+        {
             crate::unread::accept_read_for(app, &self.service.id, &[self.generation]);
         }
         crate::desktop_notifications::deliver_for(
@@ -1237,6 +1244,7 @@ fn parse_unread(json: &str) -> Option<UnreadObservation> {
         #[serde(default)]
         proof_only: bool,
         read_scope: Option<String>,
+        unread_scope: Option<String>,
     }
 
     // Swiph3l: Up to 256 u64 read proofs can exceed the old tiny badge payload;
@@ -1326,6 +1334,16 @@ fn parse_unread(json: &str) -> Option<UnreadObservation> {
         Some("title-fallback") => return None,
         _ => return None,
     };
+    // Swiph3l: Discord dots represent DMs only. Reject legacy/global badge
+    // observations; a DM zero is never a claim that guild channels are read.
+    if match source {
+        crate::unread::Source::DiscordDom => {
+            value.unread_scope.as_deref() != Some("direct-messages")
+        }
+        _ => value.unread_scope.is_some(),
+    } {
+        return None;
+    }
     let reason = value.reason.unwrap_or_else(|| "event".into());
     if reason.len() > 120 {
         return None;
@@ -1837,12 +1855,45 @@ mod tests {
             ("whatsapp-dom", crate::unread::Source::WhatsappDom),
             ("messenger-dom", crate::unread::Source::MessengerDom),
         ] {
-            let json = serde_json::json!({"chatplusUnread":1,"hasUnread":false,"source":source})
-                .to_string();
+            let mut value =
+                serde_json::json!({"chatplusUnread":1,"hasUnread":false,"source":source});
+            if source == "discord-dom" {
+                value["unreadScope"] = "direct-messages".into();
+            }
+            let json = value.to_string();
             assert_eq!(
                 parse_unread(&json).map(|value| value.source),
                 Some(expected)
             );
+        }
+    }
+    #[test]
+    fn discord_unread_requires_direct_message_scope_and_other_sources_cannot_claim_it() {
+        let scoped = serde_json::json!({
+            "chatplusUnread": 1,
+            "hasUnread": false,
+            "source": "discord-dom",
+            "unreadScope": "direct-messages",
+            "acknowledgement": 7,
+            "readScope": "provider-zero",
+        });
+        assert!(parse_unread(&scoped.to_string()).unwrap().provider_zero);
+        for source in ["discord-dom", "chatplus-dom", "whatsapp-dom"] {
+            for scope in [None, Some("direct-messages"), Some("all"), Some("")] {
+                let mut value = scoped.clone();
+                value["source"] = source.into();
+                if let Some(scope) = scope {
+                    value["unreadScope"] = scope.into();
+                } else {
+                    value.as_object_mut().unwrap().remove("unreadScope");
+                }
+                let valid = if source == "discord-dom" {
+                    scope == Some("direct-messages")
+                } else {
+                    scope.is_none()
+                };
+                assert_eq!(parse_unread(&value.to_string()).is_some(), valid);
+            }
         }
     }
     #[test]
