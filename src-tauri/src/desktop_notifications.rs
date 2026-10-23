@@ -7,6 +7,9 @@ use std::{
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Emitter, Manager};
+#[cfg(any(windows, test))]
+#[path = "native_toast.rs"]
+mod native_toast;
 #[cfg(not(windows))]
 use tauri_plugin_notification::NotificationExt;
 const DELIVERY_HISTORY_LIMIT: usize = 256;
@@ -487,10 +490,10 @@ fn event_key(identity: &str) -> u64 {
 
 #[cfg(windows)]
 fn dismissal_reason(
-    reason: Option<tauri_winrt_notification::ToastDismissalReason>,
+    reason: Option<windows::UI::Notifications::ToastDismissalReason>,
 ) -> crate::diagnostics::NotificationReason {
     use crate::diagnostics::NotificationReason as Reason;
-    use tauri_winrt_notification::ToastDismissalReason;
+    use windows::UI::Notifications::ToastDismissalReason;
     match reason {
         Some(ToastDismissalReason::UserCanceled) => Reason::DismissedByUser,
         Some(ToastDismissalReason::ApplicationHidden) => Reason::DismissedByApplication,
@@ -519,6 +522,15 @@ fn presentation_reason(
 }
 
 #[cfg(windows)]
+pub(crate) fn withdraw_for(id: &str, identity: &str, generation: u64) -> bool {
+    native_toast::withdraw(&native_toast::Key {
+        service: id.into(),
+        identity: identity.into(),
+        generation,
+    })
+}
+
+#[cfg(windows)]
 fn show(
     app: &AppHandle,
     presentation: &crate::notification_presentation::Presentation,
@@ -527,8 +539,8 @@ fn show(
     event_identity: Option<String>,
     arrival_generation: u64,
 ) -> Result<(), String> {
-    // Swiph3l: The desktop plugin drops activation callbacks/errors; use its WinRT backend once for routing and explicit silence.
-    use tauri_winrt_notification::{IconCrop, Sound, Toast};
+    // Swiph3l: Retain this exact WinRT toast so provider Notification.close()
+    // cannot leave an unclickable duplicate in Windows Action Center.
     let handle = app.clone();
     let dismissal_app = app.clone();
     let dismissal_service = service_id.clone();
@@ -538,80 +550,78 @@ fn show(
         .services
         .iter()
         .find(|service| Some(service.id.as_str()) == service_id.as_deref());
-    let mut toast = Toast::new(sender_id(&app.config().identifier, cfg!(debug_assertions)))
-        .title(&presentation.title)
-        .text1(&presentation.body)
-        .text2(&presentation.attribution);
-    if let Ok(icon) = crate::notification_presentation::icon_path(app, service) {
-        toast = toast.icon(&icon, IconCrop::Square, &presentation.attribution);
-    }
-    let toast = toast
-        .sound(if sound { Some(Sound::IM) } else { None })
-        .on_dismissed(move |reason| {
-            // Swiph3l: OS dismissal is diagnostic only, never read evidence. The
-            // supported backend exposes dismissal but no asynchronous Failed hook.
-            if let Some(id) = dismissal_service.clone() {
-                let app = dismissal_app.clone();
-                let reason = dismissal_reason(reason);
-                let dispatcher = app.clone();
-                let _ = dispatcher.run_on_main_thread(move || {
-                    crate::diagnostics::notification(
-                        &app,
-                        &id,
-                        crate::diagnostics::NotificationEvent::ToastDismissed,
-                        reason,
-                        arrival_generation,
-                    );
-                });
-            }
-            Ok(())
-        })
-        .on_activated(move |_| {
-            let app = handle.clone();
-            let id = service_id.clone();
-            let identity = event_identity.clone();
+    let icon = crate::notification_presentation::icon_path(app, service).ok();
+    let key = service_id
+        .as_ref()
+        .zip(event_identity.as_ref())
+        .map(|(id, identity)| native_toast::Key {
+            service: id.clone(),
+            identity: identity.clone(),
+            generation: arrival_generation,
+        });
+    let dismissed = move |reason| {
+        // Swiph3l: OS dismissal is diagnostic only, never read evidence. The
+        // Record only fixed lifecycle outcomes; dismissal never acknowledges read.
+        if let Some(id) = dismissal_service.clone() {
+            let app = dismissal_app.clone();
+            let reason = dismissal_reason(reason);
             let dispatcher = app.clone();
             let _ = dispatcher.run_on_main_thread(move || {
-                // Swiph3l: WinRT activation is off-thread; restore and WebView activation must run on the existing UI thread.
-                if let Some(id) = id.as_deref() {
-                    crate::diagnostics::notification(
-                        &app,
-                        id,
-                        crate::diagnostics::NotificationEvent::ToastActivated,
-                        crate::diagnostics::NotificationReason::ExistingWindow,
-                        arrival_generation,
-                    );
-                }
-                if let (Some(id), Some(identity)) = (id.as_deref(), identity.as_deref()) {
-                    // Swiph3l: Retained event/config validation must precede selection;
-                    // an old toast must not activate a reused or removed service ID.
-                    crate::notification_bridge::report_activation(
-                        &app,
-                        id,
-                        identity,
-                        arrival_generation,
-                    );
-                } else {
-                    // Swiph3l: A test toast may recreate a closed Main window.
-                    // Keep that native creation off the COM/UI callback thread.
-                    std::thread::spawn(move || {
-                        if crate::window::activate_notification(&app, id.as_deref()).is_err() {
-                            let _ = app.emit_to("main", "notification-issue", ());
-                            if let Some(id) = id.as_deref() {
-                                crate::diagnostics::notification(
-                                    &app,
-                                    id,
-                                    crate::diagnostics::NotificationEvent::ToastSuppressed,
-                                    crate::diagnostics::NotificationReason::ActivationFailed,
-                                    arrival_generation,
-                                );
-                            }
-                        }
-                    });
-                }
+                crate::diagnostics::notification(
+                    &app,
+                    &id,
+                    crate::diagnostics::NotificationEvent::ToastDismissed,
+                    reason,
+                    arrival_generation,
+                );
             });
-            Ok(())
+        }
+    };
+    let activated = move || {
+        let app = handle.clone();
+        let id = service_id.clone();
+        let identity = event_identity.clone();
+        let dispatcher = app.clone();
+        let _ = dispatcher.run_on_main_thread(move || {
+            // Swiph3l: WinRT activation is off-thread; restore and WebView activation must run on the existing UI thread.
+            if let Some(id) = id.as_deref() {
+                crate::diagnostics::notification(
+                    &app,
+                    id,
+                    crate::diagnostics::NotificationEvent::ToastActivated,
+                    crate::diagnostics::NotificationReason::ExistingWindow,
+                    arrival_generation,
+                );
+            }
+            if let (Some(id), Some(identity)) = (id.as_deref(), identity.as_deref()) {
+                // Swiph3l: Retained event/config validation must precede selection;
+                // an old toast must not activate a reused or removed service ID.
+                crate::notification_bridge::report_activation(
+                    &app,
+                    id,
+                    identity,
+                    arrival_generation,
+                );
+            } else {
+                // Swiph3l: A test toast may recreate a closed Main window.
+                // Keep that native creation off the COM/UI callback thread.
+                std::thread::spawn(move || {
+                    if crate::window::activate_notification(&app, id.as_deref()).is_err() {
+                        let _ = app.emit_to("main", "notification-issue", ());
+                        if let Some(id) = id.as_deref() {
+                            crate::diagnostics::notification(
+                                &app,
+                                id,
+                                crate::diagnostics::NotificationEvent::ToastSuppressed,
+                                crate::diagnostics::NotificationReason::ActivationFailed,
+                                arrival_generation,
+                            );
+                        }
+                    }
+                });
+            }
         });
+    };
     // Swiph3l: Real and fixed test toasts share this final submission path.
     // Record current OS presentation state without changing notification policy
     // or treating an accepting state as evidence that a banner became visible.
@@ -625,9 +635,18 @@ fn show(
             arrival_generation,
         );
     }
-    toast
-        .show()
-        .map_err(|_| crate::i18n::t(app, "notification.showWindowsFailed"))
+    native_toast::show(
+        sender_id(&app.config().identifier, cfg!(debug_assertions)),
+        &presentation.title,
+        &presentation.body,
+        &presentation.attribution,
+        icon.as_deref(),
+        sound,
+        key,
+        activated,
+        dismissed,
+    )
+    .map_err(|_| crate::i18n::t(app, "notification.showWindowsFailed"))
 }
 #[cfg(not(windows))]
 fn show(
@@ -761,7 +780,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn os_dismissal_diagnostics_preserve_reason_without_read_or_payload_fields() {
-        use tauri_winrt_notification::ToastDismissalReason;
+        use windows::UI::Notifications::ToastDismissalReason;
         for (native, expected) in [
             (
                 Some(ToastDismissalReason::UserCanceled),

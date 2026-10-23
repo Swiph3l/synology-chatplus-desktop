@@ -67,6 +67,7 @@ pub enum NotificationReason {
     LatestUnavailable,
     ConversationReady,
     ConversationRead,
+    ProviderClosed,
     ServiceMuted,
     GlobalDisabled,
     PermissionDenied,

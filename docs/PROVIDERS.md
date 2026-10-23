@@ -120,7 +120,12 @@ The rail uses only dedicated DM badges and ordinary private-channel navigation;
 guilds, folders, Favorites and unclassified browser events cannot light its dot.
 Missing positions, muted or ambiguous other DM rows and request/spam scopes remain
 unknown. Only the exact visible latest current DM can resolve its own selected-row
-ambiguity, with fresh native-validated engagement still required for a clear.
+ambiguity. Positive DM identities are retained per instance; exact conversation
+read evidence can retire its own previously observed unread without requiring a
+complete private list. Other observed DMs, unmapped positive badges and overflow
+remain latched. This is not account-wide zero. Fresh native-validated engagement,
+an explicit current-read action, or exact target view/read proof following a
+bounded native toast intent is still required for a clear.
 An empty mention group alone cannot establish that every DM is read.
 
 DM zero and provider-wide zero are separate adapter capabilities. The public Inbox
@@ -140,6 +145,11 @@ block proof. Current-content identity follows the newest rendered message, so
 loading older history does not appear to be a new incoming message. See
 [Read acknowledgement](NOTIFICATIONS.md#read-acknowledgement) and
 [Explicit service read actions](NOTIFICATIONS.md#explicit-service-read-actions).
+
+Provider `Notification.close()` withdraws only its corresponding native toast.
+This prevents replaced Discord notifications from leaving dead Action Center
+entries. The public click handler runs before host focus; a click alone never
+acknowledges a DM and ChatPlus does not infer channel URLs from message tags.
 
 ### WhatsApp
 

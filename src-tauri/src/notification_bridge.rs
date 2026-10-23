@@ -486,6 +486,10 @@ impl<T> PendingQueries<T> {
     fn take(&mut self, token: u64) -> Option<T> {
         self.values.remove(&token)
     }
+    fn replace(&mut self, value: T) -> u64 {
+        self.values.clear();
+        self.insert(value)
+    }
 }
 
 #[cfg(windows)]
@@ -501,6 +505,123 @@ struct PendingNotification {
     visibility_generation: u64,
     bridge_id: u64,
     provider_silent: bool,
+    lifetime: std::rc::Rc<BrowserNotification>,
+}
+
+#[cfg(any(windows, test))]
+#[derive(Default)]
+struct NotificationLifetime {
+    closed: bool,
+    activation_started: bool,
+}
+
+#[cfg(any(windows, test))]
+impl NotificationLifetime {
+    fn close(&mut self) -> bool {
+        let first = !self.closed;
+        self.closed = true;
+        first
+    }
+    fn begin_activation(&mut self) -> bool {
+        if self.closed || self.activation_started {
+            return false;
+        }
+        self.activation_started = true;
+        true
+    }
+    fn can_show(&self) -> bool {
+        !self.closed && !self.activation_started
+    }
+}
+
+#[cfg(windows)]
+struct BrowserNotification {
+    notification: webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Notification,
+    close_token: std::cell::Cell<Option<i64>>,
+    state: std::cell::RefCell<NotificationLifetime>,
+    focus_token: std::cell::Cell<Option<u64>>,
+    fence_started: std::cell::Cell<bool>,
+}
+
+#[cfg(windows)]
+impl Drop for BrowserNotification {
+    fn drop(&mut self) {
+        if let Some(token) = self.close_token.take() {
+            unsafe {
+                let _ = self.notification.remove_CloseRequested(token);
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+fn retain_browser_notification(
+    app: &tauri::AppHandle,
+    notification: &webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Notification,
+    service: &crate::providers::ServiceConfig,
+    identity: &str,
+    generation: u64,
+    bridge_id: u64,
+) -> windows::core::Result<std::rc::Rc<BrowserNotification>> {
+    let lifetime = std::rc::Rc::new(BrowserNotification {
+        notification: notification.clone(),
+        close_token: std::cell::Cell::new(None),
+        state: Default::default(),
+        focus_token: std::cell::Cell::new(None),
+        fence_started: std::cell::Cell::new(false),
+    });
+    let weak = std::rc::Rc::downgrade(&lifetime);
+    let close_app = app.clone();
+    let close_service = service.clone();
+    let close_identity = identity.to_owned();
+    let mut token = 0;
+    unsafe {
+        notification.add_CloseRequested(
+            &webview2_com::NotificationCloseRequestedEventHandler::create(Box::new(move |_, _| {
+                let Some(lifetime) = weak.upgrade() else {
+                    return Ok(());
+                };
+                if !lifetime.state.borrow_mut().close() {
+                    return Ok(());
+                }
+                // Swiph3l: Discord replaces older browser notifications in a channel.
+                // Honor the public close lifecycle without interpreting it as read.
+                NOTIFICATION_ACTIVATIONS.with(|contexts| {
+                    contexts.borrow_mut().retain(|context| {
+                        !(context.service.id == close_service.id
+                            && context.identity == close_identity
+                            && context.generation == generation)
+                    })
+                });
+                crate::desktop_notifications::withdraw_for(
+                    &close_service.id,
+                    &close_identity,
+                    generation,
+                );
+                let activating = lifetime.state.borrow().activation_started;
+                if activating {
+                    if let Some(token) = lifetime.focus_token.get() {
+                        queue_activation_fence(&close_app, token);
+                    }
+                }
+                if crate::services::configured(&close_app, &close_service)
+                    && current_bridge(&close_app, &close_service.id, bridge_id)
+                {
+                    crate::diagnostics::notification(
+                        &close_app,
+                        &close_service.id,
+                        crate::diagnostics::NotificationEvent::ToastDismissed,
+                        crate::diagnostics::NotificationReason::ProviderClosed,
+                        generation,
+                    );
+                }
+                Ok(())
+            })),
+            &mut token,
+        )?;
+    }
+    lifetime.close_token.set(Some(token));
+    Ok(lifetime)
 }
 
 #[cfg(windows)]
@@ -574,6 +695,16 @@ impl PendingNotification {
         {
             crate::unread::accept_read_for(app, &self.service.id, &[self.generation]);
         }
+        if !self.lifetime.state.borrow().can_show() {
+            crate::diagnostics::notification(
+                app,
+                &self.service.id,
+                crate::diagnostics::NotificationEvent::ToastSuppressed,
+                crate::diagnostics::NotificationReason::ProviderClosed,
+                self.generation,
+            );
+            return false;
+        }
         crate::desktop_notifications::deliver_for(
             app,
             &self.service.id,
@@ -606,15 +737,18 @@ thread_local! {
     // Only bounded originating browser notification handles stay on this COM
     // apartment. Toast callbacks carry a native identity, never a provider URL.
     static NOTIFICATION_ACTIVATIONS: std::cell::RefCell<std::collections::VecDeque<NotificationActivation>> = std::cell::RefCell::new(std::collections::VecDeque::new());
+    static ACTIVATION_FOCUS: std::cell::RefCell<PendingQueries<NotificationActivation>> = std::cell::RefCell::new(PendingQueries::default());
 }
 
 #[cfg(windows)]
 struct NotificationActivation {
-    notification: webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Notification,
+    lifetime: std::rc::Rc<BrowserNotification>,
     service: crate::providers::ServiceConfig,
     identity: String,
     bridge_id: u64,
     generation: u64,
+    tag: String,
+    selected_at_click: Option<String>,
 }
 
 #[cfg(windows)]
@@ -642,7 +776,7 @@ pub fn report_activation(app: &tauri::AppHandle, id: &str, identity: &str, gener
     use crate::diagnostics::{
         notification, NotificationEvent as Event, NotificationReason as Reason,
     };
-    let Some(context) = context else {
+    let Some(mut context) = context else {
         notification(
             app,
             id,
@@ -654,6 +788,7 @@ pub fn report_activation(app: &tauri::AppHandle, id: &str, identity: &str, gener
     };
     if !crate::services::configured(app, &context.service)
         || !current_bridge(app, id, context.bridge_id)
+        || !context.lifetime.state.borrow_mut().begin_activation()
     {
         notification(
             app,
@@ -664,9 +799,11 @@ pub fn report_activation(app: &tauri::AppHandle, id: &str, identity: &str, gener
         );
         return;
     }
-    // Swiph3l: Validate the retained browser event before opening a service. An
-    // obsolete toast must not focus a replacement account or clear its unread.
-    if crate::window::activate_notification_for(app, &context.service).is_err() {
+    // Swiph3l: Report the public click before host focus. Discord closes current
+    // notifications on focus, which can invalidate a queued click before routing.
+    context.selected_at_click = crate::state::current(app).active_service;
+    let result = unsafe { context.lifetime.notification.ReportClicked() };
+    if result.is_err() {
         let _ = app.emit_to("main", "notification-issue", ());
         notification(
             app,
@@ -677,21 +814,102 @@ pub fn report_activation(app: &tauri::AppHandle, id: &str, identity: &str, gener
         );
         return;
     }
-    // Swiph3l: A toast click only routes the provider's public onclick. It is not
-    // evidence that its message rendered or was read, including on WhatsApp.
-    let result = unsafe { context.notification.ReportClicked() };
-    if result.is_err() {
+    let wait_for_close = context.service.provider == crate::providers::ProviderId::Discord
+        && !context.lifetime.state.borrow().closed;
+    let lifetime = context.lifetime.clone();
+    let token = ACTIVATION_FOCUS.with(|values| {
+        let mut values = values.borrow_mut();
+        // A later explicit toast click cancels an older queued restoration.
+        values.replace(context)
+    });
+    lifetime.focus_token.set(Some(token));
+    // Discord closes its browser notification inside onclick before routing.
+    // Queue the fence after that checkpoint, while its JS stack must complete.
+    // Other providers may not close; their callback still receives a renderer turn.
+    if !wait_for_close {
+        queue_activation_fence(app, token);
+    }
+    let timer_app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(750)).await;
+        let dispatcher = timer_app.clone();
+        let _ = dispatcher.run_on_main_thread(move || finish_activation_focus(&timer_app, token));
+    });
+}
+
+#[cfg(windows)]
+fn queue_activation_fence(app: &tauri::AppHandle, token: u64) {
+    let id = ACTIVATION_FOCUS.with(|values| {
+        let values = values.borrow();
+        let context = values.values.get(&token)?;
+        (!context.lifetime.fence_started.replace(true)).then(|| context.service.id.clone())
+    });
+    let Some(id) = id else {
+        return;
+    };
+    let callback_app = app.clone();
+    if !app
+        .get_webview(&crate::services::label(&id))
+        .is_some_and(|view| {
+            view.eval_with_callback("true", move |_| {
+                finish_activation_focus(&callback_app, token)
+            })
+            .is_ok()
+        })
+    {
+        finish_activation_focus(app, token);
+    }
+}
+
+#[cfg(windows)]
+fn finish_activation_focus(app: &tauri::AppHandle, token: u64) {
+    let context = ACTIVATION_FOCUS.with(|values| values.borrow_mut().take(token));
+    let Some(context) = context else {
+        return;
+    };
+    use crate::diagnostics::{
+        notification, NotificationEvent as Event, NotificationReason as Reason,
+    };
+    let selected = crate::state::current(app).active_service;
+    let selection_valid = selected == context.selected_at_click
+        || selected.as_deref() == Some(context.service.id.as_str());
+    if !selection_valid
+        || !crate::services::configured(app, &context.service)
+        || !current_bridge(app, &context.service.id, context.bridge_id)
+    {
+        notification(
+            app,
+            &context.service.id,
+            Event::ToastSuppressed,
+            Reason::ActivationUnavailable,
+            context.generation,
+        );
+        return;
+    }
+    // A provider-owned close during its onclick is expected. It must not cancel
+    // restoring the originating account after that public callback was accepted.
+    let succeeded = crate::window::activate_notification_for(app, &context.service).is_ok();
+    if !succeeded {
         let _ = app.emit_to("main", "notification-issue", ());
+    }
+    if succeeded
+        && context.service.provider == crate::providers::ProviderId::Discord
+        && crate::services::configured(app, &context.service)
+        && current_bridge(app, &context.service.id, context.bridge_id)
+    {
+        // Arm only a bounded view intent; the renderer still needs exact latest
+        // DM evidence and native validation. The click itself acknowledges nothing.
+        crate::unread::prepare_toast_read_for(app, &context.service.id, &context.tag);
     }
     notification(
         app,
-        id,
-        if result.is_ok() {
+        &context.service.id,
+        if succeeded {
             Event::ProviderActivated
         } else {
             Event::ToastSuppressed
         },
-        if result.is_ok() {
+        if succeeded {
             Reason::ProviderActivation
         } else {
             Reason::ActivationFailed
@@ -707,20 +925,46 @@ fn finish_native_notification(
     pending: &PendingNotification,
     provider_viewed: bool,
 ) {
-    if pending.finish(app, provider_viewed) && unsafe { notification.ReportShown() }.is_ok() {
+    if !pending.finish(app, provider_viewed) {
+        return;
+    }
+    let open = pending.lifetime.state.borrow().can_show();
+    if open && unsafe { notification.ReportShown() }.is_ok() {
+        if pending.lifetime.state.borrow().closed {
+            crate::desktop_notifications::withdraw_for(
+                &pending.service.id,
+                &pending.identity,
+                pending.generation,
+            );
+            return;
+        }
         NOTIFICATION_ACTIVATIONS.with(|contexts| {
             let mut contexts = contexts.borrow_mut();
             if contexts.len() >= EVENT_HISTORY_LIMIT {
-                contexts.pop_front();
+                if let Some(expired) = contexts.pop_front() {
+                    crate::desktop_notifications::withdraw_for(
+                        &expired.service.id,
+                        &expired.identity,
+                        expired.generation,
+                    );
+                }
             }
             contexts.push_back(NotificationActivation {
-                notification: notification.clone(),
+                lifetime: pending.lifetime.clone(),
                 service: pending.service.clone(),
                 identity: pending.identity.clone(),
                 bridge_id: pending.bridge_id,
                 generation: pending.generation,
+                tag: pending.tag.clone(),
+                selected_at_click: None,
             });
         });
+    } else {
+        crate::desktop_notifications::withdraw_for(
+            &pending.service.id,
+            &pending.identity,
+            pending.generation,
+        );
     }
 }
 
@@ -993,6 +1237,14 @@ pub fn attach(
                         seen.read_generation(token),
                     );
                     seen.remember_read_generation(token, generation.read);
+                    let lifetime = match retain_browser_notification(&notify_app, &notification, &notify_service, &identity, generation.read, bridge_id) {
+                        Ok(lifetime) => lifetime,
+                        Err(_) => {
+                            crate::unread::complete_incoming_for(&notify_app, &notify_service.id, generation.read, first_observation);
+                            bridge_status(&notify_app, &notify_service.id, crate::diagnostics::NotificationReason::BridgeEventFailed);
+                            return Ok(());
+                        }
+                    };
                     if !first_observation {
                         crate::diagnostics::notification(
                             &notify_app,
@@ -1033,6 +1285,7 @@ pub fn attach(
                                 .map(|_| silent.as_bool())
                                 .unwrap_or(true)
                         },
+                        lifetime,
                     };
                     crate::diagnostics::notification(
                         &notify_app,
@@ -1460,6 +1713,43 @@ pub fn attach(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn provider_closed_notifications_cannot_be_shown_or_activated_again() {
+        let mut lifecycle = NotificationLifetime::default();
+        assert!(lifecycle.can_show());
+        assert!(lifecycle.close());
+        assert!(!lifecycle.close(), "duplicate provider closes are terminal");
+        assert!(!lifecycle.can_show());
+        assert!(!lifecycle.begin_activation());
+    }
+
+    #[test]
+    fn provider_close_during_an_accepted_click_keeps_only_that_restore_intent() {
+        let mut lifecycle = NotificationLifetime::default();
+        assert!(lifecycle.begin_activation());
+        assert!(!lifecycle.begin_activation(), "a browser event routes once");
+        assert!(lifecycle.close());
+        assert!(
+            lifecycle.activation_started,
+            "onclick commonly closes its own notification"
+        );
+        assert!(!lifecycle.can_show());
+    }
+
+    #[test]
+    fn later_toast_click_cancels_an_older_delayed_restore() {
+        let mut pending = PendingQueries::default();
+        let old = pending.replace("work");
+        let new = pending.replace("personal");
+        assert_eq!(pending.values.len(), 1);
+        assert_eq!(pending.take(new), Some("personal"));
+        assert_eq!(
+            pending.take(old),
+            None,
+            "old callback and timeout cannot undo a newer click"
+        );
+        assert_eq!(pending.take(new), None);
+    }
 
     #[test]
     fn discord_conversation_read_is_exact_scoped_and_can_coexist_with_unknown_or_other_unread() {
@@ -1552,7 +1842,6 @@ mod tests {
             assert!(parse_diagnostic(&value.to_string()).is_none());
         }
     }
-
 
     #[test]
     fn mattermost_read_state_diagnostics_preserve_fixed_result_pairs_and_generation() {
@@ -1674,10 +1963,11 @@ mod tests {
             .split_once("#[cfg(not(windows))]")
             .unwrap()
             .0;
-        assert!(native_show.contains("on_activated"));
+        assert!(native_show.contains("native_toast::show"));
         assert!(native_show.contains("report_activation"));
         for lifecycle in [activation, native_show] {
-            assert!(!lifecycle.contains("unread::"));
+            assert!(!lifecycle.contains("unread::acknowledge"));
+            assert!(!lifecycle.contains("unread::accept_read"));
             assert!(!lifecycle.contains("__chatplusAcceptRead"));
             assert!(!lifecycle.contains("__chatplusAcknowledgeAllLocal"));
         }

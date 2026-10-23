@@ -58,16 +58,22 @@ used. See [Service startup](SERVICE_STARTUP.md) for background view lifetime.
 Automatic acknowledgement requires all of:
 
 - The current native foreground generation and correct selected enabled service.
-- Genuine trusted interaction in the uniquely mapped conversation or main composer.
+- Genuine trusted interaction in the uniquely mapped conversation/main composer,
+  or a bounded native Discord toast intent with exact target-message view proof.
 - The same conversation/content identity and a visible latest message pane, or
   Mattermost's verified complete read state with a visible mapped pane.
-- Fresh reliable provider-wide zero or an exact individually viewed message proof.
+- Fresh reliable provider-wide zero, an exact individually viewed message proof,
+  or Discord's validated read evidence for one previously observed unread DM.
 
 Clicks, keyboard/input and foreground scrolling can supply engagement. A mapped
 main composer may be a sibling of the message pane; unrelated thread/edit/search
 inputs cannot acknowledge that pane. Route/content changes, blur, visibility loss
 and newer arrivals revoke stale gestures. Header/sidebar clicks and synthetic
-input are insufficient.
+input are insufficient. A Discord toast intent is scoped to its exact message tag
+and native generation/arrival boundary. It can acknowledge only after that target
+is actually visible, unobscured and latest in the mapped DM and the matching
+conversation has read evidence. Merely clicking a toast supplies no read proof.
+The intent expires after a bounded wait; its timer never acknowledges anything.
 
 Reliable scoped provider zero with fresh engagement can retire completed arrivals
 without an exact notification tag. In-flight arrivals cannot clear early; native
@@ -96,18 +102,20 @@ provider permission repair and notification settings. Unsupported actions are
 omitted. Local acknowledgement is labelled **local** and makes no server-side read
 claim.
 
-| Provider                          | Mark current                                                | Mark all                                |
-| --------------------------------- | ----------------------------------------------------------- | --------------------------------------- |
-| Synology ChatPlus / Synology Chat | Unavailable without exact message mapping                   | Local acknowledgement for that instance |
-| Discord                           | Local acknowledgement from a latest DM and complete DM zero | Bounded public Inbox action             |
-| WhatsApp / Messenger              | Unavailable                                                 | Local acknowledgement for that instance |
-| Mattermost                        | Unavailable                                                 | Local acknowledgement for that instance |
-| Slack                             | Unavailable                                                 | Unavailable                             |
+| Provider                          | Mark current                                             | Mark all                                |
+| --------------------------------- | -------------------------------------------------------- | --------------------------------------- |
+| Synology ChatPlus / Synology Chat | Unavailable without exact message mapping                | Local acknowledgement for that instance |
+| Discord                           | Local acknowledgement for a mapped, previously unread DM | Bounded public Inbox action             |
+| WhatsApp / Messenger              | Unavailable                                              | Local acknowledgement for that instance |
+| Mattermost                        | Unavailable                                              | Local acknowledgement for that instance |
+| Slack                             | Unavailable                                              | Unavailable                             |
 
 Discord current read requires the service to be active in the native foreground,
-a stable visible latest DM pane and reliable complete DM zero. Other unread or
-unknown DMs prevent that zero. Guild/channel panes cannot acknowledge the DM dot;
-other service instances remain independent.
+a stable visible latest DM pane and read evidence for the exact previously
+observed unread conversation. An incomplete private list does not prevent that
+scoped read. Other known unread DMs and unattributed positive evidence remain
+latched; this does not assert account-wide zero. Guild/channel panes cannot
+acknowledge the DM dot; other service instances remain independent.
 
 Local all-read records a baseline so unchanged provider markup does not
 immediately restore the same dot. It is available for Synology, WhatsApp, Messenger
@@ -192,8 +200,8 @@ conversation context is not recovered by scraping content.
 
 Toasts use bundled provider artwork on a transparent background with a small
 top-right dot in the saved notification color, matching the service rail; Auto
-follows the app accent. A light separator and thin dark edge keep black and white
-dots visible on either Windows theme. The versioned `notification-icons` cache
+follows the app accent. A thin dark outline separates the dot from its icon without
+a pale halo. The versioned `notification-icons` cache
 contains provider/color PNG artwork only, without names, URLs, credentials or
 message text. Existing cache files remain available for notifications already in
 Action Center. Notification content is bounded in memory for display and routing,
@@ -204,9 +212,14 @@ never logged or persisted.
 The rail, title, tray and taskbar dot/count represent private-message unread only.
 Dedicated DM badges and the ordinary private-channel list supply that state;
 guilds, folders and Favorites cannot light it. The exact current latest DM can
-resolve its own selected-row ambiguity, but clearing still requires fresh trusted
-conversation input or the explicit current-read action. Other muted, incomplete or
-request/spam scopes remain unknown. Discord observations must carry
+resolve its own selected-row ambiguity. Native state retains observed positive
+DM identities separately from unattributed positive evidence. A valid
+`conversation-read` proof can retire only its matching known DM even when the
+remaining list is virtualized or unknown; other observed DMs and unattributed
+owners survive. Ownership is bounded, with overflow retained as unattributed.
+Clearing requires trusted conversation input, the explicit current-read action,
+or a native toast intent whose exact target has subsequently met view/read proof.
+Other muted, incomplete or request/spam scopes remain unknown. Discord observations must carry
 `unreadScope: "direct-messages"`; native parsing rejects legacy/global snapshots.
 
 Raw browser events contain message IDs without a reliable DM category. They retain
@@ -288,12 +301,22 @@ acknowledge any unread arrival. Dismissal, timeout and window restore also leave
 unread unchanged.
 
 On the owning COM apartment, the retained native browser notification receives
-`ReportClicked`, allowing the provider's own handler to route its conversation.
+`ReportClicked` before native focus, allowing the provider's own handler to route
+its conversation before focus can close that browser notification.
 ChatPlus never guesses a URL from notification tags or titles. Routing is not read
 evidence. Activation history retains 256 contexts; missing, evicted, removed,
 reconfigured or replaced-source contexts are ignored without opening a different
 account. Closed-process activation depends on Windows registration and is separate
 from this running-process path.
+
+The browser's public `CloseRequested` event withdraws only the corresponding
+native toast and retires its activation context. Discord can replace an older
+notification from the same conversation; a closed browser object must not leave a
+dead entry in Action Center. Closing before asynchronous submission prevents that
+submission. Retained native handles and activation contexts are bounded and scoped
+to the exact service, browser event and generation. Provider closure, Windows
+dismissal and expiry do not acknowledge unread. See
+[WebView2 notification lifecycle](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2notification).
 
 ## Diagnostics and verification
 
@@ -311,6 +334,10 @@ the source checkout. Its main title includes **Notification QA**. Ordinary build
 do not enable disk capture. The capture includes delivery/block reasons, not
 message content or contact names. A successful toast submission means Windows
 accepted the API call; confirm actual banner visibility separately.
+Discord trusted input also records fixed `read_context_checked` outcomes:
+unmapped conversation, unavailable latest view, or ready conversation. Scoped
+acceptance uses `conversation_read`; provider-driven toast closure uses
+`provider_closed`. No conversation IDs or tags enter these diagnostics.
 Immediately before Windows submission, `presentation_checked` records the generic
 OS interruption state: accepting notifications, busy, full-screen, presentation,
 away, quiet time, an immersive app or unavailable. This is observational metadata;
