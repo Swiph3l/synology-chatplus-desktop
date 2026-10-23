@@ -7,7 +7,8 @@ import { runInNewContext } from "node:vm";
 const built = await build({
   stdin: {
     contents: `export { createWhatsAppAdapter } from "./src/theme/providers/whatsapp";
-    export { installUnreadAdapter } from "./src/theme/provider-unread";`,
+    export { installUnreadAdapter } from "./src/theme/provider-unread";
+    export { whatsappReadProbeReasons } from "./src/theme/providers/whatsapp-read-probe";`,
     resolveDir: process.cwd(),
   },
   bundle: true,
@@ -106,6 +107,7 @@ function fixture(enabled = true, install = false) {
     document,
     host,
     adapter,
+    allowedReasons: new Set(context.whatsappProbe.whatsappReadProbeReasons),
     stop,
     messages,
     timers,
@@ -163,7 +165,8 @@ test("QA WhatsApp probe emits only fixed structural metadata and cannot acknowle
         row.chatplusUnreadDiagnostic === 1 &&
         row.source === "whatsapp-dom" &&
         row.event === "read-structure-checked" &&
-        row.generation === 7,
+        row.generation === 7 &&
+        f.allowedReasons.has(row.reason),
     ),
   );
   assert.ok(
@@ -175,7 +178,7 @@ test("QA WhatsApp probe emits only fixed structural metadata and cannot acknowle
   );
   assert.doesNotMatch(
     JSON.stringify(f.messages),
-    /opaque-chat|ABC123|Private|data-id|acknowledgement|readArrivals/,
+    /opaque-chat|ABC123|Private|acknowledgement|readArrivals/,
   );
   assert.equal(f.adapter.readContext(), null);
   assert.equal(f.adapter.contentContext(), null);

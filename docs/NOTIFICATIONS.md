@@ -342,11 +342,13 @@ acceptance uses `conversation_read`; provider-driven toast closure uses
 Diagnostics builds also enable a read-only WhatsApp structure probe. After a
 fresh incoming notification, foreground observations report fixed
 `read_structure_checked` categories for the visible main pane, selected row,
-dedicated badge, scroll candidate and opaque tag-to-message-key comparison. Only
-the latest incoming tag is retained in renderer memory and ignored after two
-minutes; no identifier,
-contact label, message text or DOM attribute is exported. Sampling is bounded and
-coalesced. Ordinary builds do not enable it. These categories cannot acknowledge
+dedicated badge, scroll candidate and opaque tag-to-message-key comparison.
+Discovery categories distinguish absent metadata, scan limits, strict-format
+rejection, hidden or zero-sized wrappers, selection attributes and independent
+scroll candidates. Only the latest incoming tag is retained in renderer memory
+and ignored after two minutes; no identifier, contact label, message text or DOM
+attribute is exported. Sampling is bounded and coalesced. Ordinary builds do not
+enable it. These categories cannot acknowledge
 unread: a missing badge or physical-bottom candidate is not proof of read state.
 They establish which public DOM contracts require verification before extending
 WhatsApp automatic acknowledgement.

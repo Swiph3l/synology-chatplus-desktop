@@ -1437,6 +1437,74 @@ struct RendererDiagnostic {
 
 const WHATSAPP_READ_STRUCTURE_REASONS: &[(&str, crate::diagnostics::NotificationReason)] = &[
     (
+        "whatsapp-main-data-id-absent",
+        crate::diagnostics::NotificationReason::WhatsappMainDataIdAbsent,
+    ),
+    (
+        "whatsapp-main-data-id-bounded",
+        crate::diagnostics::NotificationReason::WhatsappMainDataIdBounded,
+    ),
+    (
+        "whatsapp-main-data-id-over-limit",
+        crate::diagnostics::NotificationReason::WhatsappMainDataIdOverLimit,
+    ),
+    (
+        "whatsapp-raw-strict-key-present",
+        crate::diagnostics::NotificationReason::WhatsappRawStrictKeyPresent,
+    ),
+    (
+        "whatsapp-raw-strict-key-missing",
+        crate::diagnostics::NotificationReason::WhatsappRawStrictKeyMissing,
+    ),
+    (
+        "whatsapp-raw-chat-prefix-match",
+        crate::diagnostics::NotificationReason::WhatsappRawChatPrefixMatch,
+    ),
+    (
+        "whatsapp-raw-chat-prefix-missing",
+        crate::diagnostics::NotificationReason::WhatsappRawChatPrefixMissing,
+    ),
+    (
+        "whatsapp-strict-key-visible",
+        crate::diagnostics::NotificationReason::WhatsappStrictKeyVisible,
+    ),
+    (
+        "whatsapp-strict-key-hidden",
+        crate::diagnostics::NotificationReason::WhatsappStrictKeyHidden,
+    ),
+    (
+        "whatsapp-strict-key-zero-sized",
+        crate::diagnostics::NotificationReason::WhatsappStrictKeyZeroSized,
+    ),
+    (
+        "whatsapp-list-aria-selected-present",
+        crate::diagnostics::NotificationReason::WhatsappListAriaSelectedPresent,
+    ),
+    (
+        "whatsapp-list-aria-selected-missing",
+        crate::diagnostics::NotificationReason::WhatsappListAriaSelectedMissing,
+    ),
+    (
+        "whatsapp-list-aria-current-present",
+        crate::diagnostics::NotificationReason::WhatsappListAriaCurrentPresent,
+    ),
+    (
+        "whatsapp-list-aria-current-missing",
+        crate::diagnostics::NotificationReason::WhatsappListAriaCurrentMissing,
+    ),
+    (
+        "whatsapp-independent-scroll-present",
+        crate::diagnostics::NotificationReason::WhatsappIndependentScrollPresent,
+    ),
+    (
+        "whatsapp-independent-scroll-missing",
+        crate::diagnostics::NotificationReason::WhatsappIndependentScrollMissing,
+    ),
+    (
+        "whatsapp-independent-scroll-over-limit",
+        crate::diagnostics::NotificationReason::WhatsappIndependentScrollOverLimit,
+    ),
+    (
         "whatsapp-chat-tag-recognized",
         crate::diagnostics::NotificationReason::WhatsappChatTagRecognized,
     ),

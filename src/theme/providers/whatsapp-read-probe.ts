@@ -26,11 +26,29 @@ export const whatsappReadProbeReasons = [
   "whatsapp-scroll-node-ambiguous",
   "whatsapp-latest-candidate-visible",
   "whatsapp-latest-candidate-unavailable",
+  "whatsapp-main-data-id-absent",
+  "whatsapp-main-data-id-bounded",
+  "whatsapp-main-data-id-over-limit",
+  "whatsapp-raw-strict-key-present",
+  "whatsapp-raw-strict-key-missing",
+  "whatsapp-raw-chat-prefix-match",
+  "whatsapp-raw-chat-prefix-missing",
+  "whatsapp-strict-key-visible",
+  "whatsapp-strict-key-hidden",
+  "whatsapp-strict-key-zero-sized",
+  "whatsapp-list-aria-selected-present",
+  "whatsapp-list-aria-selected-missing",
+  "whatsapp-list-aria-current-present",
+  "whatsapp-list-aria-current-missing",
+  "whatsapp-independent-scroll-present",
+  "whatsapp-independent-scroll-missing",
+  "whatsapp-independent-scroll-over-limit",
 ] as const;
 
 export type WhatsAppReadProbeReason = (typeof whatsappReadProbeReasons)[number];
 
 const MAX_NODES = 512;
+const MAX_SCROLL_NODES = 2048;
 const jid =
   "[A-Za-z0-9][A-Za-z0-9.:-]{0,190}@(?:c\\.us|s\\.whatsapp\\.net|lid|g\\.us|broadcast|newsletter)";
 const chatTag = new RegExp(`^${jid}$`);
@@ -55,6 +73,56 @@ function nodes(
   const found = root.querySelectorAll(selector);
   if (found.length > MAX_NODES) return [];
   return [...found].filter((element) => visible(document, element));
+}
+
+function keyVisibility(
+  document: Document,
+  element: Element,
+): "visible" | "hidden" | "zero-sized" {
+  if (!element.isConnected || !document.defaultView) return "hidden";
+  for (let node: Element | null = element; node; node = node.parentElement) {
+    const style = document.defaultView.getComputedStyle(node);
+    if (
+      node.matches('[hidden], [aria-hidden="true"]') ||
+      style.display === "none" ||
+      style.visibility === "hidden" ||
+      style.visibility === "collapse"
+    )
+      return "hidden";
+  }
+  const bounds = element.getBoundingClientRect();
+  return Number.isFinite(bounds.width) &&
+    Number.isFinite(bounds.height) &&
+    bounds.width > 0 &&
+    bounds.height > 0
+    ? "visible"
+    : "zero-sized";
+}
+
+function independentScroll(
+  document: Document,
+  main: Element | null,
+): WhatsAppReadProbeReason {
+  if (!main) return "whatsapp-independent-scroll-missing";
+  const descendants = main.querySelectorAll("*");
+  if (descendants.length + 1 > MAX_SCROLL_NODES)
+    return "whatsapp-independent-scroll-over-limit";
+  // Swiph3l: This discovery scan must not depend on an assumed message-key shape.
+  // It observes only bounded element geometry and overflow, never page text.
+  for (const node of [main, ...descendants]) {
+    if (
+      Number.isFinite(node.scrollHeight) &&
+      Number.isFinite(node.clientHeight) &&
+      node.clientHeight > 0 &&
+      node.scrollHeight > node.clientHeight &&
+      /^(?:auto|scroll)$/.test(
+        document.defaultView?.getComputedStyle(node).overflowY ?? "",
+      ) &&
+      visible(document, node)
+    )
+      return "whatsapp-independent-scroll-present";
+  }
+  return "whatsapp-independent-scroll-missing";
 }
 
 // Swiph3l: Diagnostic only. These flags cannot acknowledge a notification or prove
@@ -93,6 +161,17 @@ export function probeWhatsAppReadStructure(
     lists.length === 1
       ? nodes(document, lists[0], '[role="row"], [role="listitem"]')
       : [];
+  const list = lists.length === 1 ? lists[0] : null;
+  // Swiph3l: Raw fixed accessibility-state presence is discovery only. It cannot
+  // bind a selected element to a conversation or establish that anything was read.
+  reasons.push(
+    list?.querySelector('[aria-selected="true"]')
+      ? "whatsapp-list-aria-selected-present"
+      : "whatsapp-list-aria-selected-missing",
+    list?.querySelector('[aria-current="true"], [aria-current="page"]')
+      ? "whatsapp-list-aria-current-present"
+      : "whatsapp-list-aria-current-missing",
+  );
   const selected = rows.filter(
     (row) =>
       row.matches('[aria-selected="true"]') ||
@@ -123,6 +202,46 @@ export function probeWhatsAppReadStructure(
         : "whatsapp-main-ambiguous",
   );
   const main = mains.length === 1 ? mains[0] : null;
+  const rawCandidates = main?.querySelectorAll("[data-id]");
+  const rawLength = rawCandidates?.length ?? 0;
+  reasons.push(
+    rawLength > MAX_NODES
+      ? "whatsapp-main-data-id-over-limit"
+      : rawLength === 0
+        ? "whatsapp-main-data-id-absent"
+        : "whatsapp-main-data-id-bounded",
+  );
+  let rawStrict = false;
+  let rawPrefix = false;
+  const visibility = new Set<"visible" | "hidden" | "zero-sized">();
+  if (rawCandidates && rawLength <= MAX_NODES)
+    for (const candidate of rawCandidates) {
+      const opaque = candidate.getAttribute("data-id");
+      if (opaque === null || opaque.length > 512) continue;
+      // Swiph3l: Check the complete opaque chat prefix before the stricter assumed
+      // MsgKey grammar. Rejected shapes must remain distinguishable from no DOM.
+      if (
+        isChat &&
+        (opaque.startsWith(`false_${tag}_`) ||
+          opaque.startsWith(`true_${tag}_`))
+      )
+        rawPrefix = true;
+      if (!messageKey.test(opaque)) continue;
+      rawStrict = true;
+      visibility.add(keyVisibility(document, candidate));
+    }
+  reasons.push(
+    rawStrict
+      ? "whatsapp-raw-strict-key-present"
+      : "whatsapp-raw-strict-key-missing",
+    rawPrefix
+      ? "whatsapp-raw-chat-prefix-match"
+      : "whatsapp-raw-chat-prefix-missing",
+  );
+  for (const category of ["visible", "hidden", "zero-sized"] as const)
+    if (visibility.has(category))
+      reasons.push(`whatsapp-strict-key-${category}`);
+  reasons.push(independentScroll(document, main));
   const candidates = main ? nodes(document, main, "[data-id]") : [];
   const messages: Element[] = [];
   let matches = false;

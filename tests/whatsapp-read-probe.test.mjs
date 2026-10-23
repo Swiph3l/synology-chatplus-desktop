@@ -259,3 +259,154 @@ test("WhatsApp large or absent message structures remain unavailable within the 
   f.document.getElementById("main").remove();
   contains(f.run(), "main-missing");
 });
+
+test("WhatsApp discovery separates absent keys from a rejected opaque key shape", () => {
+  const f = fixture();
+  f.document.getElementById("message").removeAttribute("data-id");
+  let flags = f.run();
+  contains(flags, "main-data-id-absent");
+  contains(flags, "raw-strict-key-missing");
+  contains(flags, "raw-chat-prefix-missing");
+  for (const direction of ["false", "true"]) {
+    f.document
+      .getElementById("message")
+      .setAttribute("data-id", `${direction}_${chat}_ID_with.unproven+suffix=`);
+    flags = f.run();
+    contains(flags, "main-data-id-bounded");
+    contains(flags, "raw-strict-key-missing");
+    contains(flags, "raw-chat-prefix-match");
+    contains(flags, "main-message-key-missing");
+    contains(flags, "tag-unmatched-main-message");
+    assert.ok(flags.every((flag) => whatsappReadProbeReasons.includes(flag)));
+    assert.doesNotMatch(JSON.stringify(flags), /opaquechat|unproven|suffix/);
+  }
+});
+
+test("WhatsApp raw prefix discovery keeps complete chat boundaries and key-value bounds", () => {
+  const f = fixture();
+  for (const opaque of [
+    `false_${chat}.other_MSG001`,
+    `false_${chat.replace("@lid", "1@lid")}_MSG001`,
+    `false_${chat}_${"X".repeat(513)}`,
+  ]) {
+    f.document.getElementById("message").setAttribute("data-id", opaque);
+    contains(f.run(), "raw-chat-prefix-missing");
+  }
+  f.document
+    .getElementById("message")
+    .setAttribute("data-id", `false_${chat}_UPPERCASE123`);
+  contains(f.run(), "raw-strict-key-present");
+  contains(f.run(), "raw-chat-prefix-match");
+});
+
+test("WhatsApp discovery distinguishes visible, hidden and zero-sized strict key wrappers", () => {
+  for (const state of ["visible", "hidden", "aria-hidden", "zero-sized"]) {
+    const f = fixture();
+    const row = f.document.getElementById("message");
+    if (state === "hidden") row.style.display = "none";
+    if (state === "aria-hidden") row.setAttribute("aria-hidden", "true");
+    if (state === "zero-sized") {
+      row.style.display = "contents";
+      row.getBoundingClientRect = () => ({
+        width: 0,
+        height: 0,
+        top: 0,
+        bottom: 0,
+        left: 0,
+        right: 0,
+      });
+    }
+    const flags = f.run();
+    contains(flags, "main-data-id-bounded");
+    contains(flags, "raw-strict-key-present");
+    contains(flags, "raw-chat-prefix-match");
+    contains(flags, `strict-key-${state === "aria-hidden" ? "hidden" : state}`);
+    contains(
+      flags,
+      state === "visible"
+        ? "main-message-key-recognized"
+        : "main-message-key-missing",
+    );
+  }
+});
+
+test("WhatsApp raw selection discovery is independent of assumed selected row roles", () => {
+  const f = fixture();
+  const row = f.document.querySelector('[role="row"]');
+  row.removeAttribute("aria-selected");
+  row.insertAdjacentHTML(
+    "beforeend",
+    '<button aria-selected="true" aria-current="page"></button>',
+  );
+  let flags = f.run();
+  contains(flags, "selected-row-missing");
+  contains(flags, "list-aria-selected-present");
+  contains(flags, "list-aria-current-present");
+  const button = row.querySelector("button");
+  button.setAttribute("aria-current", "true");
+  contains(f.run(), "list-aria-current-present");
+  button.setAttribute("aria-selected", "false");
+  button.setAttribute("aria-current", "false");
+  flags = f.run();
+  contains(flags, "list-aria-selected-missing");
+  contains(flags, "list-aria-current-missing");
+});
+
+test("WhatsApp raw selection discovery rejects ambiguous list scope", () => {
+  const f = fixture();
+  f.document
+    .getElementById("pane-side")
+    .insertAdjacentHTML(
+      "beforeend",
+      '<div role="list"><button aria-selected="true" aria-current="page"></button></div>',
+    );
+  const flags = f.run();
+  contains(flags, "chat-list-ambiguous");
+  contains(flags, "list-aria-selected-missing");
+  contains(flags, "list-aria-current-missing");
+});
+
+test("WhatsApp independent scroll discovery does not require recognized message keys", () => {
+  const f = fixture();
+  f.document.getElementById("message").removeAttribute("data-id");
+  let flags = f.run();
+  contains(flags, "main-message-key-missing");
+  contains(flags, "scroll-node-missing");
+  contains(flags, "independent-scroll-present");
+  f.scroll.style.display = "none";
+  flags = f.run();
+  contains(flags, "independent-scroll-missing");
+  f.scroll.style.display = "block";
+  f.scroll.style.overflowY = "visible";
+  contains(f.run(), "independent-scroll-missing");
+  const main = f.document.getElementById("main");
+  main.style.overflowY = "scroll";
+  Object.assign(main, { scrollHeight: 600, clientHeight: 300 });
+  contains(f.run(), "independent-scroll-present");
+});
+
+test("WhatsApp discovery keeps explicit raw-key and independent-scroll scan limits", () => {
+  const f = fixture();
+  const main = f.document.getElementById("main");
+  main.innerHTML = Array.from(
+    { length: 513 },
+    () => `<div data-id="${message}"></div>`,
+  ).join("");
+  for (const node of main.querySelectorAll("[data-id]")) {
+    const original = node.getAttribute.bind(node);
+    node.getAttribute = (name) => {
+      if (name === "data-id")
+        throw new Error("over-limit key values must not be inspected");
+      return original(name);
+    };
+  }
+  let flags = f.run();
+  contains(flags, "main-data-id-over-limit");
+  contains(flags, "raw-strict-key-missing");
+  contains(flags, "raw-chat-prefix-missing");
+  main.innerHTML = "<div></div>".repeat(2048);
+  flags = f.run();
+  contains(flags, "independent-scroll-over-limit");
+  main.innerHTML = "<div></div>".repeat(2047);
+  contains(f.run(), "independent-scroll-missing");
+});
