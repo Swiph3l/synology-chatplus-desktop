@@ -2,6 +2,46 @@
 
 All notable changes will be documented here. Versions follow Semantic Versioning.
 
+## 0.9.0 - prerelease candidate
+
+### Fixed
+
+- Mirror WhatsApp's own notification counter in the unread indicator, including
+  reads on another device. This scope excludes some muted and archived chats;
+  loading or unrecognized state retains the previous indicator. Local read-all
+  remains independent of server read state.
+- Restrict Discord's unread indicator to direct messages and clear only verified
+  reads of the matching conversation, preserving other unread DMs and new arrivals.
+- Verify Mattermost read state on the supported unlicensed 11.7.2 configuration;
+  unsupported or incomplete evidence retains unread and local read-all.
+- Keep notification permission checks and explicit grants bound to the selected
+  service instance, report failures and preserve saved mute preferences.
+- Withdraw the exact Windows toast when its provider closes the notification;
+  retire its activation context without marking messages read.
+- Handle primary external-link clicks before provider scripts can swallow them,
+  while preserving internal navigation and authenticated attachments. Closing or
+  cancelling confirmation allows another link to reopen it immediately.
+- Apply the shell theme to attachment-window chrome before showing the view.
+
+### Changed
+
+- Show a small service-colored dot with a thin dark outline on notification icons.
+- Expose supported all-read actions directly in service menus. Local actions
+  acknowledge only the clicked ChatPlus instance; Discord offers its public Inbox
+  action with provider confirmation and scoped completion checks.
+- Use a themed external-link confirmation with the full selectable destination,
+  destination origin, an HTTP warning and a gentle optional chime.
+- Add opt-in QA notification logs containing fixed technical outcomes, with no
+  message content, contact names, tags or private URLs.
+- Create signed release drafts as prereleases, including a plain `v0.9.0` tag.
+  An accepted plain-version candidate can be promoted without rebuilding assets.
+
+This unpublished candidate includes the earlier development changes below.
+Automated checks do not replace live Windows acceptance: the final candidate
+still needs WhatsApp indicator and primary-link checks, applicable provider
+routing/download checks, and signed installer/upgrade validation before publication.
+See the [release checklist](docs/RELEASE_CHECKLIST.md).
+
 ## 0.5.0-beta.6 - development candidate
 
 ### Added
