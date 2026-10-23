@@ -383,5 +383,6 @@
   "rail.discordReadAllBusy": "La acción de lectura de la bandeja de Discord ya está en curso.",
   "rail.discordReadAllSubmitted": "Se envió la acción de lectura de la bandeja de Discord. Las notificaciones más recientes de ChatPlus siguen sin leer.",
   "rail.discordReadAllConfirm": "Confirma la acción en Discord. ChatPlus no ha borrado las notificaciones locales.",
-  "rail.discordReadAllUnavailable": "No se pudo verificar la acción. Usa en Discord Bandeja de entrada → Sin leer → Marcar bandeja de entrada como leída. ChatPlus no ha borrado las notificaciones locales."
+  "rail.discordReadAllUnavailable": "No se pudo verificar la acción. Usa en Discord Bandeja de entrada → Sin leer → Marcar bandeja de entrada como leída. ChatPlus no ha borrado las notificaciones locales.",
+  "window.attachmentTitle": "ChatPlus Desktop — Adjunto"
 }

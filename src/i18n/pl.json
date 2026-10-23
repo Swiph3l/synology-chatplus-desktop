@@ -383,5 +383,6 @@
   "rail.discordReadAllBusy": "Oznaczanie skrzynki Discorda jako przeczytanej już trwa.",
   "rail.discordReadAllSubmitted": "Wysłano polecenie oznaczenia skrzynki Discorda jako przeczytanej. Nowsze powiadomienia ChatPlus pozostają nieprzeczytane.",
   "rail.discordReadAllConfirm": "Potwierdź operację w Discordzie. ChatPlus nie wyczyścił lokalnych powiadomień.",
-  "rail.discordReadAllUnavailable": "Nie udało się potwierdzić operacji w Discordzie. Użyj Skrzynka odbiorcza → Nieprzeczytane → Oznacz skrzynkę jako przeczytaną. ChatPlus nie wyczyścił lokalnych powiadomień."
+  "rail.discordReadAllUnavailable": "Nie udało się potwierdzić operacji w Discordzie. Użyj Skrzynka odbiorcza → Nieprzeczytane → Oznacz skrzynkę jako przeczytaną. ChatPlus nie wyczyścił lokalnych powiadomień.",
+  "window.attachmentTitle": "ChatPlus Desktop — Załącznik"
 }

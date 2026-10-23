@@ -383,5 +383,6 @@
   "rail.discordReadAllBusy": "Discord Inbox read action is already running.",
   "rail.discordReadAllSubmitted": "Discord’s Inbox read action was submitted. Newer ChatPlus notifications stay unread.",
   "rail.discordReadAllConfirm": "Confirm the read action in Discord. ChatPlus has not cleared local notifications.",
-  "rail.discordReadAllUnavailable": "Could not verify Discord’s Inbox read action. Use Inbox → Unreads → Mark Inbox As Read in Discord; ChatPlus has not cleared local notifications."
+  "rail.discordReadAllUnavailable": "Could not verify Discord’s Inbox read action. Use Inbox → Unreads → Mark Inbox As Read in Discord; ChatPlus has not cleared local notifications.",
+  "window.attachmentTitle": "ChatPlus Desktop — Attachment"
 }

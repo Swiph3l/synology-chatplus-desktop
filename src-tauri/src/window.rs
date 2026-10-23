@@ -251,6 +251,13 @@ pub fn apply_theme(app: &AppHandle) -> Result<(), String> {
         if window.label() == "main" {
             continue;
         }
+        if crate::downloads::is_popup_label(window.label()) {
+            // Swiph3l: Attachment/PDF pages own their document colors; only the
+            // native loading surface follows ChatPlus, never remote page CSS.
+            crate::downloads::apply_popup_appearance(window, &settings.theme)
+                .map_err(|_| "Could not update attachment window theme.")?;
+            continue;
+        }
         crate::shell::theme_window(window, &settings.theme)
             .map_err(|_| "Could not update window theme.")?;
         window

@@ -458,5 +458,6 @@
   "rail.discordReadAllBusy": "Discordの受信トレイの既読操作を実行中です。",
   "rail.discordReadAllSubmitted": "Discordの受信トレイの既読操作を送信しました。新しいChatPlus通知は未読のままです。",
   "rail.discordReadAllConfirm": "Discordで既読操作を確認してください。ChatPlusのローカル通知は消去していません。",
-  "rail.discordReadAllUnavailable": "Discordの既読操作を確認できませんでした。Discordで受信トレイ → 未読 → 受信トレイを既読にするを使用してください。ChatPlusのローカル通知は消去していません。"
+  "rail.discordReadAllUnavailable": "Discordの既読操作を確認できませんでした。Discordで受信トレイ → 未読 → 受信トレイを既読にするを使用してください。ChatPlusのローカル通知は消去していません。",
+  "window.attachmentTitle": "ChatPlus Desktop — 添付ファイル"
 }

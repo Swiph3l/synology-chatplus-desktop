@@ -458,5 +458,6 @@
   "rail.discordReadAllBusy": "Die Leseaktion für den Discord-Posteingang läuft bereits.",
   "rail.discordReadAllSubmitted": "Die Leseaktion für den Discord-Posteingang wurde übermittelt. Neuere ChatPlus-Benachrichtigungen bleiben ungelesen.",
   "rail.discordReadAllConfirm": "Bestätige die Leseaktion in Discord. ChatPlus hat lokale Benachrichtigungen nicht gelöscht.",
-  "rail.discordReadAllUnavailable": "Die Leseaktion konnte nicht bestätigt werden. Verwende in Discord Posteingang → Ungelesen → Posteingang als gelesen markieren. ChatPlus hat lokale Benachrichtigungen nicht gelöscht."
+  "rail.discordReadAllUnavailable": "Die Leseaktion konnte nicht bestätigt werden. Verwende in Discord Posteingang → Ungelesen → Posteingang als gelesen markieren. ChatPlus hat lokale Benachrichtigungen nicht gelöscht.",
+  "window.attachmentTitle": "ChatPlus Desktop — Anhang"
 }
