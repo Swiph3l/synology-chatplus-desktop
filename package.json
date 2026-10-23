@@ -18,10 +18,10 @@
     "checksums": "node scripts/checksums.mjs"
   },
   "dependencies": {
-    "@tauri-apps/api": "2.12.3"
+    "@tauri-apps/api": "2.12.4"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "~2.12.1",
+    "@tauri-apps/cli": "~2.12.3",
     "@types/node": "^22.20.5",
     "esbuild": "^0.28.2",
     "linkedom": "^0.18.13",
