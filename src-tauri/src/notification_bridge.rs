@@ -325,6 +325,22 @@ fn parse_viewing_result(value: &str) -> bool {
 }
 
 #[cfg(any(windows, test))]
+fn viewing_outcome(succeeded: bool, value: &str) -> (bool, crate::diagnostics::NotificationReason) {
+    use crate::diagnostics::NotificationReason as Reason;
+    let viewed = succeeded && parse_viewing_result(value);
+    (
+        viewed,
+        if !succeeded {
+            Reason::ViewingQueryFailed
+        } else if viewed {
+            Reason::ConversationViewed
+        } else {
+            Reason::ViewingQueryUnproven
+        },
+    )
+}
+
+#[cfg(any(windows, test))]
 #[derive(Clone, Copy)]
 enum NotificationField {
     Title,
@@ -641,7 +657,12 @@ fn finish_native_notification(
 }
 
 #[cfg(windows)]
-fn finish_query(app: &tauri::AppHandle, token: u64, provider_viewed: bool) {
+fn finish_query(
+    app: &tauri::AppHandle,
+    token: u64,
+    provider_viewed: bool,
+    reason: crate::diagnostics::NotificationReason,
+) {
     let query = NOTIFICATION_QUERIES.with(|queries| queries.borrow_mut().take(token));
     let Some(query) = query else {
         return;
@@ -651,6 +672,13 @@ fn finish_query(app: &tauri::AppHandle, token: u64, provider_viewed: bool) {
     query
         .completed
         .store(true, std::sync::atomic::Ordering::Release);
+    crate::diagnostics::notification(
+        app,
+        &query.pending.service.id,
+        crate::diagnostics::NotificationEvent::ViewingChecked,
+        reason,
+        query.pending.generation,
+    );
     finish_native_notification(app, &query.notification, &query.pending, provider_viewed);
     unsafe {
         let _ = query.deferral.Complete();
@@ -672,6 +700,13 @@ fn query_notification_view(
     use windows::core::HSTRING;
     if NOTIFICATION_QUERIES.with(|queries| queries.borrow().values.len() >= EVENT_HISTORY_LIMIT) {
         // Bound unresponsive-renderer work without delaying trusted arrivals.
+        crate::diagnostics::notification(
+            app,
+            &pending.service.id,
+            crate::diagnostics::NotificationEvent::ViewingChecked,
+            crate::diagnostics::NotificationReason::ViewingQueryUnavailable,
+            pending.generation,
+        );
         finish_native_notification(app, &notification, &pending, false);
         let _ = unsafe { deferral.Complete() };
         return;
@@ -701,22 +736,40 @@ fn query_notification_view(
         }
         let dispatcher = timer_app.clone();
         let _ = dispatcher.run_on_main_thread(move || {
-            finish_query(&timer_app, token, false);
+            finish_query(
+                &timer_app,
+                token,
+                false,
+                crate::diagnostics::NotificationReason::ViewingQueryTimeout,
+            );
         });
     });
     let callback_app = app.clone();
     let handler =
         webview2_com::ExecuteScriptCompletedHandler::create(Box::new(move |status, value| {
-            finish_query(
-                &callback_app,
-                token,
-                status.is_ok() && parse_viewing_result(&value),
-            );
+            let (viewed, reason) = viewing_outcome(status.is_ok(), &value);
+            finish_query(&callback_app, token, viewed, reason);
             Ok(())
         }));
     if unsafe { core.ExecuteScript(&script, &handler) }.is_err() {
-        finish_query(app, token, false);
+        finish_query(
+            app,
+            token,
+            false,
+            crate::diagnostics::NotificationReason::ViewingQueryFailed,
+        );
     }
+}
+
+#[cfg(windows)]
+fn bridge_status(app: &tauri::AppHandle, id: &str, reason: crate::diagnostics::NotificationReason) {
+    crate::diagnostics::notification(
+        app,
+        id,
+        crate::diagnostics::NotificationEvent::BridgeStatus,
+        reason,
+        0,
+    );
 }
 
 #[cfg(windows)]
@@ -738,7 +791,9 @@ pub fn attach(
     use windows::core::{Interface, PWSTR};
     let app = app.clone();
     let service = service.clone();
-    window.with_webview(move |webview| unsafe {
+    let scheduling_app = app.clone();
+    let scheduling_id = service.id.clone();
+    let result = window.with_webview(move |webview| unsafe {
         app.state::<notifications::Service>()
             .0
             .lock()
@@ -746,6 +801,7 @@ pub fn attach(
             .bridges
             .remove(&service.id);
         let Ok(core) = webview.controller().CoreWebView2() else {
+            bridge_status(&app, &service.id, crate::diagnostics::NotificationReason::BridgeUnavailable);
             return;
         };
         static NEXT_BRIDGE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -763,7 +819,7 @@ pub fn attach(
         }
         let unread_app = app.clone();
         let unread_service = service.clone();
-        let _ = core.add_WebMessageReceived(
+        let unread_registration = core.add_WebMessageReceived(
             &webview2_com::WebMessageReceivedEventHandler::create(Box::new(move |_, args| {
                 let Some(args) = args else { return Ok(()) };
                 let mut source = PWSTR::null();
@@ -814,7 +870,11 @@ pub fn attach(
             })),
             &mut 0,
         );
+        if unread_registration.is_err() {
+            bridge_status(&app, &service.id, crate::diagnostics::NotificationReason::UnreadBridgeRegistrationFailed);
+        }
         let Ok(extended) = core.cast::<ICoreWebView2_24>() else {
+            bridge_status(&app, &service.id, crate::diagnostics::NotificationReason::BridgeUnsupported);
             return;
         };
         let notify_app = app.clone();
@@ -828,18 +888,31 @@ pub fn attach(
                         return Ok(());
                     };
                     // Swiph3l: Own even muted/suppressed events or WebView2 also displays an unfiltered duplicate toast.
-                    args.SetHandled(true)?;
+                    args.SetHandled(true).map_err(|error| {
+                        bridge_status(&notify_app, &notify_service.id, crate::diagnostics::NotificationReason::BridgeEventFailed);
+                        error
+                    })?;
                     let mut origin = PWSTR::null();
-                    args.SenderOrigin(&mut origin)?;
+                    args.SenderOrigin(&mut origin).map_err(|error| {
+                        bridge_status(&notify_app, &notify_service.id, crate::diagnostics::NotificationReason::BridgeEventFailed);
+                        error
+                    })?;
                     let origin = CoTaskMemPWSTR::from(origin).to_string();
                     if !crate::services::configured(&notify_app, &notify_service)
                         || !current_bridge(&notify_app, &notify_service.id, bridge_id)
                         || !notify_service.supports_notifications()
                         || !trusted_origin(&notify_service.url, &origin)
                     {
+                        bridge_status(&notify_app, &notify_service.id, crate::diagnostics::NotificationReason::SourceRejected);
                         return Ok(());
                     }
-                    let notification = args.Notification()?;
+                    crate::diagnostics::notification(&notify_app, &notify_service.id,
+                        crate::diagnostics::NotificationEvent::Detected,
+                        crate::diagnostics::NotificationReason::BrowserEvent, 0);
+                    let notification = args.Notification().map_err(|error| {
+                        bridge_status(&notify_app, &notify_service.id, crate::diagnostics::NotificationReason::BridgeEventFailed);
+                        error
+                    })?;
                     let (token, first_observation) =
                         seen.observe(notification.cast::<windows::core::IUnknown>()?);
                     let identity = format!("{bridge_id}:{token}");
@@ -917,6 +990,9 @@ pub fn attach(
                                 );
                             }
                             NotificationDispatch::Conservative(pending) => {
+                                crate::diagnostics::notification(&notify_app, &pending.service.id,
+                                    crate::diagnostics::NotificationEvent::ViewingChecked,
+                                    crate::diagnostics::NotificationReason::ViewingQueryUnavailable, pending.generation);
                                 finish_native_notification(
                                     &notify_app,
                                     &notification,
@@ -926,6 +1002,9 @@ pub fn attach(
                             }
                         }
                     } else {
+                        crate::diagnostics::notification(&notify_app, &pending.service.id,
+                            crate::diagnostics::NotificationEvent::ViewingChecked,
+                            crate::diagnostics::NotificationReason::ViewingQueryUnavailable, pending.generation);
                         finish_native_notification(&notify_app, &notification, &pending, false);
                     }
                     Ok(())
@@ -942,6 +1021,11 @@ pub fn attach(
                 }
             }
         }
+        bridge_status(&app, &service.id, if registered {
+            crate::diagnostics::NotificationReason::BridgeAttached
+        } else {
+            crate::diagnostics::NotificationReason::BridgeRegistrationFailed
+        });
         if !registered {
             return;
         }
@@ -961,16 +1045,23 @@ pub fn attach(
                 args.Uri(&mut uri)?;
                 let uri = CoTaskMemPWSTR::from(uri).to_string();
                 let settings = crate::state::current(&permission_app);
-                let allow = settings.desktop_notifications
-                    && crate::services::configured(&permission_app, &permission_service)
-                    && current_bridge(&permission_app, &permission_service.id, bridge_id)
-                    && settings
-                        .services
-                        .iter()
-                        .any(|s| s.id == permission_service.id && s.notifications)
-                    && permission_service.supports_notifications()
-                    && trusted_origin(&permission_service.url, &uri)
-                    && notifications::permission(&permission_app).granted;
+                use crate::diagnostics::NotificationReason as Reason;
+                // Preserve the existing short-circuit policy while recording the
+                // first decision reason. No URI or platform error enters diagnostics.
+                let (allow, reason) = if !settings.desktop_notifications {
+                    (false, Reason::GlobalDisabled)
+                } else if !crate::services::configured(&permission_app, &permission_service)
+                    || !current_bridge(&permission_app, &permission_service.id, bridge_id) {
+                    (false, Reason::SourceRejected)
+                } else if !settings.services.iter().any(|s| s.id == permission_service.id && s.notifications) {
+                    (false, Reason::ServiceMuted)
+                } else if !permission_service.supports_notifications() || !trusted_origin(&permission_service.url, &uri) {
+                    (false, Reason::SourceRejected)
+                } else if !notifications::permission(&permission_app).granted {
+                    (false, Reason::PermissionDenied)
+                } else {
+                    (true, Reason::ProviderOriginGranted)
+                };
                 // Swiph3l: The saved notification preference authorizes only this configured origin; other permission kinds retain WebView policy.
                 // Temporary delivery settings must not become a persistent
                 // browser-origin denial requiring the missing address-bar UI.
@@ -984,11 +1075,21 @@ pub fn attach(
                 } else {
                     COREWEBVIEW2_PERMISSION_STATE_DENY
                 })?;
+                crate::diagnostics::notification(&permission_app, &permission_service.id,
+                    crate::diagnostics::NotificationEvent::ProviderPermissionChecked, reason, 0);
                 Ok(())
             })),
             &mut 0,
         );
-    })
+    });
+    if result.is_err() {
+        bridge_status(
+            &scheduling_app,
+            &scheduling_id,
+            crate::diagnostics::NotificationReason::BridgeUnavailable,
+        );
+    }
+    result
 }
 
 struct UnreadObservation {
@@ -1203,6 +1304,28 @@ pub fn attach(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn viewing_diagnostics_distinguish_native_failure_from_unproven_and_proven_results() {
+        // Swiph3l: Failed or malformed renderer queries must remain conservative;
+        // metadata may explain delivery, never turn an error into viewing proof.
+        for (succeeded, payload, expected_viewed, expected_reason) in [
+            (false, "true", false, "viewing_query_failed"),
+            (true, "false", false, "viewing_query_unproven"),
+            (true, "null", false, "viewing_query_unproven"),
+            (
+                true,
+                "{\"private\":\"ignored\"}",
+                false,
+                "viewing_query_unproven",
+            ),
+            (true, "true", true, "conversation_viewed"),
+        ] {
+            let (viewed, reason) = viewing_outcome(succeeded, payload);
+            assert_eq!(viewed, expected_viewed);
+            assert_eq!(serde_json::to_value(reason).unwrap(), expected_reason);
+        }
+    }
 
     #[test]
     fn toast_lifecycle_routes_without_dispatching_unread_acknowledgements() {

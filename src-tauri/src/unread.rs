@@ -1236,7 +1236,10 @@ fn refresh_presentation(app: &AppHandle) {
     let unread = &snapshot.aggregate;
     let settings = crate::state::current(app);
     if let Some(window) = app.get_window("main") {
-        let _ = window.set_title(&title(unread, settings.unread_title));
+        let caption = title(unread, settings.unread_title);
+        #[cfg(feature = "notification-diagnostics")]
+        let caption = format!("{caption} — Notification QA");
+        let _ = window.set_title(&caption);
         crate::desktop_notifications::taskbar(&window, unread);
         let _ = app.emit_to("main", "service-unread", &snapshot);
     }

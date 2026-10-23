@@ -204,6 +204,16 @@ foreground, selection, generations and timestamps. Message content, tags,
 credentials, tokens, private URLs and conversation contents are excluded. History
 is not a disk log and disappears at exit.
 
+For local native investigations, the opt-in Cargo feature
+`notification-diagnostics` writes this typed metadata to bounded JSONL files under
+`notification-logs` beside the executable. Build and run that QA executable outside
+the source checkout. Its main title includes **Notification QA**. Ordinary builds
+do not enable disk capture. The capture includes delivery/block reasons, not
+message content or contact names. A successful toast submission means Windows
+accepted the API call; confirm actual banner visibility separately.
+The QA build retains the normal application/profile identity for sender testing,
+but does not repair Windows autostart registration or allow start-at-login changes.
+
 Settings > Notifications > Send test notification checks platform access and sends
 fixed sample text with the active service's icon/color, without altering unread.
 Enable notifications can request platform access and grant the supported active

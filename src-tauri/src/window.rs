@@ -123,7 +123,11 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
         WebviewUrl::App("index.html?page=services".into()),
     )
     .visible(false)
-    .title("ChatPlus Desktop")
+    .title(if cfg!(feature = "notification-diagnostics") {
+        "ChatPlus Desktop — Notification QA"
+    } else {
+        "ChatPlus Desktop"
+    })
     // Swiph3l: Leave room for the native title/menu frame on 1366x768 laptops; saved window geometry still restores normally.
     .inner_size(1280., 680.)
     .min_inner_size(900., 600.)

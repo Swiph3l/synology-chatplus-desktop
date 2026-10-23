@@ -29,6 +29,49 @@ enum NativeState {
     Blocked,
     Unavailable,
 }
+
+fn permission_reason(state: NativeState) -> crate::diagnostics::NotificationReason {
+    use crate::diagnostics::NotificationReason as Reason;
+    match state {
+        NativeState::Enabled => Reason::NativePermissionEnabled,
+        NativeState::Blocked => Reason::NativePermissionBlocked,
+        NativeState::NotRegistered => Reason::NativePermissionNotRegistered,
+        NativeState::Unavailable => Reason::NativePermissionUnavailable,
+    }
+}
+
+/// Record fixed preference/sender facts when an explicit diagnostic capture starts.
+pub fn capture_notification_status(app: &AppHandle) {
+    use crate::diagnostics::{
+        notification, NotificationEvent as Event, NotificationReason as Reason,
+    };
+    let settings = crate::state::current(app);
+    let native = native_state(app);
+    // Swiph3l: Capture decisions, never the Settings object or sender error text.
+    // Querying status must not request permission, send a toast or change a preference.
+    for service in &settings.services {
+        for reason in [
+            if settings.desktop_notifications {
+                Reason::GlobalEnabled
+            } else {
+                Reason::GlobalDisabled
+            },
+            if service.enabled {
+                Reason::ServiceEnabled
+            } else {
+                Reason::ServiceDisabled
+            },
+            if service.notifications {
+                Reason::ServiceNotificationsEnabled
+            } else {
+                Reason::ServiceMuted
+            },
+            permission_reason(native),
+        ] {
+            notification(app, &service.id, Event::StatusSnapshot, reason, 0);
+        }
+    }
+}
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Permission {
@@ -75,20 +118,12 @@ pub fn permission(app: &AppHandle) -> Permission {
     };
     if changed {
         if let Some(id) = settings.active_service.as_deref() {
-            use crate::diagnostics::{
-                notification, NotificationEvent as Event, NotificationReason as Reason,
-            };
+            use crate::diagnostics::{notification, NotificationEvent as Event};
             notification(
                 app,
                 id,
                 Event::PermissionChecked,
-                match native {
-                    NativeState::Enabled => Reason::NativePermissionEnabled,
-                    NativeState::Blocked => Reason::NativePermissionBlocked,
-                    NativeState::NotRegistered | NativeState::Unavailable => {
-                        Reason::NativePermissionUnavailable
-                    }
-                },
+                permission_reason(native),
                 0,
             );
         }
@@ -157,9 +192,21 @@ pub fn send_test(app: &AppHandle, sound: bool) -> Result<(), String> {
     // Swiph3l: The user's explicit test must work independently of provider unread and focus suppression.
     let mut permission = permission(app);
     if !permission.granted {
-        permission = request_permission(app)?;
+        permission = request_permission(app).map_err(|error| {
+            record_test_diagnostic(
+                app,
+                crate::state::current(app).active_service.as_deref(),
+                false,
+            );
+            error
+        })?;
     }
     if !permission.granted {
+        record_test_diagnostic(
+            app,
+            crate::state::current(app).active_service.as_deref(),
+            false,
+        );
         return Err(permission.message);
     }
     let settings = crate::state::current(app);
@@ -182,7 +229,35 @@ pub fn send_test(app: &AppHandle, sound: bool) -> Result<(), String> {
         0,
     );
     record_send_result(app, &result);
+    record_test_diagnostic(
+        app,
+        service.map(|service| service.id.as_str()),
+        result.is_ok(),
+    );
     result
+}
+
+fn record_test_diagnostic(app: &AppHandle, id: Option<&str>, succeeded: bool) {
+    use crate::diagnostics::{
+        notification, NotificationEvent as Event, NotificationReason as Reason,
+    };
+    if let Some(id) = id {
+        notification(
+            app,
+            id,
+            if succeeded {
+                Event::ToastSubmitted
+            } else {
+                Event::ToastSuppressed
+            },
+            if succeeded {
+                Reason::TestSubmission
+            } else {
+                Reason::TestSubmissionFailed
+            },
+            0,
+        );
+    }
 }
 
 fn record_send_result(app: &AppHandle, result: &Result<(), String>) {
@@ -425,6 +500,20 @@ fn event_key(identity: &str) -> u64 {
     identity.hash(&mut hasher);
     hasher.finish()
 }
+
+#[cfg(windows)]
+fn dismissal_reason(
+    reason: Option<tauri_winrt_notification::ToastDismissalReason>,
+) -> crate::diagnostics::NotificationReason {
+    use crate::diagnostics::NotificationReason as Reason;
+    use tauri_winrt_notification::ToastDismissalReason;
+    match reason {
+        Some(ToastDismissalReason::UserCanceled) => Reason::DismissedByUser,
+        Some(ToastDismissalReason::ApplicationHidden) => Reason::DismissedByApplication,
+        Some(ToastDismissalReason::TimedOut) => Reason::DismissedTimedOut,
+        _ => Reason::DismissalUnknown,
+    }
+}
 #[cfg(windows)]
 fn show(
     app: &AppHandle,
@@ -437,6 +526,8 @@ fn show(
     // Swiph3l: The desktop plugin drops activation callbacks/errors; use its WinRT backend once for routing and explicit silence.
     use tauri_winrt_notification::{IconCrop, Sound, Toast};
     let handle = app.clone();
+    let dismissal_app = app.clone();
+    let dismissal_service = service_id.clone();
     let settings = crate::state::current(app);
     let service = settings
         .services
@@ -451,6 +542,25 @@ fn show(
     }
     toast
         .sound(if sound { Some(Sound::IM) } else { None })
+        .on_dismissed(move |reason| {
+            // Swiph3l: OS dismissal is diagnostic only, never read evidence. The
+            // supported backend exposes dismissal but no asynchronous Failed hook.
+            if let Some(id) = dismissal_service.clone() {
+                let app = dismissal_app.clone();
+                let reason = dismissal_reason(reason);
+                let dispatcher = app.clone();
+                let _ = dispatcher.run_on_main_thread(move || {
+                    crate::diagnostics::notification(
+                        &app,
+                        &id,
+                        crate::diagnostics::NotificationEvent::ToastDismissed,
+                        reason,
+                        arrival_generation,
+                    );
+                });
+            }
+            Ok(())
+        })
         .on_activated(move |_| {
             let app = handle.clone();
             let id = service_id.clone();
@@ -589,6 +699,45 @@ pub fn taskbar(window: &tauri::Window, unread: &crate::unread::Unread) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn capture_keeps_sender_not_registered_distinct_from_blocked_and_unknown() {
+        for (state, expected) in [
+            (NativeState::Enabled, "native_permission_enabled"),
+            (NativeState::Blocked, "native_permission_blocked"),
+            (
+                NativeState::NotRegistered,
+                "native_permission_not_registered",
+            ),
+            (NativeState::Unavailable, "native_permission_unavailable"),
+        ] {
+            assert_eq!(
+                serde_json::to_value(permission_reason(state)).unwrap(),
+                expected
+            );
+        }
+    }
+    #[cfg(windows)]
+    #[test]
+    fn os_dismissal_diagnostics_preserve_reason_without_read_or_payload_fields() {
+        use tauri_winrt_notification::ToastDismissalReason;
+        for (native, expected) in [
+            (
+                Some(ToastDismissalReason::UserCanceled),
+                "dismissed_by_user",
+            ),
+            (
+                Some(ToastDismissalReason::ApplicationHidden),
+                "dismissed_by_application",
+            ),
+            (Some(ToastDismissalReason::TimedOut), "dismissed_timed_out"),
+            (None, "dismissal_unknown"),
+        ] {
+            assert_eq!(
+                serde_json::to_value(dismissal_reason(native)).unwrap(),
+                expected
+            );
+        }
+    }
     #[cfg(windows)]
     #[test]
     fn development_toast_sender_uses_registered_fallback_and_release_keeps_its_identifier() {

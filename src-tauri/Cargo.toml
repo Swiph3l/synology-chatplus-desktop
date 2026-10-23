@@ -9,6 +9,11 @@ publish = false
 repository = "https://github.com/Swiph3l/synology-chatplus-desktop"
 homepage = "https://github.com/Swiph3l/synology-chatplus-desktop"
 
+[features]
+# Swiph3l: Explicit local QA builds may persist allowlisted notification transitions.
+# Ordinary release/development builds keep diagnostics in memory only.
+notification-diagnostics = []
+
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

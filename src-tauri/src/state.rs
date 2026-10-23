@@ -406,7 +406,7 @@ pub fn load(app: &AppHandle) -> Result<Settings, Box<dyn std::error::Error>> {
     }
     settings.autostart = app.autolaunch().is_enabled()?;
     if settings.autostart {
-        #[cfg(windows)]
+        #[cfg(all(windows, not(feature = "notification-diagnostics")))]
         if let Err(error) = reconcile_windows_autostart(app, false) {
             println!("autostart: self-heal skipped ({error})");
         }
@@ -425,6 +425,11 @@ pub fn persist(app: &AppHandle, mut settings: Settings) -> Result<(), String> {
     let was_enabled = launch
         .is_enabled()
         .map_err(|_| "Could not read start-at-login preference.")?;
+    // Swiph3l: A portable notification QA build uses real account/sender identity,
+    // but must never replace the installed application's Windows startup command.
+    if cfg!(feature = "notification-diagnostics") && settings.autostart != was_enabled {
+        return Err("Start-at-login changes are unavailable in Notification QA.".into());
+    }
     if settings.autostart != was_enabled {
         if settings.autostart {
             launch.enable()
@@ -434,17 +439,19 @@ pub fn persist(app: &AppHandle, mut settings: Settings) -> Result<(), String> {
         .map_err(|_| "Could not update start-at-login preference.")?;
     }
     if settings.autostart {
-        #[cfg(windows)]
+        #[cfg(all(windows, not(feature = "notification-diagnostics")))]
         if let Err(error) = reconcile_windows_autostart(app, true) {
             println!("autostart: self-heal skipped ({error})");
         }
     }
     if let Err(error) = persist_value(app, "settings", value) {
-        let _ = if was_enabled {
-            launch.enable()
-        } else {
-            launch.disable()
-        };
+        if !cfg!(feature = "notification-diagnostics") {
+            let _ = if was_enabled {
+                launch.enable()
+            } else {
+                launch.disable()
+            };
+        }
         return Err(error);
     }
     *app.state::<AppState>()

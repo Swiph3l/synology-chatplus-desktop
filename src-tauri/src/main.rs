@@ -30,6 +30,27 @@ mod validation_fixture;
 mod version_format;
 mod window;
 use tauri::Manager;
+
+#[cfg(feature = "notification-diagnostics")]
+fn start_notification_capture(app: &tauri::AppHandle) -> Result<(), &'static str> {
+    // Swiph3l: The opt-in QA executable owns its log directory; no machine path
+    // or provider profile is embedded in source or selected by remote content.
+    let executable = std::env::current_exe().map_err(|_| "capture_executable_unavailable")?;
+    let directory = executable
+        .parent()
+        .ok_or("capture_directory_unavailable")?
+        .join("notification-logs");
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let path = directory.join(format!(
+        "notifications-{timestamp}-{}.jsonl",
+        std::process::id()
+    ));
+    diagnostics::start_notification_capture(app, &path)
+}
+
 fn main() {
     let context = tauri::generate_context!();
     #[cfg(windows)]
@@ -123,6 +144,11 @@ fn main() {
             app.manage(services::Lifecycle::default());
             app.manage(external_links::Service::default());
             app.manage(desktop_notifications::Service::default());
+            #[cfg(feature = "notification-diagnostics")]
+            {
+                start_notification_capture(app.handle()).map_err(std::io::Error::other)?;
+                desktop_notifications::capture_notification_status(app.handle());
+            }
             desktop_notifications::icons(app.handle());
             menu::create(app.handle())?;
             tray::create(app.handle())?;
@@ -147,6 +173,10 @@ fn main() {
     #[cfg(windows)]
     drop(startup_guard);
     app.run(|app, event| {
+        #[cfg(feature = "notification-diagnostics")]
+        if matches!(event, tauri::RunEvent::Exit) {
+            let _ = diagnostics::stop_notification_capture(app);
+        }
         if matches!(
             event,
             tauri::RunEvent::ExitRequested { code: Some(_), .. } | tauri::RunEvent::Exit
