@@ -33,14 +33,14 @@ test("WhatsApp dedicated UI badges provide positive unread evidence without inve
     '<span data-testid="icon-unread-count">4</span>',
     '<span data-testid="unread-count">99+</span>',
     '<span data-icon="unread-count" aria-label="Unread messages"></span>',
-    '<span aria-label="2 unread messages"></span>',
-    '<span aria-label="1 unread message"></span>',
-    '<span aria-label="2 nieprzeczytane wiadomości"></span>',
-    '<span aria-label="2 mensajes no leídos"></span>',
-    '<span aria-label="2 ungelesene Nachrichten"></span>',
-    '<span aria-label="2 messages non lus"></span>',
-    '<span aria-label="未読メッセージ 2 件"></span>',
-    '<span aria-label="2 則未讀訊息"></span>',
+    '<span data-testid="unread-count" aria-label="2 unread messages"></span>',
+    '<span data-testid="unread-count" aria-label="1 unread message"></span>',
+    '<span data-testid="unread-count" aria-label="2 nieprzeczytane wiadomości"></span>',
+    '<span data-testid="unread-count" aria-label="2 mensajes no leídos"></span>',
+    '<span data-testid="unread-count" aria-label="2 ungelesene Nachrichten"></span>',
+    '<span data-testid="unread-count" aria-label="2 messages non lus"></span>',
+    '<span data-testid="unread-count" aria-label="未読メッセージ 2 件"></span>',
+    '<span data-testid="unread-count" aria-label="2 則未讀訊息"></span>',
   ]) {
     const f = fixture(`<div role="row">${badge}</div>`);
     assert.equal(f.adapter.source, "whatsapp-dom");
@@ -98,6 +98,43 @@ test("WhatsApp ignores hidden/duplicate badges and unrelated page metadata", () 
   f.document.getElementById("main").innerHTML =
     '<span aria-label="5 unread messages"></span>';
   assert.equal(f.adapter.snapshot().hasUnread, null);
+});
+
+test("WhatsApp contact names and previews that resemble unread labels remain unknown and are not inspected", () => {
+  for (const content of [
+    '<span data-testid="cell-frame-title" title="2 unread messages" aria-label="2 unread messages">2 unread messages</span>',
+    '<span data-testid="cell-frame-secondary" aria-label="Unread messages">Unread messages</span>',
+    '<span aria-label="2 unread messages">2 unread messages</span>',
+    '<span role="button" aria-label="2 unread messages">Contact action</span>',
+    '<img aria-label="2 unread messages" alt="Contact photo">',
+  ]) {
+    const f = fixture(`<div role="row">${content}</div>`);
+    assert.deepEqual(f.adapter.snapshot(), {
+      hasUnread: null,
+      count: null,
+      conversations: [],
+      currentConversation: null,
+    });
+    for (const node of f.document.querySelectorAll(
+      '[role="row"] [aria-label]',
+    )) {
+      const getAttribute = node.getAttribute.bind(node);
+      node.getAttribute = (name) => {
+        assert.notEqual(
+          name,
+          "aria-label",
+          "contact/preview labels must not be read",
+        );
+        return getAttribute(name);
+      };
+      Object.defineProperty(node, "textContent", {
+        get() {
+          throw new Error("contact/preview text must not be read");
+        },
+      });
+    }
+    assert.equal(f.adapter.snapshot().hasUnread, null);
+  }
 });
 
 test("WhatsApp current chat cannot be acknowledged from selection, focus, interaction or ambiguous notification tags", () => {

@@ -5,8 +5,9 @@ const listSelector = '#pane-side [role="grid"], #pane-side [role="list"]';
 const badgeSelector =
   '[data-testid="icon-unread-count"], [data-testid="unread-count"], [data-icon="unread-count"]';
 
-// Swiph3l: Read only unread accessibility metadata inside chat-list rows. Never inspect
-// chat names, previews, message bodies, contact IDs, phone numbers or QR data.
+// Swiph3l: Inspect accessibility metadata only on dedicated unread badge elements.
+// Arbitrary row labels can be contact names or previews, even when their text
+// happens to say "2 unread messages". Never inspect those labels or QR/session data.
 const unreadLabels = [
   /^unread messages?$/i,
   /^nieprzeczytan\p{L}* wiadomo\p{L}*$/iu,
@@ -40,13 +41,6 @@ function unreadBadge(row: Element, document: Document): boolean {
     const count = badge.textContent?.trim() ?? "";
     if (/^[1-9][0-9]*\+?$/.test(count)) return true;
     const label = badge.getAttribute("aria-label") ?? "";
-    if (positiveUnreadLabel(label)) return true;
-  }
-  for (const badge of row.querySelectorAll("[aria-label]")) {
-    if (!visible(document, badge)) continue;
-    // Swiph3l: A numeric positive prefix/suffix avoids treating "0 unread messages" as
-    // unread. An unnumbered unread badge is boolean evidence, never count=1.
-    const label = badge.getAttribute("aria-label")?.trim() ?? "";
     if (positiveUnreadLabel(label)) return true;
   }
   return false;
