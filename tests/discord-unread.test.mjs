@@ -161,6 +161,22 @@ function fixture({
   };
 }
 
+test("Discord snapshots inspect the latest conversation once for both scoped state and completeness", () => {
+  const f = fixture();
+  const query = f.document.querySelectorAll.bind(f.document);
+  let viewportQueries = 0;
+  f.document.querySelectorAll = (selector) => {
+    if (selector === '[data-list-id="chat-messages"]') viewportQueries += 1;
+    return query(selector);
+  };
+  for (let index = 0; index < 100; index += 1) {
+    const state = f.adapter.snapshot();
+    assert.equal(state.hasUnread, false);
+    assert.equal(state.currentConversation, channel);
+  }
+  assert.equal(viewportQueries, 100);
+});
+
 test("Discord rail evidence is DM-only and mention totals remain unknown counts", () => {
   for (const options of [
     {

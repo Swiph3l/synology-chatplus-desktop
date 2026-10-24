@@ -2,6 +2,7 @@ use crate::{
     connection,
     menu::{self, Action},
 };
+use std::sync::Mutex;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -11,6 +12,26 @@ struct TrayState {
     status: MenuItem<tauri::Wry>,
     unread: MenuItem<tauri::Wry>,
     actions: Vec<(MenuItem<tauri::Wry>, &'static str)>,
+    applied: Mutex<Presentation>,
+}
+#[derive(Default)]
+struct Presentation {
+    status: Option<String>,
+    unread: Option<String>,
+    actions: Vec<Option<String>>,
+    tooltip: Option<String>,
+    unread_icon: Option<bool>,
+}
+fn apply_changed<T: PartialEq, E>(
+    previous: &mut Option<T>,
+    value: T,
+    apply: impl FnOnce(&T) -> Result<(), E>,
+) {
+    // Sawbir: Unread evidence can change without changing any tray pixels.
+    // Cache only successful native writes so a failed update is retried.
+    if previous.as_ref() != Some(&value) && apply(&value).is_ok() {
+        *previous = Some(value);
+    }
 }
 pub fn refresh(app: &AppHandle) {
     let handle = app.clone();
@@ -19,45 +40,58 @@ pub fn refresh(app: &AppHandle) {
 }
 pub fn refresh_unread(app: &AppHandle, unread: &crate::unread::Unread) {
     if let Some(state) = app.try_state::<TrayState>() {
-        let connection_key = match connection::current(app) {
+        let settings = crate::state::current(app);
+        let text = |key| crate::i18n::text(&settings.language, key);
+        let connection_key = match connection::for_service(app, settings.active_service.as_deref())
+        {
             connection::Connection::Unknown => "common.unknown",
             connection::Connection::Connecting => "common.connecting",
             connection::Connection::Connected => "common.connected",
             connection::Connection::Offline => "common.offline",
             connection::Connection::Error => "common.error",
         };
-        let label = crate::i18n::t(app, "tray.connection")
-            .replace("{state}", &crate::i18n::t(app, connection_key));
-        let _ = state.status.set_text(&label);
-        let enabled = crate::state::current(app).unread_tray;
+        let label = text("tray.connection").replace("{state}", &text(connection_key));
+        let enabled = settings.unread_tray;
         let unread_label = if enabled {
-            crate::i18n::t(
-                app,
-                if unread.has_unread {
-                    "tray.unread"
-                } else if unread.last_update.is_some() {
-                    "tray.noUnread"
-                } else {
-                    "tray.unreadUnavailable"
-                },
-            )
+            text(if unread.has_unread {
+                "tray.unread"
+            } else if unread.last_update.is_some() {
+                "tray.noUnread"
+            } else {
+                "tray.unreadUnavailable"
+            })
         } else {
-            crate::i18n::t(app, "tray.unreadDisabled")
+            text("tray.unreadDisabled")
         };
-        let _ = state.unread.set_text(&unread_label);
+        let tooltip = format!("ChatPlus Desktop\n{unread_label}\n{label}");
+        let mut applied = state.applied.lock().unwrap_or_else(|e| e.into_inner());
+        apply_changed(&mut applied.status, label, |value| {
+            state.status.set_text(value)
+        });
+        apply_changed(&mut applied.unread, unread_label, |value| {
+            state.unread.set_text(value)
+        });
         // Swiph3l: Keep native menu objects alive during language changes; rebuilding
         // the Windows tray menu can disrupt an open popup and its action routing.
-        for (item, key) in &state.actions {
-            let _ = item.set_text(crate::i18n::t(app, key));
+        for ((item, key), cached) in state.actions.iter().zip(&mut applied.actions) {
+            apply_changed(cached, text(key), |value| item.set_text(value));
         }
         if let Some(tray) = app.tray_by_id("chatplus") {
-            let _ = tray.set_tooltip(Some(format!("ChatPlus Desktop\n{unread_label}\n{label}")));
+            apply_changed(&mut applied.tooltip, tooltip, |value| {
+                tray.set_tooltip(Some(value))
+            });
             let icons = app.state::<crate::desktop_notifications::Icons>();
-            let _ = tray.set_icon(Some(if enabled && unread.has_unread {
-                icons.unread.clone()
-            } else {
-                icons.normal.clone()
-            }));
+            apply_changed(
+                &mut applied.unread_icon,
+                enabled && unread.has_unread,
+                |value| {
+                    tray.set_icon(Some(if *value {
+                        icons.unread.clone()
+                    } else {
+                        icons.normal.clone()
+                    }))
+                },
+            );
         }
     }
 }
@@ -96,6 +130,10 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
     app.manage(TrayState {
         status,
         unread,
+        applied: Mutex::new(Presentation {
+            actions: vec![None; actions.len()],
+            ..Presentation::default()
+        }),
         actions,
     });
     TrayIconBuilder::with_id("chatplus")
@@ -118,4 +156,43 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         .build(app)?;
     refresh(app);
     Ok(())
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn native_writes_follow_presentation_changes_and_retry_failures() {
+        let mut previous = None;
+        let mut writes = 0;
+        for value in ["unread", "unread", "unread", "read", "read", "unread"] {
+            apply_changed(&mut previous, value, |_| {
+                writes += 1;
+                Ok::<_, ()>(())
+            });
+        }
+        assert_eq!(writes, 3);
+        apply_changed(&mut previous, "offline", |_| Err(()));
+        assert_eq!(previous, Some("unread"));
+        apply_changed(&mut previous, "offline", |_| Ok::<_, ()>(()));
+        assert_eq!(previous, Some("offline"));
+    }
+    #[test]
+    fn labels_and_icon_are_cached_independently() {
+        let mut label = None;
+        let mut icon = None;
+        let mut label_writes = 0;
+        let mut icon_writes = 0;
+        for (text, unread) in [("Unread", true), ("Nieprzeczytane", true), ("Read", false)] {
+            apply_changed(&mut label, text, |_| {
+                label_writes += 1;
+                Ok::<_, ()>(())
+            });
+            apply_changed(&mut icon, unread, |_| {
+                icon_writes += 1;
+                Ok::<_, ()>(())
+            });
+        }
+        assert_eq!(label_writes, 3);
+        assert_eq!(icon_writes, 2);
+    }
 }

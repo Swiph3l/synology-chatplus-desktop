@@ -305,8 +305,13 @@ export function installUnreadAdapter(
     }
     // Swiph3l: Foreground trusted interaction is conversation-specific read evidence;
     // service selection or retained WebView focus alone is not.
-    const content = adapter.contentContext();
-    const context = adapter.readContext();
+    // Sawbir: Badge observation needs no layout-dependent message scan until a
+    // real read candidate exists. Pending proofs still recheck every mutation.
+    const checkRead =
+      visible() &&
+      (interaction !== null || pendingRead !== null || toastRead !== null);
+    const content = checkRead ? adapter.contentContext() : null;
+    const context = checkRead ? adapter.readContext() : null;
     if (toastRead !== null) {
       if (
         !visible() ||

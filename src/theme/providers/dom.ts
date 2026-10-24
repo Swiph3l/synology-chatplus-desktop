@@ -55,8 +55,9 @@ export function createViewContext(
   let routeRevision = 0;
   let observer: MutationObserver | undefined;
   const revise = (records: MutationRecord[]) => {
+    if (records.length === 0) return;
     const changed = new Set<Element>();
-    const views = [...document.querySelectorAll(selector)];
+    let views: Element[] | undefined;
     for (const record of records) {
       // Swiph3l: Focus/scroll classes and styles can change during a genuine read gesture. Revoke on content/identity changes, while live visibility/latest checks handle presentation changes.
       if (
@@ -65,6 +66,9 @@ export function createViewContext(
         !record.attributeName?.startsWith("data-")
       )
         continue;
+      // Sawbir: Context reads often drain an empty queue or presentation-only
+      // records. Discover panes only when a mutation can revoke their identity.
+      views ??= [...document.querySelectorAll(selector)];
       for (const view of views) {
         // Swiph3l: A SPA may detach and reinsert the same pane without changing its URL or content; mutations on its parent must revoke the old gesture too.
         const crossesBoundary =
