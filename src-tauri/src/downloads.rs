@@ -663,11 +663,7 @@ fn popup_background(theme: &crate::state::Theme, system: tauri::Theme) -> tauri:
         crate::state::Theme::Light => false,
         crate::state::Theme::System => system == tauri::Theme::Dark,
     };
-    if dark {
-        tauri::window::Color(15, 17, 21, 255)
-    } else {
-        tauri::window::Color(243, 245, 248, 255)
-    }
+    crate::shell::background_color(dark)
 }
 
 /// Update only app-owned chrome/default canvas, never provider or PDF document CSS.
@@ -800,10 +796,10 @@ mod tests {
     fn attachment_canvas_respects_explicit_and_system_theme_without_touching_document_content() {
         use crate::state::Theme;
         for (theme, system, expected) in [
-            (Theme::Dark, tauri::Theme::Light, (15, 17, 21, 255)),
-            (Theme::Light, tauri::Theme::Dark, (243, 245, 248, 255)),
-            (Theme::System, tauri::Theme::Dark, (15, 17, 21, 255)),
-            (Theme::System, tauri::Theme::Light, (243, 245, 248, 255)),
+            (Theme::Dark, tauri::Theme::Light, (22, 26, 32, 255)),
+            (Theme::Light, tauri::Theme::Dark, (246, 247, 249, 255)),
+            (Theme::System, tauri::Theme::Dark, (22, 26, 32, 255)),
+            (Theme::System, tauri::Theme::Light, (246, 247, 249, 255)),
         ] {
             let color = popup_background(&theme, system);
             assert_eq!((color.0, color.1, color.2, color.3), expected);
