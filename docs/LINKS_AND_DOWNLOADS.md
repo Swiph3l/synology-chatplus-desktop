@@ -26,7 +26,9 @@ service and WebView registration before requesting a prompt.
 
 The bundled `external-link` window uses the saved shell theme and language. It displays
 the complete serialized ASCII URI as selectable, read-only text, the destination
-origin and an additional warning for HTTP. Internationalized hostnames use punycode
+origin and an additional warning for HTTP. The hostname and explicit port appear
+above the full address, beside an HTTP/HTTPS transport marker; the marker does not
+claim the destination is safe. Internationalized hostnames use punycode
 and percent escapes remain intact. Do not decode or reconstruct signed query
 strings. Full destinations may contain sensitive values and must not be logged or
 placed in the local page's query string.

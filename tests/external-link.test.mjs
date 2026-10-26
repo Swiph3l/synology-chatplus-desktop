@@ -236,6 +236,14 @@ test("HTTP warning is explicit; unsafe/mismatched destinations cannot be approve
     http.document.querySelector(".external-link-http-warning").hidden,
     false,
   );
+  assert.equal(
+    http.document.querySelector(".external-link-protocol").textContent,
+    "HTTP",
+  );
+  assert.equal(
+    http.document.querySelector(".external-link-address").dataset.insecure,
+    "true",
+  );
   assert.ok(
     http.document
       .querySelector('[role="alertdialog"]')
@@ -246,6 +254,14 @@ test("HTTP warning is explicit; unsafe/mismatched destinations cannot be approve
   assert.equal(
     secure.document.querySelector(".external-link-http-warning").hidden,
     true,
+  );
+  assert.equal(
+    secure.document.querySelector(".external-link-protocol").textContent,
+    "HTTPS",
+  );
+  assert.equal(
+    secure.document.querySelector(".external-link-address").dataset.insecure,
+    "false",
   );
   for (const url of [
     "javascript:alert(1)",
@@ -258,9 +274,34 @@ test("HTTP warning is explicit; unsafe/mismatched destinations cannot be approve
       f.document.querySelector(".external-link-open").disabled,
       true,
     );
+    assert.equal(
+      f.document.querySelector(".external-link-protocol").hidden,
+      true,
+      "inconsistent destinations cannot receive a transport indicator",
+    );
     f.document.querySelector(".external-link-open").click();
     assert.equal(f.responses().length, 0);
   }
+});
+
+test("destination summary exposes exact punycode host and port separately from URL paths and queries", async () => {
+  const origin = "https://xn--bcher-kva.example:8443";
+  const url = `${origin}/trusted.example/file?next=https%3A%2F%2Fother.example&signature=a%2Fb#part`;
+  const f = await fixture({ url, origin });
+  const host = f.document.querySelector(".external-link-host");
+  assert.equal(host.textContent, "xn--bcher-kva.example:8443");
+  assert.equal(host.getAttribute("dir"), "ltr");
+  assert.equal(
+    f.document.querySelector(".external-link-origin-value").textContent,
+    origin,
+  );
+  const address = f.document.querySelector(".external-link-url");
+  assert.equal(address.textContent, url);
+  assert.equal(
+    address.getAttribute("aria-describedby"),
+    f.document.querySelector(".external-link-origin").id,
+  );
+  assert.equal(f.document.querySelector(".external-link-open").disabled, false);
 });
 
 test("a theme event received during the prompt fetch wins over its older snapshot", async () => {
