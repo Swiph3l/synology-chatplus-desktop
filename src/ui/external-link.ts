@@ -113,7 +113,7 @@ export async function renderExternalLink() {
       "external-link-protocol",
       prompt.insecureHttp ? "HTTP" : "HTTPS",
     );
-    // Sawbir: The scheme is transport information, never a verdict that a site
+    // Swiph3l: The scheme is transport information, never a verdict that a site
     // is safe. An inconsistent native payload must not receive a protocol badge.
     protocol.hidden = host === null;
     address.dataset.insecure = String(prompt.insecureHttp && host !== null);

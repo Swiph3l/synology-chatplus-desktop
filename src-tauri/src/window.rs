@@ -176,7 +176,7 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
             } else {
                 tauri::window::Color(255, 255, 255, 255)
             };
-            // Sawbir: Shell chrome follows its local stylesheet; remote views retain provider colors.
+            // Swiph3l: Shell chrome follows its local stylesheet; remote views retain provider colors.
             let _ = event_window.set_background_color(Some(crate::shell::background_color(
                 *theme == tauri::Theme::Dark,
             )));

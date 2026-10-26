@@ -66,7 +66,7 @@ export function createViewContext(
         !record.attributeName?.startsWith("data-")
       )
         continue;
-      // Sawbir: Context reads often drain an empty queue or presentation-only
+      // Swiph3l: Context reads often drain an empty queue or presentation-only
       // records. Discover panes only when a mutation can revoke their identity.
       views ??= [...document.querySelectorAll(selector)];
       for (const view of views) {

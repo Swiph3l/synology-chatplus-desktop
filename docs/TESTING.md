@@ -76,8 +76,8 @@ cargo test --locked --manifest-path src-tauri/Cargo.toml connection::tests
 The fixtures count pane discovery, content-context checks and active Discord
 viewport queries. Empty or presentation-only mutation batches need no pane
 discovery. Badge observations retain their snapshots while layout-dependent read
-checks require live read intent, including pending acknowledgements and toast
-navigation. Content changes, pane replacement, navigation and new arrivals must
+checks require a live read candidate, including Discord's verified current view,
+pending acknowledgements and toast navigation. Content changes, pane replacement, navigation and new arrivals must
 still revoke stale evidence before any acknowledgement.
 
 Tray tests verify that repeated presentation values skip native setters, failed

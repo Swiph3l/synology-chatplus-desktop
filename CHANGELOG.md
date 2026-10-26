@@ -4,6 +4,12 @@ All notable changes will be documented here. Versions follow Semantic Versioning
 
 ## 0.9.1 - prerelease candidate
 
+### Fixed
+
+- Clear Discord's unread indicator after the matching DM is read with its newest
+  message visible at latest, without requiring another message click. Retain other
+  unread DMs, unknown scopes and protection against background or stale evidence.
+
 ### Performance
 
 - Reduce repeated provider DOM scans while tracking unread messages. Empty and

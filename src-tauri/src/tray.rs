@@ -27,7 +27,7 @@ fn apply_changed<T: PartialEq, E>(
     value: T,
     apply: impl FnOnce(&T) -> Result<(), E>,
 ) {
-    // Sawbir: Unread evidence can change without changing any tray pixels.
+    // Swiph3l: Unread evidence can change without changing any tray pixels.
     // Cache only successful native writes so a failed update is retried.
     if previous.as_ref() != Some(&value) && apply(&value).is_ok() {
         *previous = Some(value);
