@@ -127,7 +127,11 @@ function fixture(provider) {
     scrollHeight: 600,
     scrollTop: 400,
   });
-  document.elementFromPoint = () => pane;
+  document.elementFromPoint = () =>
+    provider === "discord"
+      ? (pane.querySelector('[data-list-id="chat-messages"]')
+          ?.lastElementChild ?? pane)
+      : pane;
   runInNewContext(built.outputFiles[0].text, {
     document,
     window: host,
@@ -281,8 +285,8 @@ for (const [name, provider, source] of providers) {
       f.flush();
       assert.equal(
         f.messages.at(-1).acknowledgement,
-        null,
-        "restore/select alone is not read",
+        provider === "discord" ? 3 : null,
+        "Discord verifies its latest visible read DM; other providers still require input",
       );
       f.gesture();
       assert.equal(f.messages.at(-1).acknowledgement, 3);
@@ -306,9 +310,15 @@ for (const [name, provider] of providers) {
       f.badges(false);
       f.host.__chatplusSetForeground(true, 2, 1);
       f.flush();
-      assert.equal(f.messages.at(-1).acknowledgement, null);
+      assert.equal(
+        f.messages.at(-1).acknowledgement,
+        provider === "discord" ? 2 : null,
+      );
       f.gesture(f.composer, input, false);
-      assert.equal(f.messages.at(-1).acknowledgement, null);
+      assert.equal(
+        f.messages.at(-1).acknowledgement,
+        provider === "discord" ? 2 : null,
+      );
       f.gesture(f.composer, input);
       assert.equal(f.messages.at(-1).acknowledgement, 2);
       assert.equal(f.messages.at(-1).readScope, "provider-zero");
@@ -319,7 +329,7 @@ for (const [name, provider] of providers) {
     });
   }
 
-  test(`${name}: sidebar/header activity cannot acknowledge a restored service zero`, () => {
+  test(`${name}: sidebar/header activity supplies no additional read evidence`, () => {
     const f = fixture(provider);
     f.host.__chatplusSetForeground(false, 1, 1);
     f.arrival();
@@ -329,8 +339,13 @@ for (const [name, provider] of providers) {
     const sidebar = f.document.querySelector(
       '#sidebar-tab-item-a, .channel-list-item, [data-list-item-id^="guildsnav___"]',
     );
+    const beforeSidebar = f.messages.length;
     f.gesture(sidebar);
-    assert.equal(f.messages.at(-1).acknowledgement, null);
+    assert.equal(f.messages.length, beforeSidebar);
+    assert.equal(
+      f.messages.at(-1).acknowledgement,
+      provider === "discord" ? 2 : null,
+    );
     f.gesture(f.composer);
     assert.equal(f.messages.at(-1).acknowledgement, 2);
   });

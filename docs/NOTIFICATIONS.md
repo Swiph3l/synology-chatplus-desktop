@@ -61,7 +61,8 @@ Automatic acknowledgement requires all of:
 
 - The current native foreground generation and correct selected enabled service.
 - Genuine trusted interaction in the uniquely mapped conversation/main composer,
-  or a bounded native Discord toast intent with exact target-message view proof.
+  Discord's scoped provider-read row with the newest message actually visible at
+  latest, or a bounded native Discord toast intent with exact target-message view proof.
 - The same conversation/content identity and a visible latest message pane, or
   Mattermost's verified complete read state with a visible mapped pane.
 - Fresh reliable provider-wide zero, an exact individually viewed message proof,
@@ -76,6 +77,14 @@ and native generation/arrival boundary. It can acknowledge only after that targe
 is actually visible, unobscured and latest in the mapped DM and the matching
 conversation has read evidence. Merely clicking a toast supplies no read proof.
 The intent expires after a bounded wait; its timer never acknowledges anything.
+
+Discord's current DM does not require an extra click on a message that was just
+read. Its adapter must identify that exact conversation, observe its provider row
+as read and verify that the newest retained message is visible, unobscured and at
+latest in the native foreground. This produces only a current-conversation proof;
+it cannot infer global zero from a partial or virtualized private list. A hidden,
+covered, scrolled-up or unmapped pane retains unread. Native generation checks
+reject queued proof after a new arrival or foreground change.
 
 Reliable scoped provider zero with fresh engagement can retire completed arrivals
 without an exact notification tag. In-flight arrivals cannot clear early; native
@@ -219,8 +228,9 @@ DM identities separately from unattributed positive evidence. A valid
 `conversation-read` proof can retire only its matching known DM even when the
 remaining list is virtualized or unknown; other observed DMs and unattributed
 owners survive. Ownership is bounded, with overflow retained as unattributed.
-Clearing requires trusted conversation input, the explicit current-read action,
-or a native toast intent whose exact target has subsequently met view/read proof.
+Clearing requires the exact latest visible DM and provider-read row, trusted
+conversation input, the explicit current-read action, or a native toast intent
+whose exact target has subsequently met view/read proof.
 Other muted, incomplete or request/spam scopes remain unknown. Discord observations must carry
 `unreadScope: "direct-messages"`; native parsing rejects legacy/global snapshots.
 

@@ -185,16 +185,22 @@ function discordFixture(otherUnread = true) {
   };
 }
 
-test("Discord DM-zero observation and service activation cannot produce an automatic read", async () => {
+test("Discord a verified current view proposes only its DM scope rather than provider-wide zero", async () => {
   const f = discordFixture(false);
   try {
     assert.equal(f.adapter.snapshot().hasUnread, false);
     assert.equal(f.adapter.providerUnreadZero(), true);
     assert.equal(f.adapter.providerAllUnreadZero(), false);
+    await settle();
+    assert.ok(f.messages.every((event) => event.acknowledgement === null));
     f.host.__chatplusSetForeground(true, 7);
     await settle();
     assert.ok(f.messages.length > 0);
-    assert.ok(f.messages.every((event) => event.acknowledgement === null));
+    const proofs = f.messages.filter((event) => event.acknowledgement !== null);
+    assert.equal(proofs.length, 1);
+    assert.equal(proofs[0].reason, "conversation-view-read-proof");
+    assert.equal(proofs[0].readScope, "conversation-read");
+    assert.equal(proofs[0].currentConversation, channel);
     assert.ok(f.messages.every((event) => event.readScope !== "provider-zero"));
   } finally {
     f.stop();
@@ -259,7 +265,12 @@ test("Discord explicit complete DM read ignores unclassified toast tokens and ke
     ])
       f.host.__chatplusIsViewingNotification({ arrival, tag });
     await settle();
-    assert.ok(f.messages.every((event) => event.acknowledgement === null));
+    const automatic = f.messages.filter(
+      (event) => event.acknowledgement !== null,
+    );
+    assert.equal(automatic.length, 1);
+    assert.equal(automatic[0].readScope, "conversation-read");
+    assert.deepEqual(automatic[0].readArrivals, []);
     f.focus(false);
     assert.equal(
       f.document.hasFocus(),

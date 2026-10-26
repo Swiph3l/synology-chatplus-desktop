@@ -38,6 +38,7 @@ function fixture({
     </div></div><div class="channelTextArea_current"><div id="composer" contenteditable="true"></div></div></div>
   </body></html>`);
   let focused = true,
+    visibility = "visible",
     covered = false,
     failedProposals = 0,
     clock = 1000;
@@ -52,7 +53,7 @@ function fixture({
   Object.defineProperties(document, {
     defaultView: { value: host },
     hasFocus: { configurable: true, value: () => focused },
-    visibilityState: { value: "visible" },
+    visibilityState: { get: () => visibility },
   });
   const bounds = {
     left: 0,
@@ -112,6 +113,9 @@ function fixture({
     foreground(generation = 7, incoming = 2) {
       host.__chatplusSetForeground(true, generation, incoming);
     },
+    background(generation = 8, incoming = 2) {
+      host.__chatplusSetForeground(false, generation, incoming);
+    },
     read(id = first) {
       document
         .querySelector(
@@ -137,6 +141,10 @@ function fixture({
     blur() {
       focused = false;
       host.dispatchEvent(new Event("blur"));
+    },
+    hide() {
+      visibility = "hidden";
+      document.dispatchEvent(new dom.Event("visibilitychange"));
     },
     advance(ms) {
       clock += ms;
@@ -228,29 +236,25 @@ test("Discord changed content allows a fresh automatic read proposal", async () 
     f.document.querySelector('[id^="chat-messages-"]').id =
       `chat-messages-${first}-444444444444444444`;
     await settle();
-    f.gesture();
-    await settle();
     assert.equal(readProofs(f).length, 2);
   } finally {
     f.stop();
   }
 });
 
-test("Discord failed bridge delivery does not reserve the automatic proposal", async () => {
+test("Discord failed bridge delivery retries a visible read without another click", async () => {
   const f = fixture();
   try {
     f.foreground();
     await settle();
+    f.failReadProposals();
     f.read();
     await settle();
-    f.failReadProposals();
-    f.gesture();
-    await settle();
     assert.equal(readProofs(f).length, 0);
-    f.gesture();
+    f.cover(false);
     await settle();
     assert.equal(readProofs(f).length, 1);
-    f.gesture();
+    f.cover(false);
     await settle();
     assert.equal(readProofs(f).length, 1);
   } finally {
@@ -275,7 +279,7 @@ test("Discord maps non-href DM rail items before private sidebar exists", async 
 });
 
 for (const otherUnread of [false, true]) {
-  test(`Discord pane input reads only current observed DM with partial sidebar (other unread: ${otherUnread})`, async () => {
+  test(`Discord reading latest visible DM needs no message click with partial sidebar (other unread: ${otherUnread})`, async () => {
     const f = fixture({ otherUnread });
     try {
       f.foreground();
@@ -284,15 +288,21 @@ for (const otherUnread of [false, true]) {
       await settle();
       assert.equal(
         readProofs(f).length,
-        0,
-        "badge disappearance and selection alone are not read",
+        1,
+        "the mapped provider read row and visible latest message suffice without input",
       );
+      assert.equal(readProofs(f)[0].reason, "conversation-view-read-proof");
       f.gesture("body", false);
       await settle();
-      assert.equal(readProofs(f).length, 0);
+      assert.equal(readProofs(f).length, 1);
       f.gesture();
       await settle();
       const proof = readProofs(f).at(-1);
+      assert.equal(
+        readProofs(f).length,
+        1,
+        "extra input adds no duplicate proof",
+      );
       assert.equal(proof.acknowledgement, 7);
       assert.equal(proof.hasUnread, otherUnread ? true : null);
       assert.equal(proof.currentConversation, first);
@@ -331,6 +341,141 @@ test("Discord scoped read retains unattributed positive metadata", async () => {
     assert.equal(proof.hasUnread, true);
     assert.equal(proof.unattributedUnread, true);
     assert.equal(proof.readScope, "conversation-read");
+  } finally {
+    f.stop();
+  }
+});
+
+for (const [name, invalidate] of [
+  ["native background", (f) => f.background()],
+  ["hidden document", (f) => f.hide()],
+  ["browser blur", (f) => f.blur()],
+  [
+    "older scroll position",
+    (f) => {
+      f.document.querySelector(".scroller_current").scrollTop = 100;
+    },
+  ],
+  [
+    "jump-to-present history",
+    (f) => {
+      const bar = f.document.createElement("div");
+      bar.className = "jumpToPresentBar_current";
+      f.document.querySelector(".messagesWrapper_current").append(bar);
+    },
+  ],
+  ["covered pane", (f) => f.cover()],
+  [
+    "hidden newest message",
+    (f) => {
+      f.document.querySelector('[id^="chat-messages-"]').style.display = "none";
+    },
+  ],
+  [
+    "offscreen newest message",
+    (f) => {
+      f.document.querySelector('[id^="chat-messages-"]').getBoundingClientRect =
+        () => ({
+          left: 0,
+          right: 400,
+          top: -200,
+          bottom: -100,
+          width: 400,
+          height: 100,
+        });
+    },
+  ],
+  [
+    "missing mapped private row",
+    (f) =>
+      f.document.querySelector('[data-list-id^="private-channels-"]').remove(),
+  ],
+  [
+    "different conversation route",
+    (f) => {
+      f.host.location.pathname = `/channels/@me/${second}`;
+    },
+  ],
+]) {
+  test(`Discord badge removal cannot produce automatic read proof with ${name}`, async () => {
+    const f = fixture({ otherUnread: true });
+    try {
+      f.foreground();
+      await settle();
+      assert.equal(readProofs(f).length, 0, "visible unread alone is not read");
+      invalidate(f);
+      f.read();
+      await settle();
+      assert.equal(readProofs(f).length, 0);
+    } finally {
+      f.stop();
+    }
+  });
+}
+
+test("Discord a stale gesture cannot block a new visible read without a browser notification", async () => {
+  const f = fixture({ otherUnread: true });
+  try {
+    f.foreground();
+    await settle();
+    f.gesture();
+    await settle();
+    assert.equal(
+      readProofs(f).length,
+      0,
+      "input cannot acknowledge the positive provider row",
+    );
+    f.document.querySelector('[id^="chat-messages-"]').id =
+      `chat-messages-${first}-444444444444444444`;
+    f.read();
+    await settle();
+    assert.equal(readProofs(f).length, 1);
+    const proof = readProofs(f)[0];
+    assert.equal(proof.reason, "conversation-view-read-proof");
+    assert.equal(
+      proof.acknowledgement,
+      7,
+      "no browser arrival or foreground update was needed",
+    );
+    assert.equal(proof.currentConversation, first);
+    assert.equal(proof.hasUnread, true, "the other unread DM remains positive");
+  } finally {
+    f.stop();
+  }
+});
+
+test("Discord a newer arrival needs fresh provider read evidence and uses its current generation", async () => {
+  const f = fixture({ otherUnread: true });
+  try {
+    f.foreground();
+    await settle();
+    f.read();
+    await settle();
+    assert.equal(readProofs(f).length, 1);
+    assert.equal(readProofs(f)[0].acknowledgement, 7);
+    f.document.querySelector(`a[href="/channels/@me/${first}"]`).innerHTML =
+      '<span class="unreadPill_current"></span>';
+    f.document.querySelector('[id^="chat-messages-"]').id =
+      `chat-messages-${first}-444444444444444444`;
+    f.foreground(8, 3);
+    await settle();
+    assert.equal(
+      readProofs(f).length,
+      1,
+      "a new positive cannot reuse the old view proof",
+    );
+    f.read();
+    await settle();
+    assert.equal(readProofs(f).length, 2);
+    const proof = readProofs(f).at(-1);
+    assert.equal(proof.reason, "conversation-view-read-proof");
+    assert.equal(proof.acknowledgement, 8);
+    assert.equal(proof.hasUnread, true, "the other unread DM remains positive");
+    assert.ok(
+      proof.conversations.some(
+        (entry) => entry.id === second && entry.hasUnread,
+      ),
+    );
   } finally {
     f.stop();
   }
@@ -396,10 +541,10 @@ test("Discord native toast intent waits for exact message and provider row read 
   }
 });
 
-for (const [name, invalidate] of [
-  ["new arrival", (f) => f.foreground(8, 3)],
+for (const [name, invalidate, independentViewRead] of [
+  ["new arrival", (f) => f.foreground(8, 3), true],
   ["blur", (f) => f.blur()],
-  ["expiry", (f) => f.advance(10001)],
+  ["expiry", (f) => f.advance(10001), true],
   [
     "unrelated pane",
     (f) => {
@@ -421,9 +566,9 @@ for (const [name, invalidate] of [
     },
   ],
   ["covered pane", (f) => f.cover()],
-  ["wrong exact tag", (f) => f.arm("999999999999999999")],
+  ["wrong exact tag", (f) => f.arm("999999999999999999"), true],
 ]) {
-  test(`Discord toast intent cannot read after ${name}`, async () => {
+  test(`Discord stale toast intent cannot supply a toast proof after ${name}`, async () => {
     const f = fixture();
     try {
       f.foreground();
@@ -433,7 +578,15 @@ for (const [name, invalidate] of [
       invalidate(f);
       f.read();
       await settle();
-      assert.equal(readProofs(f).length, 0);
+      assert.equal(
+        readProofs(f).filter(
+          (proof) => proof.reason === "toast-view-read-proof",
+        ).length,
+        0,
+      );
+      assert.equal(readProofs(f).length, independentViewRead ? 1 : 0);
+      if (independentViewRead)
+        assert.equal(readProofs(f)[0].reason, "conversation-view-read-proof");
     } finally {
       f.stop();
     }
@@ -447,7 +600,9 @@ test("Discord rejects a stale queued toast arm and clears hooks on teardown", as
   assert.equal(f.arm(message, 7, 2), false);
   f.read();
   await settle();
-  assert.equal(readProofs(f).length, 0);
+  assert.equal(readProofs(f).length, 1);
+  assert.equal(readProofs(f)[0].reason, "conversation-view-read-proof");
+  assert.equal(readProofs(f)[0].acknowledgement, 8);
   f.stop();
   assert.equal(f.host.__chatplusPrepareToastRead, undefined);
 });

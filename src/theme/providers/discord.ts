@@ -141,7 +141,7 @@ function completePrivateList(
     )
       return false;
     // Swiph3l: Only the exact unobscured latest DM pane can resolve its own
-    // selected/hovered row. Native foreground input is still required to read;
+    // selected/hovered row. Native foreground and scoped read evidence are required;
     // other rows and the provider-wide Inbox check retain the stricter rule.
     return (
       (viewedCurrent !== null &&
@@ -219,6 +219,34 @@ interface ConversationViewport {
   rows: HTMLElement[];
 }
 
+function newestMessage(rows: HTMLElement[]): HTMLElement {
+  return rows.reduce((latest, row) => {
+    const previous = messageId.exec(latest.id)![2];
+    const current = messageId.exec(row.id)![2];
+    return current.length > previous.length ||
+      (current.length === previous.length && current > previous)
+      ? row
+      : latest;
+  });
+}
+
+function messageVisibleIn(
+  document: Document,
+  scroller: HTMLElement,
+  row: HTMLElement,
+): boolean {
+  if (!visible(row, document)) return false;
+  const bounds = scroller.getBoundingClientRect();
+  const message = row.getBoundingClientRect();
+  const left = Math.max(message.left, bounds.left);
+  const right = Math.min(message.right, bounds.right);
+  const top = Math.max(message.top, bounds.top);
+  const bottom = Math.min(message.bottom, bounds.bottom);
+  if (right <= left || bottom <= top) return false;
+  const hit = document.elementFromPoint((left + right) / 2, (top + bottom) / 2);
+  return hit !== null && row.contains(hit);
+}
+
 function conversationViewport(
   document: Document,
   latest: boolean,
@@ -253,6 +281,10 @@ function conversationViewport(
         semanticDescendant(wrapper, "messagesErrorBar")
       )
         continue;
+      // Swiph3l: Automatic view-read proof needs the newest retained message
+      // itself on screen; a visible scroller can still contain an offscreen or
+      // covered row while layout/virtualized content catches up.
+      if (!messageVisibleIn(document, scroller, newestMessage(rows))) continue;
       const { scrollTop, scrollHeight, offsetHeight } = scroller;
       // Swiph3l: Discord uses a two-pixel tolerance for its own bottom/read check, accommodating fractional scroll rounding without acknowledging a scrolled-up conversation.
       if (
@@ -480,14 +512,7 @@ export function createDiscordAdapter(
       const viewport = directMessageViewport(document, false);
       if (!viewport) return null;
       // Swiph3l: A conversation gesture must stay attached to actual message content. Scroll position and older virtualized rows can change independently, so use the newest retained message snowflake.
-      const newest = viewport.rows
-        .map((row) => messageId.exec(row.id)![2])
-        .reduce((latest, id) =>
-          id.length > latest.length ||
-          (id.length === latest.length && id > latest)
-            ? id
-            : latest,
-        );
+      const newest = messageId.exec(newestMessage(viewport.rows).id)![2];
       return `${viewport.channel}:${newest}`;
     },
     interactionContext(event) {
@@ -518,22 +543,12 @@ export function createDiscordAdapter(
       const row = viewport.rows.find(
         (node) => messageId.exec(node.id)?.[2] === notification.tag,
       );
-      if (!row || !visible(row, document)) return false;
-      const bounds = viewport.scroller.getBoundingClientRect();
-      const message = row.getBoundingClientRect();
-      const left = Math.max(message.left, bounds.left);
-      const right = Math.min(message.right, bounds.right);
-      const top = Math.max(message.top, bounds.top);
-      const bottom = Math.min(message.bottom, bounds.bottom);
-      if (right <= left || bottom <= top) return false;
       // A picker/popover can cover the newest message while the middle of the
       // conversation remains visible. Rectangle overlap alone is not proof that
       // this exact notification was observed; test its actual visible intersection.
-      const hit = document.elementFromPoint(
-        (left + right) / 2,
-        (top + bottom) / 2,
+      return (
+        row !== undefined && messageVisibleIn(document, viewport.scroller, row)
       );
-      return hit !== null && row.contains(hit);
     },
     observe(changed) {
       const Observer = view?.MutationObserver;
@@ -559,6 +574,7 @@ export function createDiscordAdapter(
             characterData: true,
             attributes: true,
             attributeFilter: [
+              "id",
               "class",
               "hidden",
               "aria-hidden",

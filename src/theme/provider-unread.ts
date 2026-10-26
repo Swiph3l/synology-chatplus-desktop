@@ -303,13 +303,26 @@ export function installUnreadAdapter(
       // Swiph3l: Input before a new message cannot acknowledge it; a gesture is retained only when it already observed the unread being read.
       if (lastUnread !== true && !interactionSawUnread) interaction = null;
     }
-    // Swiph3l: Foreground trusted interaction is conversation-specific read evidence;
-    // service selection or retained WebView focus alone is not.
-    // Sawbir: Badge observation needs no layout-dependent message scan until a
-    // real read candidate exists. Pending proofs still recheck every mutation.
+    // Swiph3l: Read evidence stays conversation-specific. Service selection or
+    // retained WebView focus alone is insufficient, including Discord view proof.
+    const viewedConversation =
+      adapter.source === "discord-dom" &&
+      state.currentConversation !== null &&
+      state.currentConversation !== undefined &&
+      state.conversations?.some(
+        (conversation) =>
+          conversation.id === state.currentConversation &&
+          conversation.hasUnread === false,
+      ) === true;
+    // Swiph3l: Discord's mapped read row and latest visible pane are a read
+    // candidate without another message click. Other providers still require
+    // their trusted input, and pending proofs recheck every mutation.
     const checkRead =
       visible() &&
-      (interaction !== null || pendingRead !== null || toastRead !== null);
+      (viewedConversation ||
+        interaction !== null ||
+        pendingRead !== null ||
+        toastRead !== null);
     const content = checkRead ? adapter.contentContext() : null;
     const context = checkRead ? adapter.readContext() : null;
     if (toastRead !== null) {
@@ -364,6 +377,29 @@ export function installUnreadAdapter(
       context === interaction &&
       content !== null &&
       interactionContent === content;
+    if (
+      visible() &&
+      viewedConversation &&
+      !genuineRead &&
+      context !== null &&
+      content !== null &&
+      state.currentConversation === context
+    ) {
+      // Swiph3l: This reads only the matching previously observed DM owner.
+      // Native foreground/generation checks reject queued proof after arrivals;
+      // an incomplete sidebar never becomes provider-wide zero here. A gesture
+      // for older content cannot block this fresh provider/view evidence.
+      publishConversationRead(
+        state,
+        context,
+        content,
+        "conversation-view-read-proof",
+      );
+      interaction = null;
+      interactionSawUnread = false;
+      lastUnread = state.hasUnread;
+      return;
+    }
     const readArrivals: number[] = [];
     // Swiph3l: Synology does not expose reliable notification tags. A proven provider
     // zero plus fresh conversation input can retire completed arrivals without
