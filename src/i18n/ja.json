@@ -55,6 +55,7 @@
   "settings.serverUrl": "サーバー URL",
   "settings.workspaceUrl": "ワークスペース URL",
   "settings.serverHelp": "ご利用の ChatPlus の URL を入力してください。",
+  "services.synologyUrlHelp": "NAS のアドレス（例: https://nas.example.com:5001）を入力してください。Chat の独自パスも使用できます。",
   "settings.installationHelp": "ご利用のサービスの URL を入力してください。",
   "settings.workspaceHelp": "ワークスペースまたは Web ログイン用の URL を入力してください。",
   "settings.providerServer": "{provider} サーバー",

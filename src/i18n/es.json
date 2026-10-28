@@ -55,6 +55,7 @@
   "settings.serverUrl": "URL del servidor",
   "settings.workspaceUrl": "URL del espacio de trabajo",
   "settings.serverHelp": "Introduce la URL de tu instalación de ChatPlus.",
+  "services.synologyUrlHelp": "Introduce la dirección del NAS, por ejemplo https://nas.example.com:5001. También puedes usar una ruta de Chat personalizada.",
   "settings.installationHelp": "Introduce la URL de tu instalación.",
   "settings.workspaceHelp": "Introduce la URL de tu espacio de trabajo o de inicio de sesión web.",
   "settings.providerServer": "Servidor de {provider}",

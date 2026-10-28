@@ -1199,6 +1199,7 @@ fn create_registered(
         .provider
         .validate_url(&service.url)?
         .parse()
+        .map(|url| service.provider.dsm_launch(url))
         .map_err(|_| "Invalid service URL.")?;
     let mut builder = WebviewBuilder::new(&session.webview_label, WebviewUrl::External(url))
         .focused(false)

@@ -11,6 +11,14 @@ const { normalizeServer } = await import(
 );
 test("normalizes server URLs", () => {
   assert.equal(
+    normalizeServer("https://nas.example.com:5001"),
+    "https://nas.example.com:5001/",
+  );
+  assert.equal(
+    normalizeServer("http://192.0.2.1:5000"),
+    "http://192.0.2.1:5000/",
+  );
+  assert.equal(
     normalizeServer(" https://nas.example.com/chat "),
     "https://nas.example.com/chat/",
   );

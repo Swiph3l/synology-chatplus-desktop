@@ -665,6 +665,11 @@ export function serviceEditor(
     url.autocomplete = "off";
     url.spellcheck = false;
     const urlField = field("url", t("settings.serverUrl"), url);
+    const urlHelp = document.createElement("small");
+    urlHelp.id = "service-dialog-url-help";
+    urlHelp.textContent = t("services.synologyUrlHelp");
+    urlField.append(urlHelp);
+    url.setAttribute("aria-describedby", urlHelp.id);
     url.addEventListener("input", () => {
       draft.url = url.value;
       url.setCustomValidity("");
@@ -882,7 +887,13 @@ export function serviceEditor(
           : "settings.serverUrl",
       );
       url.value = draft.url;
-      url.placeholder = definition.defaultUrl || "https://example.com/chat/";
+      const synology =
+        draft.provider === "synology-chatplus" ||
+        draft.provider === "synology-chat";
+      urlHelp.hidden = !synology;
+      url.placeholder =
+        definition.defaultUrl ||
+        (synology ? "https://nas.example.com:5001" : "https://example.com/");
       url.setCustomValidity("");
       updateNotifications();
       experimentalHelp.hidden = !definition.experimental;
