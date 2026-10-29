@@ -578,6 +578,31 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
             &PredefinedMenuItem::show_all(app, None)?,
         ],
     )?)?;
+    #[cfg(target_os = "macos")]
+    {
+        // Adapted from turbogizzmo's macOS fork, b53e860: WebKit editing
+        // shortcuts follow the native responder chain through these items.
+        let edit = Submenu::with_items(
+            app,
+            "Edit",
+            true,
+            &[
+                &PredefinedMenuItem::undo(app, None)?,
+                &PredefinedMenuItem::redo(app, None)?,
+                &PredefinedMenuItem::separator(app)?,
+                &PredefinedMenuItem::cut(app, None)?,
+                &PredefinedMenuItem::copy(app, None)?,
+                &PredefinedMenuItem::paste(app, None)?,
+                &PredefinedMenuItem::select_all(app, None)?,
+            ],
+        )?;
+        menu.insert(&edit, 2)?;
+        app.state::<MenuState>()
+            .submenus
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .push(("Edit".into(), edit));
+    }
     #[cfg(debug_assertions)]
     {
         let developer = Submenu::with_items(

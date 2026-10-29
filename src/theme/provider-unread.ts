@@ -4,8 +4,9 @@ import type {
   ProviderUnreadSnapshot,
 } from "./providers/types";
 import { currentReadArrivals, readCapabilities } from "./providers/read";
+import { nativeBridge, type NativeBridgeHost } from "./native-bridge";
 
-export interface ProviderHostWindow {
+export interface ProviderHostWindow extends NativeBridgeHost {
   readonly __chatplusUnreadObservationEpoch?: string;
   __chatplusSetForeground?: (
     foreground: boolean,
@@ -27,7 +28,6 @@ export interface ProviderHostWindow {
     expectedGeneration: number,
     expectedIncoming: number,
   ) => boolean;
-  chrome?: { webview?: { postMessage: (value: unknown) => void } };
 }
 
 export function installUnreadAdapter(
@@ -100,9 +100,10 @@ export function installUnreadAdapter(
     toastRead = null;
   };
   const post = (payload: object): boolean => {
-    if (disposed || !host.chrome?.webview) return false;
+    const bridge = nativeBridge(host);
+    if (disposed || !bridge) return false;
     try {
-      host.chrome.webview.postMessage(JSON.stringify(payload));
+      bridge.postMessage(JSON.stringify(payload));
       return true;
     } catch {
       // Navigation can revoke the native bridge. A later observation may retry;

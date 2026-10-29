@@ -94,7 +94,7 @@ export const en = {
   "updates.status.manifestMissing":
     "The selected release has no update manifest. Nothing was downloaded or installed.",
   "updates.status.releaseIncomplete":
-    "The selected release is missing a valid Windows x64 setup or signature. Nothing was installed.",
+    "The selected release is missing a valid update package or signature for this platform. Nothing was installed.",
   "updates.status.versionMismatch":
     "The release tag, manifest version or package identity do not match. Nothing was installed.",
 };
@@ -195,7 +195,7 @@ export const pl: typeof en = {
   "updates.status.manifestMissing":
     "Wybrane wydanie nie ma manifestu aktualizacji. Niczego nie pobrano ani nie zainstalowano.",
   "updates.status.releaseIncomplete":
-    "W wybranym wydaniu brakuje prawidłowego instalatora Windows x64 lub podpisu. Niczego nie zainstalowano.",
+    "W wybranym wydaniu brakuje prawidłowego pakietu aktualizacji lub podpisu dla tego systemu. Niczego nie zainstalowano.",
   "updates.status.versionMismatch":
     "Tag wydania, wersja manifestu lub tożsamość pakietu nie są zgodne. Niczego nie zainstalowano.",
 };
@@ -295,7 +295,7 @@ export const es: typeof en = {
   "updates.status.manifestMissing":
     "La versión seleccionada no tiene un manifiesto de actualización. No se descargó ni instaló nada.",
   "updates.status.releaseIncomplete":
-    "La versión seleccionada no tiene un instalador válido de Windows x64 o una firma. No se instaló nada.",
+    "La versión seleccionada no incluye un paquete de actualización válido o una firma para esta plataforma. No se instaló nada.",
   "updates.status.versionMismatch":
     "La etiqueta de la versión, el manifiesto o la identidad del paquete no coinciden. No se instaló nada.",
 };

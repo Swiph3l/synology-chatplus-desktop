@@ -2,6 +2,7 @@ import { createViewContext, eventInside, visibleElement } from "./dom";
 import { verifyMattermostReadZero } from "./mattermost-read-state";
 import type { ProviderUnreadAdapter } from "./types";
 import type { ProviderHostWindow } from "../provider-unread";
+import { nativeBridge } from "../native-bridge";
 
 interface Options {
   verifyReadZero?: typeof verifyMattermostReadZero;
@@ -62,9 +63,7 @@ export function createMattermostAdapter(
   let changed = () => {};
   const diagnostic = (verified: boolean) => {
     try {
-      (
-        view as (Window & ProviderHostWindow) | null
-      )?.chrome?.webview?.postMessage(
+      nativeBridge((view ?? {}) as ProviderHostWindow)?.postMessage(
         JSON.stringify({
           chatplusUnreadDiagnostic: 1,
           source: "mattermost-dom",

@@ -121,9 +121,71 @@ pub fn observe_connection(_: &tauri::AppHandle, _: &tauri::Webview, _: &str) -> 
     Ok(())
 }
 
+pub fn provider_initialization() -> &'static str {
+    #[cfg(not(windows))]
+    {
+        concat!(
+            include_str!("../webkit-bridge.js"),
+            "\n",
+            include_str!("../webkit-notifications.js")
+        )
+    }
+    #[cfg(windows)]
+    {
+        ""
+    }
+}
+
+pub fn page_finished(app: &tauri::AppHandle, view: &tauri::Webview, service_id: &str) {
+    #[cfg(not(windows))]
+    {
+        // WebKit Finished does not prove transport success. Preserve Unknown
+        // instead of claiming a loaded error page is a connected provider.
+        crate::connection::set_for(app, service_id, crate::connection::Connection::Unknown);
+        crate::unread::sync_presentation(app);
+        if let Some(service) = crate::state::current(app)
+            .services
+            .iter()
+            .find(|service| service.id == service_id)
+        {
+            let _ = crate::notification_bridge::attach(app, view, service);
+        }
+    }
+    #[cfg(windows)]
+    let _ = (app, view, service_id);
+}
+
+#[cfg(any(target_os = "macos", test))]
+pub fn profile_identifier(identifier: &str, service_id: &str) -> [u8; 16] {
+    // Swiph3l: Stable FNV-1a 128-bit identifiers avoid Rust's intentionally
+    // unspecified DefaultHasher and keep WKWebView profiles across upgrades.
+    let mut hash = 0x6c62272e07bb014262b821756295c58du128;
+    for byte in identifier.bytes().chain([0]).chain(service_id.bytes()) {
+        hash = (hash ^ u128::from(byte)).wrapping_mul(0x0000000001000000000000000000013b);
+    }
+    hash.to_be_bytes()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn macos_profile_identifiers_are_stable_and_separate_accounts_and_apps() {
+        let profile = profile_identifier("io.github.swiph3l.chatplus-desktop", "discord-1");
+        assert_eq!(
+            profile,
+            profile_identifier("io.github.swiph3l.chatplus-desktop", "discord-1")
+        );
+        assert_ne!(
+            profile,
+            profile_identifier("io.github.swiph3l.chatplus-desktop", "discord-2")
+        );
+        assert_ne!(
+            profile,
+            profile_identifier("io.github.fork.chatplus", "discord-1")
+        );
+    }
 
     #[test]
     fn notification_presentation_maps_documented_states_and_unknown_results() {

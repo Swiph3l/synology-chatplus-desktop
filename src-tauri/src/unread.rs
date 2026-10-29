@@ -135,7 +135,6 @@ pub(crate) struct AttentionQuery {
     started: Instant,
 }
 
-#[cfg(any(windows, test))]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum AttentionPublication {
     Complete,
@@ -349,7 +348,6 @@ fn begin_attention(tracking: &mut Tracking, id: &str, started: Instant) -> Atten
     }
 }
 
-#[cfg(windows)]
 pub(crate) fn begin_attention_query(
     app: &AppHandle,
     id: &str,
@@ -391,7 +389,6 @@ fn attention_query_remaining(
         .then(|| Duration::from_secs(5) - at.saturating_duration_since(query.started))
 }
 
-#[cfg(windows)]
 pub(crate) fn attention_query_remaining_for(
     app: &AppHandle,
     id: &str,
@@ -479,7 +476,6 @@ fn observe_attention(
     true
 }
 
-#[cfg(windows)]
 pub(crate) fn publish_attention_for(
     app: &AppHandle,
     configured: &crate::providers::ServiceConfig,

@@ -1,16 +1,12 @@
 //! Browser notification events through WebView2; no remote Tauri IPC capability.
-#[cfg(windows)]
 use tauri::{Emitter, Manager};
-#[cfg(any(windows, test))]
 const EVENT_HISTORY_LIMIT: usize = 256;
 
-#[cfg(any(windows, test))]
 struct EventHistory<T> {
     events: std::collections::VecDeque<(T, u64)>,
     read_generations: std::collections::HashMap<u64, u64>,
     next: u64,
 }
-#[cfg(any(windows, test))]
 impl<T> Default for EventHistory<T> {
     fn default() -> Self {
         Self {
@@ -20,7 +16,6 @@ impl<T> Default for EventHistory<T> {
         }
     }
 }
-#[cfg(any(windows, test))]
 impl<T: PartialEq> EventHistory<T> {
     fn observe(&mut self, event: T) -> (u64, bool) {
         if let Some((_, token)) = self.events.iter().find(|(seen, _)| *seen == event) {
@@ -46,6 +41,52 @@ impl<T: PartialEq> EventHistory<T> {
 }
 
 pub async fn permission_state_for(app: &tauri::AppHandle, id: &str) -> String {
+    #[cfg(not(windows))]
+    {
+        let Ok(service) = permission_service(&crate::state::current(app), id) else {
+            return "unavailable".into();
+        };
+        let Some(view) = app.get_webview(&crate::services::label(id)) else {
+            return "unavailable".into();
+        };
+        let bridge = app
+            .state::<crate::desktop_notifications::Service>()
+            .0
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .bridges
+            .get(id)
+            .copied();
+        let Some((bridge_id, true)) = bridge else {
+            return "unavailable".into();
+        };
+        if !view.url().is_ok_and(|source| {
+            permission_scope_valid(
+                &crate::state::current(app),
+                &service,
+                bridge_id,
+                bridge,
+                source.as_str(),
+            )
+        }) {
+            return "unavailable".into();
+        }
+        let result = webkit::evaluate(
+            &view,
+            "typeof Notification==='undefined'?'unavailable':Notification.permission",
+        )
+        .await;
+        if !current_bridge(app, id, bridge_id) || !crate::services::configured(app, &service) {
+            return "unavailable".into();
+        }
+        if let Ok(value) = result {
+            if let Ok(permission) = serde_json::from_str::<String>(&value) {
+                if ["granted", "denied", "default", "unavailable"].contains(&permission.as_str()) {
+                    return permission;
+                }
+            }
+        }
+    }
     #[cfg(windows)]
     {
         use webview2_com::CoTaskMemPWSTR;
@@ -329,8 +370,40 @@ async fn grant_permission_captured(
     }
     #[cfg(not(windows))]
     {
-        let _ = (app, &service, bridge, id);
-        Err("Provider notification permission controls require Windows WebView2.".into())
+        let current = app
+            .state::<crate::desktop_notifications::Service>()
+            .0
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .bridges
+            .get(id)
+            .copied();
+        let Some((bridge_id, true)) = bridge else {
+            return Err(
+                "Provider notification bridge unavailable. Reload the service and retry.".into(),
+            );
+        };
+        let view = app
+            .get_webview(&crate::services::label(id))
+            .ok_or("Open this service first.")?;
+        if !permission_grant_scope_valid(&crate::state::current(app), service, bridge, current)
+            || !view.url().is_ok_and(|source| {
+                permission_scope_valid(
+                    &crate::state::current(app),
+                    service,
+                    bridge_id,
+                    current,
+                    source.as_str(),
+                )
+            })
+        {
+            return Err(
+                "Provider notification session changed. Reload the service and retry.".into(),
+            );
+        }
+        // The WebKit shim already exposes browser permission; native OS and
+        // saved global/per-service preferences remain authoritative.
+        Ok(())
     }
 }
 
@@ -357,7 +430,6 @@ pub fn trusted_origin(server: &str, sender: &str) -> bool {
         && server.origin() == sender.origin()
 }
 
-#[cfg(any(windows, test))]
 fn viewing_query(tag: &str, title: &str, arrival: u64) -> String {
     let payload = serde_json::json!({
         "tag": bounded_notification_tag(tag),
@@ -369,7 +441,6 @@ fn viewing_query(tag: &str, title: &str, arrival: u64) -> String {
     format!("(()=>{{try{{return window.__chatplusIsViewingNotification?.({payload})===true}}catch{{return false}}}})()")
 }
 
-#[cfg(any(windows, test))]
 fn bounded_notification_tag(tag: &str) -> &str {
     // Swiph3l: Opaque correlation evidence must stay exact. A clipped prefix
     // could match a different event, so oversized tags remain unknown.
@@ -762,7 +833,6 @@ struct NotificationActivation {
     selected_at_click: Option<String>,
 }
 
-#[cfg(windows)]
 pub(crate) fn current_bridge(app: &tauri::AppHandle, id: &str, bridge_id: u64) -> bool {
     app.state::<crate::desktop_notifications::Service>()
         .0
@@ -2155,12 +2225,16 @@ fn verified_observation_epoch(expected: Option<&str>, json: &str) -> Option<Stri
 }
 #[cfg(not(windows))]
 pub fn attach(
-    _: &tauri::AppHandle,
-    _: &tauri::Webview,
-    _: &crate::providers::ServiceConfig,
+    app: &tauri::AppHandle,
+    view: &tauri::Webview,
+    service: &crate::providers::ServiceConfig,
 ) -> tauri::Result<()> {
-    Ok(())
+    webkit::attach(app, view, service)
 }
+
+#[cfg(any(not(windows), test))]
+#[path = "webkit_bridge.rs"]
+pub(crate) mod webkit;
 
 #[cfg(test)]
 mod tests {

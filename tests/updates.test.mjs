@@ -124,6 +124,30 @@ function fixture(options = {}) {
   };
 }
 
+test("package-managed installations offer manual releases instead of an incompatible updater", async () => {
+  const f = fixture({
+    state: {
+      configured: false,
+      phase: "unconfigured",
+      messageCode: "manual-update",
+    },
+  });
+  await f.mount();
+  assert.equal(f.document.getElementById("check-updates").disabled, true);
+  assert.equal(f.document.getElementById("release-page").hidden, false);
+  assert.match(
+    f.document.getElementById("update-message").textContent,
+    /package manager/,
+  );
+  f.document.getElementById("release-page").click();
+  await f.flush();
+  assert.ok(f.calls.some(({ command }) => command === "open_release_page"));
+  assert.equal(
+    f.calls.some(({ command }) => command === "check_for_updates"),
+    false,
+  );
+});
+
 test("available updates never install until the restart confirmation is accepted", async () => {
   const f = fixture({
     state: { phase: "ready", latestVersion: "0.5.0", messageCode: "ready" },

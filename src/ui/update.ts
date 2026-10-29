@@ -180,6 +180,7 @@ export async function mountUpdatePanel(
     el("install-update").hidden = state?.phase !== "ready";
     el("cancel-update").hidden = state?.phase !== "downloading";
     (el("check-updates") as HTMLButtonElement).disabled =
+      state?.messageCode === "manual-update" ||
       (!subscriptionFailed && busy(state)) ||
       pendingActions.has("check-updates");
     (el("download-update") as HTMLButtonElement).disabled =
@@ -198,7 +199,8 @@ export async function mountUpdatePanel(
       pendingActions.has("cancel-update");
     (el("release-page") as HTMLButtonElement).disabled =
       pendingActions.has("release-page");
-    el("release-page").hidden = !state?.latestVersion;
+    el("release-page").hidden =
+      !state?.latestVersion && state?.messageCode !== "manual-update";
     el("download-progress").hidden = state?.phase !== "downloading";
     el("progress").setAttribute("aria-label", t("updates.status.downloading"));
     const progress = el("progress") as HTMLProgressElement;

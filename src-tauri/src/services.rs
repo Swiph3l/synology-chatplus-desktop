@@ -337,6 +337,14 @@ fn run_startup(app: &AppHandle, mut previous: Option<LoadTicket>) {
 }
 
 pub fn shutdown(app: &AppHandle) {
+    if let Some(bridge) = app.try_state::<crate::desktop_notifications::Service>() {
+        bridge
+            .0
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .bridges
+            .clear();
+    }
     if let Some(lifecycle) = app.try_state::<Lifecycle>() {
         // Swiph3l: Exit must wake a waiting worker without blocking the native UI
         // on a WebView creation that may itself be dispatched to that UI thread.
@@ -1198,11 +1206,12 @@ fn create_registered(
     let url = service
         .provider
         .validate_url(&service.url)?
-        .parse()
+        .parse::<url::Url>()
         .map(|url| service.provider.dsm_launch(url))
         .map_err(|_| "Invalid service URL.")?;
     let mut builder = WebviewBuilder::new(&session.webview_label, WebviewUrl::External(url))
         .focused(false)
+        .initialization_script(crate::platform::provider_initialization())
         .initialization_script(crate::external_links::initialization_script(service))
         .disable_drag_drop_handler()
         .on_navigation(move |target| {
@@ -1239,7 +1248,7 @@ fn create_registered(
             external(&popup_app, &popup_service, &target, "main");
             tauri::webview::NewWindowResponse::Deny
         })
-        .on_page_load(move |_, payload| {
+        .on_page_load(move |view, payload| {
             if let Some(lifecycle) = load_app.try_state::<Lifecycle>() {
                 let current = lifecycle
                     .1
@@ -1261,6 +1270,8 @@ fn create_registered(
                     &load_id,
                     crate::connection::Connection::Connecting,
                 );
+            } else {
+                crate::platform::page_finished(&load_app, &view, &load_id);
             }
         });
     // Swiph3l: The migrated primary service retains its original profile so existing logins survive migration.
@@ -1269,7 +1280,28 @@ fn create_registered(
             .app_local_data_dir()
             .map_err(|_| "Could not resolve service profile.")?,
     ) {
-        builder = builder.data_directory(profile);
+        #[cfg(not(target_os = "macos"))]
+        {
+            builder = builder.data_directory(profile);
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let _ = profile;
+            builder = builder.data_store_identifier(crate::platform::profile_identifier(
+                &app.config().identifier,
+                &service.id,
+            ));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // Adapted from turbogizzmo's macOS fork, b53e860: hidden chat views must
+        // keep receiving provider events instead of being unloaded by WebKit.
+        builder = builder
+            .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled);
+        if service.provider.definition().theme {
+            builder = builder.initialization_script(include_str!("../arrow-keys.js"));
+        }
     }
     if service.provider.definition().theme {
         let dark = match settings.theme {
@@ -1315,7 +1347,7 @@ fn create_registered(
             creation_position(selected, bounds.width),
             bounds,
         )
-        .map_err(|_| "Could not create service WebView. Check WebView2 installation.")?;
+        .map_err(|_| crate::i18n::t(app, "errors.serviceWebview"))?;
     let attach = || -> Result<(), String> {
         if !configured(app, service)
             || !app

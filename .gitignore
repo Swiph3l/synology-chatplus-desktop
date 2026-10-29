@@ -6,6 +6,9 @@ src-tauri/gen/
 src-tauri/theme-bootstrap.js
 src-tauri/unread-bootstrap.js
 src-tauri/external-links-bootstrap.js
+src-tauri/webkit-bridge.js
+src-tauri/webkit-notifications.js
+src-tauri/arrow-keys.js
 .env
 .env.*
 !.env.example

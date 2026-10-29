@@ -2,6 +2,7 @@ import { readWhatsAppAttention } from "./whatsapp-attention";
 import { probeWhatsAppReadStructure } from "./whatsapp-read-probe";
 import type { ProviderUnreadAdapter } from "./types";
 import type { ProviderHostWindow } from "../provider-unread";
+import { nativeBridge } from "../native-bridge";
 
 export function createWhatsAppAdapter(
   document: Document,
@@ -52,7 +53,7 @@ export function createWhatsAppAdapter(
       }
       const reasons = probeWhatsAppReadStructure(document, tag);
       const key = `${generation}:${JSON.stringify(reasons)}`;
-      const bridge = view.chrome?.webview;
+      const bridge = nativeBridge(view);
       if (key === lastProbe || !bridge) return;
       try {
         for (const reason of reasons)

@@ -101,6 +101,8 @@ export function updateMessage(state: UpdateSnapshot): string {
       return t("updates.status.available");
     case "unconfigured":
       return t("updates.status.unconfigured");
+    case "manual-update":
+      return t("updates.manualInstall");
     case "preference-changed":
       return t("updates.status.preferenceChanged");
     case "check-failed":

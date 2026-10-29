@@ -165,7 +165,14 @@ pub fn request(app: &AppHandle, service: &ServiceConfig, target: &url::Url, sour
     let Some(source) = app.get_webview(&source_label) else {
         return;
     };
-    request_from_source(app, service, target, display, parent, source, None);
+    let source_bridge = app
+        .state::<Service>()
+        .1
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .get(&source_label)
+        .copied();
+    request_from_source(app, service, target, display, parent, source, source_bridge);
 }
 
 fn request_from_source(
@@ -293,7 +300,20 @@ fn current_source_bridge(app: &AppHandle, label: &str, bridge: u64) -> bool {
         .is_some_and(|current| *current == bridge)
 }
 
-#[cfg(windows)]
+#[cfg(any(not(windows), test))]
+pub(crate) fn track_source(app: &AppHandle, label: &str, bridge: u64) {
+    let settings = state::current(app);
+    let host = app.state::<Service>();
+    let mut bridges = host.1.lock().unwrap_or_else(|error| error.into_inner());
+    bridges.retain(|label, _| {
+        settings
+            .services
+            .iter()
+            .any(|service| service.enabled && crate::services::label(&service.id) == *label)
+    });
+    bridges.insert(label.to_string(), bridge);
+}
+
 pub fn initialization_script(service: &ServiceConfig) -> String {
     let origin = url::Url::parse(&service.url)
         .map(|url| url.origin().ascii_serialization())
@@ -305,12 +325,6 @@ pub fn initialization_script(service: &ServiceConfig) -> String {
     )
 }
 
-#[cfg(not(windows))]
-pub fn initialization_script(_: &ServiceConfig) -> String {
-    String::new()
-}
-
-#[cfg(any(windows, test))]
 fn anchor_message_target(
     service: &ServiceConfig,
     source: &url::Url,
@@ -336,6 +350,27 @@ fn anchor_message_target(
     let target = url::Url::parse(&intent.href).ok()?;
     navigation::external_anchor_target(service, &target)?;
     Some(target)
+}
+
+#[cfg(any(not(windows), test))]
+pub(crate) fn receive_packet(
+    app: &AppHandle,
+    view: &tauri::Webview,
+    service: &ServiceConfig,
+    source: &url::Url,
+    packet: &str,
+) {
+    if state::current(app).active_service.as_deref() != Some(service.id.as_str())
+        || !crate::services::configured(app, service)
+    {
+        return;
+    }
+    let Ok(current) = view.url() else {
+        return;
+    };
+    if let Some(target) = anchor_message_target(service, source, &current, packet) {
+        request(app, service, &target, "main");
+    }
 }
 
 #[cfg(windows)]
@@ -691,7 +726,6 @@ fn finish(app: &AppHandle, request_id: &str, accepted: bool, already_destroyed: 
     }
 }
 
-#[cfg(windows)]
 fn claim_creation(app: &AppHandle, request_id: &str) -> Result<(), ()> {
     let started = Instant::now();
     loop {
@@ -733,7 +767,7 @@ fn prompt_active(window: &tauri::WebviewWindow) -> bool {
         windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() == handle
     });
     #[cfg(not(windows))]
-    false
+    window.is_focused().unwrap_or(false)
 }
 
 #[cfg(windows)]
@@ -745,22 +779,50 @@ fn request_id() -> Result<String, ()> {
 
 #[cfg(not(windows))]
 fn request_id() -> Result<String, ()> {
-    Err(())
+    portable_request_id()
 }
 
-#[cfg(windows)]
+#[cfg(any(not(windows), test))]
+fn portable_request_id() -> Result<String, ()> {
+    let mut nonce = [0u8; 32];
+    getrandom::fill(&mut nonce).map_err(|_| ())?;
+    Ok(nonce.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
 fn create_window(app: &AppHandle, request_id: &str) -> Result<(), ()> {
-    use tauri::{WebviewUrl, WebviewWindowBuilder};
     // A new click may arrive before Destroyed unregisters the previous fixed
     // label. Retain that click once and wait off-thread instead of discarding it.
     claim_creation(app, request_id)?;
+    #[cfg(windows)]
+    {
+        build_window(app, request_id)
+    }
+    #[cfg(not(windows))]
+    {
+        // Swiph3l: GTK handles and AppKit parent windows must stay on the UI
+        // thread. Waiting for the old prompt's teardown remains on this worker.
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let handle = app.clone();
+        let request_id = request_id.to_owned();
+        app.run_on_main_thread(move || {
+            let _ = sender.send(build_window(&handle, &request_id));
+        })
+        .map_err(|_| ())?;
+        receiver
+            .recv_timeout(Duration::from_secs(30))
+            .map_err(|_| ())?
+    }
+}
+
+fn build_window(app: &AppHandle, request_id: &str) -> Result<(), ()> {
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
     let context = pending_context(app, Some(request_id)).ok_or(())?;
     if !context_live(app, &context) {
         return Err(());
     }
     let theme = state::current(app).theme;
     let bootstrap = format!("document.addEventListener('DOMContentLoaded',()=>{{document.documentElement.dataset.theme={}}},{{once:true}})", serde_json::to_string(&theme).map_err(|_| ())?);
-    let window = WebviewWindowBuilder::new(
+    let builder = WebviewWindowBuilder::new(
         app,
         LABEL,
         WebviewUrl::App("index.html?page=external-link".into()),
@@ -776,12 +838,18 @@ fn create_window(app: &AppHandle, request_id: &str) -> Result<(), ()> {
     .visible(false)
     .focused(false)
     .theme(theme.native())
-    .owner_raw(context.parent.hwnd().map_err(|_| ())?)
     .initialization_script(bootstrap)
     .on_navigation(navigation::local_settings)
-    .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
-    .build()
-    .map_err(|_| ())?;
+    .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny);
+    // Swiph3l: Main contains child provider views and is therefore a Window,
+    // not a WebviewWindow. Resolve its native parent without that conversion.
+    #[cfg(windows)]
+    let builder = builder.owner_raw(context.parent.hwnd().map_err(|_| ())?);
+    #[cfg(target_os = "macos")]
+    let builder = builder.parent_raw(context.parent.ns_window().map_err(|_| ())?);
+    #[cfg(target_os = "linux")]
+    let builder = builder.transient_for_raw(&context.parent.gtk_window().map_err(|_| ())?);
+    let window = builder.build().map_err(|_| ())?;
     let handle = app.clone();
     let close_id = request_id.to_owned();
     window.on_window_event(move |event| match event {
@@ -810,6 +878,8 @@ fn create_window(app: &AppHandle, request_id: &str) -> Result<(), ()> {
         let _ = window.destroy();
         return Err(());
     }
+    // macOS has one application menu shared by its windows.
+    #[cfg(not(target_os = "macos"))]
     window.remove_menu().map_err(|_| ())?;
     crate::shell::theme_window(&window, &theme).map_err(|_| ())?;
     let handle = app.clone();
@@ -831,14 +901,18 @@ fn create_window(app: &AppHandle, request_id: &str) -> Result<(), ()> {
     .map_err(|_| ())
 }
 
-#[cfg(not(windows))]
-fn create_window(_: &AppHandle, _: &str) -> Result<(), ()> {
-    Err(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn portable_confirmation_ids_are_fresh_os_random_nonces() {
+        let first = portable_request_id().unwrap();
+        let second = portable_request_id().unwrap();
+        assert_eq!(first.len(), 64);
+        assert!(first.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        assert_ne!(first, second);
+    }
 
     struct ModelPrompt {
         id: &'static str,

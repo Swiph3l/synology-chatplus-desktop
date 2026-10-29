@@ -313,8 +313,12 @@ async fn selected_windows_update_accepts_raw_nsis_and_rejects_archive_manifests(
                 ],
             },
         };
-        let result =
-            super::validate_selected_update(&candidate, &selected, &super::configuration());
+        let result = super::validate_selected_update_for(
+            &candidate,
+            &selected,
+            &super::configuration(),
+            "windows-x86_64",
+        );
         if extension.is_empty() {
             assert!(
                 result.is_ok(),
@@ -323,6 +327,100 @@ async fn selected_windows_update_accepts_raw_nsis_and_rejects_archive_manifests(
         } else {
             assert_eq!(result.unwrap_err().code, "release-incomplete");
         }
+    }
+}
+#[tokio::test]
+async fn selected_update_requires_the_exact_package_and_signature_for_each_platform() {
+    let app = app();
+    let fixture = Fixture::new("0.2.0", false, false, false);
+    let update = fixture
+        .updater(app.handle(), false)
+        .check()
+        .await
+        .unwrap()
+        .unwrap();
+    let base = "https://github.com/Swiph3l/synology-chatplus-desktop/releases/download/v0.2.0";
+    let formats = [
+        ("windows-x86_64", "x64-setup.exe"),
+        ("linux-x86_64", "amd64.AppImage"),
+        ("darwin-aarch64", "aarch64.app.tar.gz"),
+        ("darwin-x86_64", "x64.app.tar.gz"),
+    ];
+    for (target, suffix) in formats {
+        let name = format!("{target}--ChatPlus-Desktop_0.2.0_{suffix}");
+        let package_url: url::Url = format!("{base}/{name}").parse().unwrap();
+        let mut candidate = update.clone();
+        candidate.download_url = package_url.clone();
+        candidate.raw_json["platforms"] = serde_json::json!({
+            target: {"url": package_url, "signature": candidate.signature}
+        });
+        let mut selected = super::SelectedRelease {
+            manifest: format!("{base}/latest.json").parse().unwrap(),
+            version: Version::parse("0.2.0").unwrap(),
+            release: super::Release {
+                tag_name: "v0.2.0".into(),
+                draft: false,
+                assets: vec![
+                    super::Asset {
+                        name: name.clone(),
+                        browser_download_url: package_url,
+                    },
+                    super::Asset {
+                        name: format!("{name}.sig"),
+                        browser_download_url: format!("{base}/{name}.sig").parse().unwrap(),
+                    },
+                ],
+            },
+        };
+        assert!(
+            super::validate_selected_update_for(
+                &candidate,
+                &selected,
+                &super::configuration(),
+                target
+            )
+            .is_ok(),
+            "{target}"
+        );
+        for (other, _) in formats {
+            if other != target {
+                assert!(
+                    super::validate_selected_update_for(
+                        &candidate,
+                        &selected,
+                        &super::configuration(),
+                        other
+                    )
+                    .is_err(),
+                    "{target} must not install on {other}"
+                );
+            }
+        }
+        candidate.signature = "a different signature".into();
+        assert_eq!(
+            super::validate_selected_update_for(
+                &candidate,
+                &selected,
+                &super::configuration(),
+                target
+            )
+            .unwrap_err()
+            .code,
+            "metadata-invalid"
+        );
+        candidate.signature = update.signature.clone();
+        selected.release.assets.pop();
+        assert_eq!(
+            super::validate_selected_update_for(
+                &candidate,
+                &selected,
+                &super::configuration(),
+                target
+            )
+            .unwrap_err()
+            .code,
+            "release-incomplete"
+        );
     }
 }
 #[tokio::test]

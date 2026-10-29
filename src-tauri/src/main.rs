@@ -176,6 +176,11 @@ fn main() {
     #[cfg(windows)]
     drop(startup_guard);
     app.run(|app, event| {
+        #[cfg(target_os = "macos")]
+        if matches!(event, tauri::RunEvent::Reopen { .. }) {
+            // Adapted from turbogizzmo's macOS fork, b53e860.
+            single_instance::activate(app);
+        }
         #[cfg(feature = "notification-diagnostics")]
         if matches!(event, tauri::RunEvent::Exit) {
             let _ = diagnostics::stop_notification_capture(app);

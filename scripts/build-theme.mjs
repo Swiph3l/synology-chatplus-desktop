@@ -1,5 +1,13 @@
 import { build } from "esbuild";
 import { readFile } from "node:fs/promises";
+for (const name of ["webkit-bridge", "webkit-notifications", "arrow-keys"])
+  await build({
+    entryPoints: [`src/theme/${name}.ts`],
+    bundle: true,
+    format: "iife",
+    target: "es2022",
+    outfile: `src-tauri/${name}.js`,
+  });
 await build({
   entryPoints: ["src/theme/bootstrap.ts"],
   bundle: true,

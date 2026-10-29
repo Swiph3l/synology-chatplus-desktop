@@ -211,14 +211,35 @@ impl Inner {
     }
 }
 pub fn snapshot(app: &AppHandle) -> Snapshot {
-    let value = app
+    let mut value = app
         .state::<Service>()
         .0
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .snapshot
         .clone();
+    value.configured = configuration().ready() && platform_updates_available(app);
+    if !platform_updates_available(app) {
+        value.phase = "unconfigured".into();
+        value.message(
+            "manual-update",
+            "Use GitHub Releases or your package manager to update this installation.",
+        );
+    }
     value.for_preference(state::current(app).include_beta_updates)
+}
+fn platform_updates_available<R: Runtime>(app: &AppHandle<R>) -> bool {
+    // Swiph3l: Linux's manifest contains AppImage payloads. A Debian installation
+    // must keep package-manager ownership rather than receive an AppImage update.
+    #[cfg(target_os = "linux")]
+    {
+        app.env().appimage.is_some()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = app;
+        true
+    }
 }
 fn emit(app: &AppHandle) {
     let value = snapshot(app);
@@ -537,6 +558,26 @@ fn validate_selected_update(
     selected: &SelectedRelease,
     config: &Configuration,
 ) -> Result<(), CheckFailure> {
+    let target = match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("windows", "x86_64") => "windows-x86_64",
+        ("linux", "x86_64") => "linux-x86_64",
+        ("macos", "aarch64") => "darwin-aarch64",
+        ("macos", "x86_64") => "darwin-x86_64",
+        _ => {
+            return Err(CheckFailure::new(
+                "release-incomplete",
+                "Signed updates are unavailable for this platform.",
+            ))
+        }
+    };
+    validate_selected_update_for(update, selected, config, target)
+}
+fn validate_selected_update_for(
+    update: &Update,
+    selected: &SelectedRelease,
+    config: &Configuration,
+    target: &str,
+) -> Result<(), CheckFailure> {
     let raw_version = update
         .raw_json
         .get("version")
@@ -555,38 +596,53 @@ fn validate_selected_update(
     let platforms = update.raw_json.get("platforms").ok_or_else(|| {
         CheckFailure::new(
             "release-incomplete",
-            "The selected release has no Windows x64 update package.",
+            "The selected release has no update package for this platform.",
         )
     })?;
-    let windows = platforms
-        .get("windows-x86_64-nsis")
-        .or_else(|| platforms.get("windows-x86_64"))
+    let package = platforms
+        .get(if target == "windows-x86_64" {
+            "windows-x86_64-nsis"
+        } else {
+            target
+        })
+        .or_else(|| platforms.get(target))
         .ok_or_else(|| {
             CheckFailure::new(
                 "release-incomplete",
-                "The selected release has no Windows x64 update package.",
+                "The selected release has no update package for this platform.",
             )
         })?;
-    let windows_url: url::Url = windows
+    let package_url: url::Url = package
         .get("url")
         .and_then(|value| value.as_str())
         .and_then(|value| value.parse().ok())
         .ok_or_else(|| {
             CheckFailure::new("metadata-invalid", "Update metadata failed validation.")
         })?;
-    let expected_file = format!(
-        "windows-x86_64--ChatPlus-Desktop_{}_x64-setup.exe",
-        selected.version
-    );
-    let windows_asset = published_asset(&selected.release, config, &windows_url)
+    // Swiph3l: Each platform validates its exact native updater format. Another
+    // target's package, standalone executable or download image is never installable.
+    let suffix = match target {
+        "windows-x86_64" => "x64-setup.exe",
+        "linux-x86_64" => "amd64.AppImage",
+        "darwin-aarch64" => "aarch64.app.tar.gz",
+        "darwin-x86_64" => "x64.app.tar.gz",
+        _ => {
+            return Err(CheckFailure::new(
+                "release-incomplete",
+                "Unsupported update platform.",
+            ))
+        }
+    };
+    let expected_file = format!("{target}--ChatPlus-Desktop_{}_{suffix}", selected.version);
+    let package_asset = published_asset(&selected.release, config, &package_url)
         .filter(|asset| asset.name == expected_file)
         .ok_or_else(|| {
             CheckFailure::new(
                 "release-incomplete",
-                "The selected release has no trusted Windows x64 installer.",
+                "The selected release has no trusted update package for this platform.",
             )
         })?;
-    let signature = windows
+    let signature = package
         .get("signature")
         .and_then(|value| value.as_str())
         .filter(|value| !value.trim().is_empty())
@@ -597,7 +653,7 @@ fn validate_selected_update(
             )
         })?;
     if !selected.release.assets.iter().any(|asset| {
-        asset.name == format!("{}.sig", windows_asset.name)
+        asset.name == format!("{}.sig", package_asset.name)
             && release_asset_matches(asset, config, &selected.release.tag_name)
     }) {
         return Err(CheckFailure::new(
@@ -620,9 +676,7 @@ fn validate_selected_update(
             "The selected update package has no published signature asset.",
         ));
     }
-    if cfg!(all(windows, target_arch = "x86_64"))
-        && (artifact.name != expected_file || update.signature != signature)
-    {
+    if artifact.name != expected_file || update.signature != signature {
         return Err(CheckFailure::new(
             "metadata-invalid",
             "Update metadata failed validation.",
@@ -641,6 +695,16 @@ pub async fn check(app: &AppHandle, _manual: bool) -> Result<Snapshot, String> {
         }
         if inner.snapshot.include_beta_updates != include_beta_updates {
             inner.reset_preference(include_beta_updates);
+        }
+        if !platform_updates_available(app) {
+            inner.snapshot.message(
+                "manual-update",
+                "Use GitHub Releases or your package manager to update this installation.",
+            );
+            inner.snapshot.phase = "unconfigured".into();
+            drop(inner);
+            emit(app);
+            return Ok(snapshot(app));
         }
         if !config.ready() {
             inner.snapshot.message(
@@ -1049,7 +1113,9 @@ pub fn start(app: &AppHandle) {
                 // Swiph3l: Updating ChatPlus is independent of service setup;
                 // a user with no active server still needs application security updates.
                 schedule.claim(
-                    settings.automatic_updates && configuration().ready(),
+                    settings.automatic_updates
+                        && configuration().ready()
+                        && platform_updates_available(&app),
                     operation_busy(&inner.snapshot.phase),
                     started.elapsed(),
                 )

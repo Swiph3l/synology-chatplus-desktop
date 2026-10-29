@@ -2,16 +2,16 @@ import {
   installExternalLinks,
   type ExternalLinkPolicy,
 } from "./external-links";
+import { nativeBridge, type NativeBridgeHost } from "./native-bridge";
 
 (() => {
   if (window.top !== window) return;
-  const host = window as unknown as {
+  const host = window as unknown as NativeBridgeHost & {
     __chatplusExternalLinkPolicy?: ExternalLinkPolicy;
     __chatplusExternalLinkBridge?: () => void;
-    chrome?: { webview?: { postMessage?: (message: string) => void } };
   };
   const policy = host.__chatplusExternalLinkPolicy;
-  const bridge = host.chrome?.webview;
+  const bridge = nativeBridge(host);
   if (!policy || typeof bridge?.postMessage !== "function") return;
   const postMessage = bridge.postMessage.bind(bridge);
   host.__chatplusExternalLinkBridge?.();
