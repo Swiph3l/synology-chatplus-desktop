@@ -2,6 +2,35 @@
 
 All notable changes will be documented here. Versions follow Semantic Versioning.
 
+## 0.9.1 - prerelease candidate
+
+### Performance
+
+- Reduce repeated provider DOM scans while tracking unread messages. Empty and
+  presentation-only mutation batches skip pane discovery, and message-content
+  checks run when there is a read candidate to verify. Pending read proofs retain
+  their existing checks for navigation, content changes and new arrivals.
+- Reuse Discord's active-conversation observation when checking its DM list.
+- Update tray labels, tooltip and icon only when their displayed state changes;
+  retry failed native updates and preserve live language changes. Repeated
+  connection reports no longer resend an unchanged state to local windows.
+
+### Changed
+
+- Refresh Light, Dark and System shell themes with quieter surfaces, clearer
+  Settings tabs, consistent keyboard focus and a refined service rail and footer.
+  Match app-owned native loading backgrounds to the refreshed palette.
+- Simplify hover feedback and respect reduced-motion preferences for save feedback.
+- Make the destination hostname and port prominent in external-link confirmation,
+  with a separate HTTP/HTTPS transport indicator, the full selectable address and
+  a distinct HTTP warning. Cancel remains the default action; the exact retained
+  destination still requires one-time approval.
+
+This candidate is unpublished. Automated operation-count tests demonstrate less
+redundant work; whole-application CPU/RAM improvements have not been measured.
+Native provider, notification, link and signed installer/upgrade acceptance remain
+required before publication. See the [release checklist](docs/RELEASE_CHECKLIST.md).
+
 ## 0.9.0 - prerelease candidate
 
 ### Fixed

@@ -63,6 +63,34 @@ actually inspected.
 | Updater and release boundaries              | `updates.test.mjs`, release/wrapper/metadata/checksum suites, native updater tests                                                           |
 | Locales and UI contracts                    | `localization.test.mjs`, settings, rail, footer and notification-color suites                                                                |
 
+## Performance regression checks
+
+Run the deterministic DOM-work checks alongside the read-state tests:
+
+```sh
+node --test tests/provider-dom.test.mjs tests/unread.test.mjs tests/discord-unread.test.mjs
+cargo test --locked --manifest-path src-tauri/Cargo.toml tray::tests
+cargo test --locked --manifest-path src-tauri/Cargo.toml connection::tests
+```
+
+The fixtures count pane discovery, content-context checks and active Discord
+viewport queries. Empty or presentation-only mutation batches need no pane
+discovery. Badge observations retain their snapshots while layout-dependent read
+checks require live read intent, including pending acknowledgements and toast
+navigation. Content changes, pane replacement, navigation and new arrivals must
+still revoke stale evidence before any acknowledgement.
+
+Tray tests verify that repeated presentation values skip native setters, failed
+writes remain retryable, and translated labels and icon state update independently.
+Connection tests retain separate per-service transport states while suppressing
+duplicate reports.
+
+Operation counts are regression budgets, not measurements of whole-application
+CPU or memory. Compare native builds using the same services, accounts, window
+state and warm-up period; include the shell and its WebView2 descendants. Keep
+native measurements, environment details and raw profiles outside the source
+checkout. Report live provider acceptance separately from fixture results.
+
 ## Unread and notification invariants
 
 Regression coverage should establish that:

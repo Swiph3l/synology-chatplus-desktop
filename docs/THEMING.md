@@ -5,6 +5,19 @@ injection is an explicit registry capability: only Synology ChatPlus receives
 ChatPlus's dark stylesheet. Synology Chat, Discord, WhatsApp, Messenger, Slack and
 Mattermost retain their own appearance. Their unread adapters are separate bundles.
 
+## Local shell palette
+
+`src/ui/shell.css` defines shared surface, subtle-surface, hover, selection and
+keyboard-focus colors for Light, Dark and System modes. Settings, the service
+rail, footer and external-link confirmation use these tokens. Keep selected state
+and keyboard focus visible independently, and honor reduced-motion preferences
+for save feedback. Prefer solid color changes over filter effects or animated
+card shadows for ordinary hover feedback.
+
+Native app-owned loading canvases should match the shell palette. Provider
+WebViews retain their separate opt-in appearance and pre-document colors; do not
+apply local shell tokens to remote provider content or authenticated attachments.
+
 ## Theme lifecycle
 
 1. Native session creation sets the opt-in child WebView background before
