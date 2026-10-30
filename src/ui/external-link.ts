@@ -96,17 +96,30 @@ export async function renderExternalLink() {
     const heading = element("div", "external-link-heading");
     const title = element("h1", "external-link-title", t("externalLink.title"));
     title.id = "external-link-title";
-    const hostname = element("p", "external-link-host", host ?? prompt.origin);
-    hostname.dir = "ltr";
-    heading.append(title, hostname);
-    header.append(icon, heading);
     const description = element(
       "p",
       "external-link-description",
       t("externalLink.description"),
     );
     description.id = "external-link-description";
+    heading.append(title, description);
+    header.append(icon, heading);
+    const address = element("div", "external-link-address");
+    const summary = element("div", "external-link-summary");
+    const hostname = element("p", "external-link-host", host ?? prompt.origin);
+    hostname.dir = "ltr";
+    const protocol = element(
+      "span",
+      "external-link-protocol",
+      prompt.insecureHttp ? "HTTP" : "HTTPS",
+    );
+    // Sawbir: The scheme is transport information, never a verdict that a site
+    // is safe. An inconsistent native payload must not receive a protocol badge.
+    protocol.hidden = host === null;
+    address.dataset.insecure = String(prompt.insecureHttp && host !== null);
+    summary.append(hostname, protocol);
     const origin = element("p", "external-link-origin");
+    origin.id = "external-link-origin";
     const originLabel = element(
       "span",
       "external-link-label",
@@ -133,6 +146,7 @@ export async function renderExternalLink() {
     url.spellcheck = false;
     url.dir = "ltr";
     url.setAttribute("aria-label", t("externalLink.destination"));
+    url.setAttribute("aria-describedby", origin.id);
     url.setAttribute("autocomplete", "off");
     // Swiph3l: The entire retained URL is selectable text, never HTML or a link.
     // Native approval accepts only requestId; even edited DOM cannot replace it.
@@ -168,16 +182,8 @@ export async function renderExternalLink() {
     open.type = "button";
     open.disabled = host === null;
     actions.append(cancel, open);
-    panel.append(
-      header,
-      description,
-      origin,
-      destination,
-      url,
-      warning,
-      status,
-      actions,
-    );
+    address.append(summary, origin, destination, url, warning);
+    panel.append(header, address, status, actions);
     app.replaceChildren(panel);
     app.removeAttribute("aria-busy");
 
