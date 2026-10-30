@@ -2,39 +2,54 @@
   font-family: "Segoe UI", system-ui, sans-serif;
   font-size: 13px;
   line-height: 1.45;
-  color: #20252c;
-  background: #f3f5f8;
+  color: #24292f;
+  background: #f6f7f9;
   color-scheme: light;
   --surface: #fff;
-  --border: #cbd1d9;
-  --muted: #586474;
-  --accent: #2563c5;
+  --surface-subtle: #f1f3f5;
+  --border: #d4d9e0;
+  --muted: #596575;
+  --accent: #245da8;
+  --accent-hover: #1d4e90;
+  --hover: #e9edf2;
+  --selection: #e6edf7;
+  --focus: #2563b4;
   --accent-foreground: #fff;
   --danger: #b42332;
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  color: #edf1f7;
-  background: #0f1115;
-  --surface: #191d23;
-  --border: #363d47;
-  --muted: #aab2bd;
-  --accent: #397edb;
-  --accent-foreground: #101318;
+  color: #e7ebf0;
+  background: #161a20;
+  --surface: #1c2128;
+  --surface-subtle: #222830;
+  --border: #3b434f;
+  --muted: #aeb8c5;
+  --accent: #336bb2;
+  --accent-hover: #3e78c1;
+  --hover: #29313b;
+  --selection: #243750;
+  --focus: #86b7f4;
+  --accent-foreground: #fff;
   --danger: #ff8992;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    color: #edf1f7;
-    background: #0f1115;
-    --surface: #191d23;
-    --border: #363d47;
-    --muted: #aab2bd;
-    --accent: #397edb;
-    --accent-foreground: #101318;
+    color: #e7ebf0;
+    background: #161a20;
+    --surface: #1c2128;
+    --surface-subtle: #222830;
+    --border: #3b434f;
+    --muted: #aeb8c5;
+    --accent: #336bb2;
+    --accent-hover: #3e78c1;
+    --hover: #29313b;
+    --selection: #243750;
+    --focus: #86b7f4;
+    --accent-foreground: #fff;
     --danger: #ff8992;
   }
 }
@@ -78,6 +93,10 @@ body.services-page {
 .workspace-empty h1 {
   font-size: 16px;
 }
+.workspace-empty p {
+  max-width: 360px;
+  color: var(--muted);
+}
 .service-rail {
   display: flex;
   flex-direction: column;
@@ -85,7 +104,7 @@ body.services-page {
   height: 100%;
   padding: 8px 7px;
   border-right: 1px solid var(--border);
-  background: var(--surface);
+  background: var(--surface-subtle);
   grid-column: 1;
   grid-row: 1;
   min-height: 0;
@@ -162,17 +181,17 @@ body.services-page {
   color: inherit;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 6px;
 }
 .service-rail button:hover {
-  filter: none;
-  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  background: var(--hover);
 }
 .service-rail button:active {
-  background: color-mix(in srgb, var(--accent) 20%, var(--surface));
+  background: var(--selection);
 }
 .service-rail button[aria-pressed="true"] {
-  background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+  border-color: var(--border);
+  background: var(--selection);
 }
 .service-rail button[aria-pressed="true"]::before {
   content: "";
@@ -182,13 +201,13 @@ body.services-page {
   width: 3px;
   height: 20px;
   border-radius: 2px;
-  background: var(--accent);
+  background: var(--focus);
 }
 .service-rail button[aria-pressed="true"]:hover {
-  background: color-mix(in srgb, var(--accent) 22%, var(--surface));
+  border-color: var(--muted);
 }
 .service-rail button:focus-visible {
-  outline: 2px dashed currentColor;
+  outline: 2px solid var(--focus);
   outline-offset: 1px;
 }
 .service-rail button:disabled {
@@ -266,7 +285,7 @@ body.services-page {
   margin: 0;
   padding: 0 10px;
   border-top: 1px solid var(--border);
-  background: var(--surface);
+  background: var(--surface-subtle);
   color: var(--muted);
   font-size: 11px;
 }
@@ -300,9 +319,8 @@ body.services-page {
   font-size: inherit;
 }
 .app-footer button:hover:enabled {
-  filter: none;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  color: inherit;
+  background: var(--hover);
 }
 .app-footer button:disabled {
   opacity: 0.4;
@@ -487,7 +505,7 @@ textarea,
   margin-bottom: 12px;
 }
 .service-config:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus);
   outline-offset: 4px;
 }
 .experimental-badge {
@@ -594,7 +612,7 @@ button {
   padding: 5px 14px;
   min-height: 30px;
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-foreground);
   cursor: pointer;
 }
 
@@ -612,8 +630,17 @@ button.text-button {
   min-height: 24px;
 }
 
-button:hover {
-  filter: brightness(0.94);
+button:where(:hover:enabled) {
+  background: var(--accent-hover);
+}
+
+button.secondary:hover:enabled,
+button.text-button:hover:enabled {
+  background: var(--hover);
+}
+
+button.secondary:hover:enabled {
+  border-color: var(--muted);
 }
 
 button:disabled {
@@ -622,7 +649,7 @@ button:disabled {
 }
 
 :focus-visible {
-  outline: 2px solid #69a6ff;
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 
@@ -824,7 +851,7 @@ dd {
 
 .settings-tabs button[aria-pressed="true"] {
   color: inherit;
-  border-bottom-color: var(--accent);
+  border-bottom-color: var(--focus);
 }
 
 .settings-page:not(.setup-page) fieldset {
@@ -971,7 +998,7 @@ dd {
 }
 
 .update-page .release-notes:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 
@@ -1007,6 +1034,13 @@ progress {
   width: 100%;
   height: 14px;
   accent-color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #save-feedback {
+    transition: none;
+    transform: none;
+  }
 }
 
 [hidden] {

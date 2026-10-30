@@ -15,6 +15,13 @@ pub fn broadcast_settings(app: &AppHandle) {
     #[cfg(debug_assertions)]
     let _ = app.emit_to("fixture", "theme-changed", &settings.theme);
 }
+pub(crate) fn background_color(dark: bool) -> tauri::window::Color {
+    if dark {
+        tauri::window::Color(22, 26, 32, 255)
+    } else {
+        tauri::window::Color(246, 247, 249, 255)
+    }
+}
 pub fn theme_window(window: &tauri::WebviewWindow, theme: &Theme) -> tauri::Result<()> {
     // Swiph3l: Live native theme switching on Windows can make the menu bar unstable.
     // Keep native frame theme unchanged at runtime; page/theme colors are still updated.
@@ -25,11 +32,7 @@ pub fn theme_window(window: &tauri::WebviewWindow, theme: &Theme) -> tauri::Resu
         Theme::Light => false,
         Theme::System => window.theme()? == tauri::Theme::Dark,
     };
-    window.set_background_color(Some(if dark {
-        tauri::window::Color(15, 17, 21, 255)
-    } else {
-        tauri::window::Color(243, 245, 248, 255)
-    }))
+    window.set_background_color(Some(background_color(dark)))
 }
 fn open(
     app: &AppHandle,

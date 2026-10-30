@@ -176,7 +176,10 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
             } else {
                 tauri::window::Color(255, 255, 255, 255)
             };
-            let _ = event_window.set_background_color(Some(color));
+            // Sawbir: Shell chrome follows its local stylesheet; remote views retain provider colors.
+            let _ = event_window.set_background_color(Some(crate::shell::background_color(
+                *theme == tauri::Theme::Dark,
+            )));
             for service in state::current(&handle)
                 .services
                 .iter()
@@ -284,12 +287,8 @@ pub fn apply_theme(app: &AppHandle) -> Result<(), String> {
             Theme::Light => false,
             Theme::System => w.theme().ok() == Some(tauri::Theme::Dark),
         };
-        w.set_background_color(Some(if dark {
-            tauri::window::Color(15, 17, 21, 255)
-        } else {
-            tauri::window::Color(255, 255, 255, 255)
-        }))
-        .map_err(|_| "Could not apply background.")?;
+        w.set_background_color(Some(crate::shell::background_color(dark)))
+            .map_err(|_| "Could not apply background.")?;
         for service in &settings.services {
             if !service.provider.definition().theme {
                 continue;
@@ -310,6 +309,7 @@ pub fn apply_theme(app: &AppHandle) -> Result<(), String> {
             .map_err(|_| "Could not apply page theme.")?;
         }
         if let Some(rail) = app.get_webview("main") {
+            let _ = rail.set_background_color(Some(crate::shell::background_color(dark)));
             let _ = rail.eval(&format!(
                 "document.documentElement.dataset.theme = {}",
                 serde_json::to_string(&settings.theme).unwrap()
