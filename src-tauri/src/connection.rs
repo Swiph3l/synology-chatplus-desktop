@@ -32,33 +32,60 @@ fn selected(states: &HashMap<String, Connection>, id: Option<&str>) -> Connectio
 }
 pub fn current(app: &AppHandle) -> Connection {
     let settings = crate::state::current(app);
+    for_service(app, settings.active_service.as_deref())
+}
+pub(crate) fn for_service(app: &AppHandle, id: Option<&str>) -> Connection {
     selected(
         &app.state::<ConnectionState>()
             .0
             .lock()
             .unwrap_or_else(|e| e.into_inner()),
-        settings.active_service.as_deref(),
+        id,
     )
 }
+fn replace(states: &mut HashMap<String, Connection>, id: &str, value: Connection) -> bool {
+    if states.get(id) == Some(&value) {
+        return false;
+    }
+    states.insert(id.into(), value);
+    true
+}
 pub fn set_for(app: &AppHandle, id: &str, value: Connection) {
-    app.state::<ConnectionState>()
-        .0
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .insert(id.into(), value);
-    if crate::state::current(app).active_service.as_deref() == Some(id) {
+    let changed = replace(
+        &mut app
+            .state::<ConnectionState>()
+            .0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()),
+        id,
+        value,
+    );
+    if changed && crate::state::current(app).active_service.as_deref() == Some(id) {
         refresh(app);
     }
 }
 pub fn refresh(app: &AppHandle) {
     crate::tray::refresh(app);
-    let _ = app.emit_to("about", "connection-changed", current(app));
-    let _ = app.emit_to("settings", "connection-changed", current(app));
-    let _ = app.emit_to("main", "connection-changed", current(app));
+    let value = current(app);
+    let _ = app.emit_to("about", "connection-changed", value);
+    let _ = app.emit_to("settings", "connection-changed", value);
+    let _ = app.emit_to("main", "connection-changed", value);
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn repeated_transport_reports_are_quiet_and_services_remain_independent() {
+        let mut states = HashMap::new();
+        assert!(replace(&mut states, "a", Connection::Connecting));
+        assert!(!replace(&mut states, "a", Connection::Connecting));
+        assert!(replace(&mut states, "b", Connection::Connecting));
+        assert!(replace(&mut states, "a", Connection::Connected));
+        assert!(!replace(&mut states, "a", Connection::Connected));
+        assert!(replace(&mut states, "a", Connection::Offline));
+        assert!(replace(&mut states, "a", Connection::Connected));
+        assert_eq!(selected(&states, Some("b")), Connection::Connecting);
+    }
     #[test]
     fn switching_selects_own_cached_transport_state() {
         let states = HashMap::from([

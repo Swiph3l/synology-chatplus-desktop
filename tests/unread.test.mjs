@@ -28,6 +28,7 @@ function fixture({
   let latest = true;
   let contentRevision = 0;
   let aggregateUnknown = false;
+  const calls = { snapshot: 0, readContext: 0, contentContext: 0 };
   const window = {
     chrome: {
       webview: { postMessage: bridge.postMessage },
@@ -58,19 +59,27 @@ function fixture({
   const stop = context.unreadUi.installUnreadAdapter(
     {
       source,
-      snapshot: () => ({
-        hasUnread: present && !aggregateUnknown ? marker : null,
-        count: null,
-      }),
+      snapshot: () => {
+        calls.snapshot += 1;
+        return {
+          hasUnread: present && !aggregateUnknown ? marker : null,
+          count: null,
+        };
+      },
       providerUnreadZero: () =>
         providerZero && present && !aggregateUnknown && marker === false,
       observe(callback) {
         changed = callback;
         return () => {};
       },
-      readContext: () => (present && latest ? conversation : null),
-      contentContext: () =>
-        present ? `${conversation}:${contentRevision}` : null,
+      readContext: () => {
+        calls.readContext += 1;
+        return present && latest ? conversation : null;
+      },
+      contentContext: () => {
+        calls.contentContext += 1;
+        return present ? `${conversation}:${contentRevision}` : null;
+      },
       interactionContext: (event) =>
         event.inConversation ? conversation : null,
       isViewingNotification: (notification) =>
@@ -95,6 +104,10 @@ function fixture({
     window,
     stop,
     flush,
+    calls,
+    resetCalls() {
+      for (const key of Object.keys(calls)) calls[key] = 0;
+    },
     badges(value) {
       marker = value;
       changed();
@@ -136,6 +149,47 @@ function fixture({
     },
   };
 }
+
+for (const foreground of [false, true]) {
+  test(`badge observations skip message-content scans without read intent (foreground=${foreground})`, () => {
+    const f = fixture();
+    f.foreground(foreground);
+    f.flush();
+    f.resetCalls();
+    for (let index = 0; index < 100; index += 1) {
+      f.badges(index % 2 === 0);
+      f.flush();
+      assert.equal(f.messages.at(-1).hasUnread, index % 2 === 0);
+      assert.equal(f.messages.at(-1).acknowledgement, null);
+    }
+    assert.deepEqual(f.calls, {
+      snapshot: 100,
+      readContext: 100,
+      contentContext: 0,
+    });
+  });
+}
+
+test("a consumed gesture keeps pending content checks until a changed pane revokes its proof", () => {
+  const f = fixture({ marker: false, providerZero: true });
+  f.foreground(true, 1, 1);
+  f.gesture();
+  f.flush();
+  assert.equal(f.messages.at(-1).acknowledgement, 1);
+  f.resetCalls();
+  f.renderMessage();
+  f.flush();
+  assert.equal(f.calls.contentContext, 1);
+  assert.equal(f.messages.at(-1).acknowledgement, null);
+  const beforeComplete = f.messages.length;
+  f.window.__chatplusCompleteArrival(1);
+  f.flush();
+  assert.equal(f.messages.length, beforeComplete);
+  f.resetCalls();
+  f.renderMessage();
+  f.flush();
+  assert.equal(f.calls.contentContext, 0);
+});
 
 for (const source of ["chatplus-dom", "synology-chat-dom", "discord-dom"]) {
   test(`${source}: a fresh gesture in the old pane cannot acknowledge an unrendered native arrival`, () => {

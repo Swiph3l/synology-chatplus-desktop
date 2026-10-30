@@ -391,11 +391,7 @@ export function createDiscordAdapter(
     const complete =
       dms &&
       privateLists.length === 1 &&
-      completePrivateList(
-        privateLists[0],
-        document,
-        directMessageViewport(document, true)?.channel ?? null,
-      );
+      completePrivateList(privateLists[0], document, current);
     return {
       hasUnread:
         positive.size > 0 || unattributedUnread
