@@ -178,8 +178,18 @@ test("Messenger adapter never inspects private DOM/contact data or acknowledges 
   assert.equal(work.snapshot().hasUnread, null);
 });
 
-test("all seven locales explain Messenger status and scoped provider notification permission", async () => {
-  for (const locale of ["en", "pl", "es", "de", "fr", "ja", "zh-TW"]) {
+test("all nine locales explain Messenger status and scoped provider notification permission", async () => {
+  for (const locale of [
+    "en",
+    "pl",
+    "es",
+    "de",
+    "fr",
+    "ja",
+    "zh-TW",
+    "pt-BR",
+    "it",
+  ]) {
     const strings = JSON.parse(
       await readFile(`src/i18n/${locale}.json`, "utf8"),
     );

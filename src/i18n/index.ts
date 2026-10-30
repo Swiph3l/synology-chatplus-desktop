@@ -5,6 +5,8 @@ import de from "./de.json";
 import fr from "./fr.json";
 import ja from "./ja.json";
 import zhTW from "./zh-TW.json";
+import ptBR from "./pt-BR.json";
+import it from "./it.json";
 import { en as updateEn, pl as updatePl, es as updateEs } from "./updates";
 
 export const languageNames = {
@@ -15,6 +17,8 @@ export const languageNames = {
   fr: "Français",
   ja: "日本語",
   "zh-TW": "繁體中文",
+  "pt-BR": "Português (Brasil)",
+  it: "Italiano",
 } as const;
 export type Language = keyof typeof languageNames;
 const english = { ...en, ...updateEn };
@@ -27,6 +31,8 @@ export const resources = {
   fr,
   ja,
   "zh-TW": zhTW,
+  "pt-BR": ptBR,
+  it,
 } satisfies Record<Language, Record<TranslationKey, string>>;
 let language: Language = "en";
 export function setLanguage(value: Language | undefined) {

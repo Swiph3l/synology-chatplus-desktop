@@ -47,7 +47,7 @@ test("WhatsApp canonical publisher zero has notification-attention scope, not a 
   }
 });
 
-test("WhatsApp attention accepts exact Intl grouping in all seven supported UI languages", () => {
+test("WhatsApp attention accepts exact Intl grouping in all nine supported UI languages", () => {
   for (const [locale, number] of [
     ["en-US", "1,234,567"],
     ["de-DE", "1.234.567"],
@@ -56,6 +56,8 @@ test("WhatsApp attention accepts exact Intl grouping in all seven supported UI l
     ["ja-JP", "1,234,567"],
     ["pl-PL", "1\u00a0234\u00a0567"],
     ["zh-CN", "1,234,567"],
+    ["pt-BR", "1.234.567"],
+    ["it-IT", "1.234.567"],
   ]) {
     assert.equal(parse(`(${number}) WhatsApp`, locale), 1_234_567, locale);
     assert.equal(

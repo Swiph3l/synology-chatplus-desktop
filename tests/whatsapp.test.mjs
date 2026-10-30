@@ -124,8 +124,18 @@ test("WhatsApp service manager preserves separate stable identities, configured 
   assert.equal(f.services[2].url, "https://web.whatsapp.com/");
 });
 
-test("all seven locales contain WhatsApp experimental and unsupported-action notes", async () => {
-  for (const locale of ["en", "pl", "es", "de", "fr", "ja", "zh-TW"]) {
+test("all nine locales contain WhatsApp experimental and unsupported-action notes", async () => {
+  for (const locale of [
+    "en",
+    "pl",
+    "es",
+    "de",
+    "fr",
+    "ja",
+    "zh-TW",
+    "pt-BR",
+    "it",
+  ]) {
     const strings = JSON.parse(
       await readFile(`src/i18n/${locale}.json`, "utf8"),
     );

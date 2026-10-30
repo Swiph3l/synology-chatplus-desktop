@@ -14,7 +14,7 @@ const context = {};
 runInNewContext(result.outputFiles[0].text, context);
 const { resources, languageNames, setLanguage, t, localizeError } =
   context.translations;
-test("all seven languages have identical nonempty keys and interpolation placeholders", () => {
+test("all nine languages have identical nonempty keys and interpolation placeholders", () => {
   const keys = Object.keys(resources.en).sort();
   assert.deepEqual(Object.keys(resources), [
     "en",
@@ -24,6 +24,8 @@ test("all seven languages have identical nonempty keys and interpolation placeho
     "fr",
     "ja",
     "zh-TW",
+    "pt-BR",
+    "it",
   ]);
   assert.deepEqual(Object.keys(languageNames), Object.keys(resources));
   for (const language of Object.keys(resources)) {
@@ -49,7 +51,7 @@ test("all seven languages have identical nonempty keys and interpolation placeho
 });
 
 test("new languages switch all main Settings areas and preserve interpolation and error ownership", () => {
-  for (const language of ["de", "fr", "ja", "zh-TW"]) {
+  for (const language of ["de", "fr", "ja", "zh-TW", "pt-BR", "it"]) {
     setLanguage(language);
     for (const key of [
       "common.settings",
@@ -83,6 +85,46 @@ test("new languages switch all main Settings areas and preserve interpolation an
       "Remote provider detail",
     );
   }
+  setLanguage("en");
+});
+
+test("Brazilian Portuguese and Italian translate every surface while preserving private error details", () => {
+  const unchangedLabels = new Set([
+    "about.github",
+    "common.no",
+    "footer.version",
+    "footer.console",
+    "menu.file",
+    "settings.links",
+    "services.experimental",
+    "services.provider",
+    "rail.experimental",
+    "services.color.magenta",
+  ]);
+  for (const language of ["pt-BR", "it"]) {
+    setLanguage(language);
+    for (const key of Object.keys(resources.en)) {
+      if (!unchangedLabels.has(key))
+        assert.notEqual(t(key), resources.en[key], `${language}: ${key}`);
+    }
+    assert.ok(
+      t("updates.confirmVersionDescription", { version: "1.0.0" }).includes(
+        "1.0.0",
+      ),
+    );
+    assert.equal(
+      localizeError(
+        "Could not create service WebView. Check the system web engine installation.",
+      ),
+      resources[language]["errors.serviceWebview"],
+    );
+    assert.equal(
+      localizeError("Remote account detail"),
+      "Remote account detail",
+    );
+  }
+  assert.equal(languageNames["pt-BR"], "Português (Brasil)");
+  assert.equal(languageNames.it, "Italiano");
   setLanguage("en");
 });
 test("Spanish controls, interpolation, provider validation and error feedback never fall back to English", () => {

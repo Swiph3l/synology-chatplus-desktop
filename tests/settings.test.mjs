@@ -1058,7 +1058,7 @@ test("fixture metadata refresh cannot override an existing Mattermost mute prefe
   assert.equal(f.settings.services[0].notifications, true);
 });
 
-test("language selector exposes all seven supported native names without flags", async () => {
+test("language selector exposes all nine supported native names without flags", async () => {
   const f = await fixture();
   const names = Object.entries(f.languageNames);
   assert.deepEqual(names, [
@@ -1069,6 +1069,8 @@ test("language selector exposes all seven supported native names without flags",
     ["fr", "Français"],
     ["ja", "日本語"],
     ["zh-TW", "繁體中文"],
+    ["pt-BR", "Português (Brasil)"],
+    ["it", "Italiano"],
   ]);
   assert.deepEqual(
     [...f.document.querySelectorAll("#language option")].map((option) => [

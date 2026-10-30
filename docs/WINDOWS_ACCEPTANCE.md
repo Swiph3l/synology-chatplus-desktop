@@ -128,7 +128,7 @@ threads, loading history, composer focus, message editing and reaction/menu open
 
 - [ ] Settings, rail, footer, menus and keyboard navigation work at minimum and larger
       windows and actual 100%/125%/150% Windows scaling. Long names remain usable.
-- [ ] Check all seven locales: en, pl, es, de, fr, ja and zh-TW, including dialogs,
+- [ ] Check all nine locales: en, pl, es, de, fr, ja, zh-TW, pt-BR and it, including dialogs,
       read-action labels, notification settings and download status.
 - [ ] Include beta updates off/on produces the expected release eligibility.
       Automatic checks remain quiet when offline; manual checks remain available.

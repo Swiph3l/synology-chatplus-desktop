@@ -3,8 +3,8 @@ use std::{collections::HashMap, sync::OnceLock};
 use tauri::AppHandle;
 
 type Dictionary = HashMap<String, String>;
-fn dictionaries() -> &'static [Dictionary; 7] {
-    static DICTIONARIES: OnceLock<[Dictionary; 7]> = OnceLock::new();
+fn dictionaries() -> &'static [Dictionary; 9] {
+    static DICTIONARIES: OnceLock<[Dictionary; 9]> = OnceLock::new();
     // Swiph3l: Native menus and the local frontend share these resources so translations cannot drift between surfaces.
     DICTIONARIES.get_or_init(|| {
         [
@@ -22,6 +22,10 @@ fn dictionaries() -> &'static [Dictionary; 7] {
                 .expect("valid Japanese resources"),
             serde_json::from_str(include_str!("../../src/i18n/zh-TW.json"))
                 .expect("valid Traditional Chinese resources"),
+            serde_json::from_str(include_str!("../../src/i18n/pt-BR.json"))
+                .expect("valid Brazilian Portuguese resources"),
+            serde_json::from_str(include_str!("../../src/i18n/it.json"))
+                .expect("valid Italian resources"),
         ]
     })
 }
@@ -34,6 +38,8 @@ pub fn text(language: &Language, key: &str) -> String {
         Language::Fr => 4,
         Language::Ja => 5,
         Language::ZhTw => 6,
+        Language::PtBr => 7,
+        Language::It => 8,
     };
     dictionaries()[index]
         .get(key)
@@ -69,6 +75,12 @@ mod tests {
             }
         }
         assert_eq!(text(&Language::Es, "services.remove"), "Eliminar servicio");
+        assert_eq!(text(&Language::PtBr, "common.settings"), "Configurações");
+        assert_eq!(text(&Language::It, "common.settings"), "Impostazioni");
+        assert_eq!(
+            localize(&Language::PtBr, "Could not save settings."),
+            "Não foi possível salvar as configurações."
+        );
     }
 
     #[test]
@@ -81,6 +93,8 @@ mod tests {
             ("fr", Language::Fr),
             ("ja", Language::Ja),
             ("zh-TW", Language::ZhTw),
+            ("pt-BR", Language::PtBr),
+            ("it", Language::It),
         ] {
             let settings: state::Settings = serde_json::from_value(serde_json::json!({
                 "language": code,
