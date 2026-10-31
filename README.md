@@ -115,6 +115,27 @@ previews use the provider's supplied content according to your preference. Diagn
 omit message content, credentials, cookies/tokens and private URLs. Your provider's
 own privacy policy still applies. See [security reporting](SECURITY.md).
 
+<!-- contributors:start -->
+
+## Contributors
+
+Thank you to the people whose accepted work helps maintain and improve ChatPlus Desktop.
+Credits recognize reviewed code, ports, translations, testing and documentation.
+
+- [Swiph3l](https://github.com/Swiph3l) — Project creator; Project maintenance.
+- [turbogizzmo](https://github.com/turbogizzmo) — macOS port and desktop integration; Synology DSM launching; WebKit notification integration.
+
+Community variants:
+
+- [Windows community variant by turbogizzmo](https://github.com/turbogizzmo/synology-chatplus-desktop-Windows)
+- [macOS community variant by turbogizzmo](https://github.com/turbogizzmo/synology-chatplus-desktop-OSX)
+
+[Fork this project](https://github.com/Swiph3l/synology-chatplus-desktop/fork) to build a variant,
+or [contribute code, a translation, testing or documentation](CONTRIBUTING.md).
+This list and About are generated from [contributors.json](contributors.json); see the
+[credit workflow](CONTRIBUTING.md#contributor-credit) when adding a person or variant.
+<!-- contributors:end -->
+
 ## Contributing
 
 Start with [developer documentation](docs/README.md) and

@@ -12,6 +12,8 @@ All notable changes will be documented here. Versions follow Semantic Versioning
   and exact-platform signed updater selection.
 - Add Brazilian Portuguese and Italian interface resources shared by the shell,
   native menus and errors, bringing the total to nine languages.
+- Show contributor credits, profiles, community variants and ways to help in
+  About, with a shared registry that also generates the README credits.
 - Add a bounded WebKit notification/unread transport without granting remote
   provider pages native IPC permissions, plus separate macOS account stores.
 

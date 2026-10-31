@@ -14,6 +14,8 @@
     "tauri": "node scripts/tauri.mjs",
     "check:release": "node scripts/check-release-assets.mjs",
     "check:dependencies": "node scripts/check-dependencies.mjs",
+    "contributors:update": "node scripts/update-contributors.mjs",
+    "contributors:check": "node scripts/update-contributors.mjs --check",
     "sbom": "node scripts/sbom.mjs",
     "checksums": "node scripts/checksums.mjs"
   },

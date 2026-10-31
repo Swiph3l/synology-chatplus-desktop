@@ -40,3 +40,32 @@ third-party licenses/notices. See [licensing notes](docs/LICENSING.md) and
 Useful issue-label suggestions for maintainers: bug, good first issue, help wanted,
 notifications, provider, windows, translations and documentation. These are
 recommendations; contribution changes do not create repository labels/settings.
+
+## Contributor credit
+
+Accepted code, translations, testing, documentation and platform ports can all earn
+public credit. A maintainer verifies the contribution and the contributor's public
+GitHub username before adding it. Credit describes the person's work and includes
+contributions developed in community variants. Contributors retain the license
+and copyright terms described above.
+
+The shared [contributors.json](contributors.json) registry supplies both About and
+the generated README section. To add a person or a community variant:
+
+1. Add a contributor with a stable unique `id`, their preferred public `name`, a
+   verified GitHub `username`, and the applicable `contributions` roles. Role labels
+   come from the translated `about.contribution.*` resources. General roles include
+   `code`, `translations`, `testing`, `documentation` and `port`; established
+   platform/integration roles can describe more specific work. For an existing person,
+   update the roles rather than creating a duplicate identity.
+2. For a community variant, add a `forks` entry with a stable `id`, the credited
+   `contributorId`, its GitHub `owner` and `repository`, and the supported `platform`
+   value. Do not paste arbitrary URLs or private contact/account information.
+3. Run `npm run contributors:update`, then `npm run contributors:check`. Include the
+   registry change and regenerated README in the same reviewed contribution.
+
+New people and variants using existing roles need only a registry edit and README
+regeneration. Keep the README marker comments intact and avoid editing their
+generated content directly. Rebuild the application to include the registry update
+in About. Profile and repository links use native allowlisted targets derived from
+the registry; opening About never fetches remote contributor or commit statistics.

@@ -5,6 +5,7 @@ import { isPrereleaseVersion } from "../app/updates";
 import { t, localizeError, type TranslationKey } from "../i18n";
 import { initializeLanguage } from "../i18n/runtime";
 import { bindShellTheme } from "../theme/theme";
+import { mountContributors } from "./contributors";
 
 export async function mountAboutPanel(container: HTMLElement) {
   container.classList.add("about-details");
@@ -14,12 +15,14 @@ export async function mountAboutPanel(container: HTMLElement) {
     <p class="credits">${t("about.maintained")} <strong data-about="maintainer"></strong></p>
     <p class="about-notice subtitle">${t("about.notice")}</p>
     <div class="actions"><button type="button" data-link="github" class="secondary">${t("about.github")}</button><button type="button" data-link="issues" class="secondary">${t("about.issues")}</button><button type="button" data-link="star" class="secondary">${t("about.star")}</button><button type="button" data-link="support" class="secondary" hidden>${t("about.support")}</button></div>
+    <div data-about="community"></div>
     <details class="technical-details"><summary>${t("about.technical")}</summary><dl data-about="build"></dl><dl data-about="runtime"></dl><button type="button" data-action="copy" class="secondary">${t("about.copy")}</button></details>
     <section class="license-section"><h3>${t("about.license")}</h3><p data-about="license" class="subtitle"></p><button data-action="license" class="text-button" type="button">${t("about.viewLicense")}</button></section>
     <p data-about="status" role="status" aria-live="polite"></p>`;
   const find = <T extends HTMLElement = HTMLElement>(selector: string) =>
     container.querySelector<T>(selector)!;
   const status = find('[data-about="status"]');
+  mountContributors(find('[data-about="community"]'));
   const text = (field: string, value: string) => {
     find(`[data-about="${field}"]`).textContent = value;
   };

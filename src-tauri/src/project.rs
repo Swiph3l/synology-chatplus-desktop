@@ -23,21 +23,29 @@ pub const PROJECT: Project = Project {
     github_issues_url: "https://github.com/Swiph3l/synology-chatplus-desktop/issues",
     support_url: None,
 };
-#[derive(Clone, Copy, serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Link {
     Github,
     Issues,
     Star,
     Support,
+    #[serde(untagged)]
+    Community(String),
 }
 impl Project {
-    pub fn link(&self, link: Link) -> Option<&str> {
+    pub fn link(&self, link: Link) -> Option<String> {
         match link {
-            Link::Github => Some(self.github_repository_url),
-            Link::Issues => Some(self.github_issues_url),
-            Link::Star => Some(self.github_star_url),
-            Link::Support => self.support_url.filter(|s| !s.trim().is_empty()),
+            Link::Github => Some(self.github_repository_url.into()),
+            Link::Issues => Some(self.github_issues_url.into()),
+            Link::Star => Some(self.github_star_url.into()),
+            Link::Support => self
+                .support_url
+                .filter(|s| !s.trim().is_empty())
+                .map(str::to_owned),
+            Link::Community(key) => key
+                .strip_prefix("community:")
+                .and_then(crate::community::link),
         }
     }
 }
@@ -45,7 +53,7 @@ pub fn open(app: &tauri::AppHandle, link: Link) -> Result<(), String> {
     let value = PROJECT
         .link(link)
         .ok_or("This project link is not configured.")?;
-    let url = url::Url::parse(value).map_err(|_| "Invalid project link.")?;
+    let url = url::Url::parse(&value).map_err(|_| "Invalid project link.")?;
     if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
         return Err("Invalid project link.".into());
     }
@@ -64,5 +72,32 @@ mod tests {
         let mut project = PROJECT.clone();
         project.support_url = Some(" ");
         assert!(project.link(Link::Support).is_none());
+    }
+
+    #[test]
+    fn community_ipc_links_resolve_only_registered_ids() {
+        for key in [
+            "community:person:swiph3l",
+            "community:fork:turbogizzmo-macos",
+            "community:contribute",
+        ] {
+            let link = serde_json::from_value::<Link>(serde_json::json!(key)).unwrap();
+            assert!(PROJECT
+                .link(link)
+                .unwrap()
+                .starts_with("https://github.com/"));
+        }
+        for key in [
+            "https://example.com",
+            "community:person:unknown",
+            "community:fork:../other",
+        ] {
+            let link = serde_json::from_value::<Link>(serde_json::json!(key)).unwrap();
+            assert!(PROJECT.link(link).is_none());
+        }
+        assert!(
+            serde_json::from_value::<Link>(serde_json::json!({"url":"https://example.com"}))
+                .is_err()
+        );
     }
 }
