@@ -50,7 +50,7 @@ while the GitHub prerelease flag and saved beta preference control eligibility. 
 invalidates in-flight results and previously verified downloads, even if changed
 away and back while requests are pending.
 The selected tag, full manifest version (including build metadata), published
-Windows x64 setup URL and signature asset must agree before an update is offered.
+native platform package URL and signature asset must agree before an update is offered.
 Installation consent is bound to the exact version and beta preference under the updater
 lock. Settings blocks restart while its local draft has unsaved changes.
 The compact status-bar button uses only a successfully resolved allowed target;
@@ -69,7 +69,8 @@ Cancellation is rechecked after signature verification, before bytes become read
 Never bypass TLS, signature verification or version/preference rechecks.
 
 Updater 2.14 retains Rustls TLS and system proxy support with its legacy ZIP
-extraction feature disabled. Windows manifests must name the published raw signed
+extraction feature disabled. macOS `.app.tar.gz` extraction remains available;
+Linux uses a raw `.AppImage`. Windows manifests must name the published raw signed
 NSIS setup; ZIP or tar-wrapped installer manifests are rejected. Existing release
 collection and package names follow this format.
 
@@ -93,9 +94,9 @@ off while retaining the public runtime updater configuration. It needs no privat
 key. Only `CHATPLUS_RELEASE_BUILD=1` selects signed packaging, validates signing
 configuration and generates updater packages/signatures.
 
-The Windows-only release workflow runs for `v*` tags. It validates synchronized
-source versions, Windows x64 host, production signing configuration and required CI,
-CodeQL/security checks on the tagged main commit. It builds NSIS, collects actual
+The native matrix release workflow runs for `v*` tags. It validates synchronized
+source versions, each target's native host, production signing configuration and required CI,
+CodeQL/security checks on the tagged main commit. It builds native packages, collects actual
 artifacts/signatures, creates SBOMs/channel metadata/checksums and public attestations,
 then creates a **prerelease draft**, even for a plain SemVer tag. Publishing that
 draft is a separate maintainer action. A rerun that encounters an existing release
@@ -123,7 +124,17 @@ artifacts are `windows-x86_64--ChatPlus-Desktop_<version>_x64.exe` and
 `.sig`. The updater targets the signed NSIS setup, never the standalone application.
 Collection rejects absent/empty or ambiguous package inputs; metadata uses actual
 bytes/signatures and checksums are generated after final names are established.
-Linux/macOS remain experimental and are outside the current Windows release gate.
+macOS uses `darwin-aarch64--ChatPlus-Desktop_<version>_aarch64.app.tar.gz` and
+`darwin-x86_64--ChatPlus-Desktop_<version>_x64.app.tar.gz`, each with a `.sig` and
+a separately downloadable `.dmg`. Linux uses
+`linux-x86_64--ChatPlus-Desktop_<version>_amd64.AppImage` with a `.sig`, plus `.deb`.
+The disk image and Debian package are manual downloads, not updater payloads.
+
+The aggregate manifest requires all four targets and their exact source provenance.
+Strict target dependency checks run before release packaging. Linux is currently
+blocked by `glib 0.18.5` / `RUSTSEC-2024-0429`; the Windows-only audit exception
+does not authorize a Linux package. Native acceptance and Apple signing/notarization
+are separate checks; see [platform support](PLATFORMS.md).
 
 ## More detail and acceptance
 

@@ -77,8 +77,9 @@ Run locked dependency audits for each release. The current lockfile has RustSec
 advisories for glib (RUSTSEC-2024-0429, in the Linux dependency graph),
 proc-macro-error (RUSTSEC-2024-0370) and the unic crates (RUSTSEC-2025-0075,
 RUSTSEC-2025-0080, RUSTSEC-2025-0081, RUSTSEC-2025-0098, RUSTSEC-2025-0100).
-The Windows beta gate evaluates its target graph; Linux glib unsoundness remains
-a separate release review requirement. Transitive maintenance warnings remain
+Every signed release target must pass its strict target graph gate. Linux glib
+unsoundness blocks distribution and the aggregate draft; the Windows-only
+reporting exception does not approve Linux packages. Transitive maintenance warnings remain
 visible without automatically blocking Windows. See the
 [dependency policy](docs/DEPENDENCY_POLICY.md). License checks do not establish
 redistribution compliance or absence of security vulnerabilities.

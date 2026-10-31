@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { requireWindowsJob } from "../scripts/release-checks.mjs";
+import { requirePlatformJobs } from "../scripts/release-checks.mjs";
+import { releaseTargets } from "../scripts/release-targets.mjs";
 
 const workflowNames = ["ci", "codeql", "security", "release"];
 const workflows = Object.fromEntries(
@@ -58,14 +59,17 @@ test("CodeQL init and analyze use the same release to avoid incompatible saved c
   assert.equal(new Set(codeql.map((action) => action.split("@")[1])).size, 1);
 });
 
-test("frontend Node 24 coverage preserves the single Windows release gate without duplicating native builds", () => {
-  const jobs = [...workflows.ci.matchAll(/^    name:\s+(.+)$/gm)].map(
-    ([, name]) => ({
-      name,
-      conclusion: "success",
-    }),
-  );
-  requireWindowsJob(jobs);
+test("native CI covers every release target and frontend Node 24 remains separate", () => {
+  const native = workflows.ci.split(/^  frontend-node24:\s*$/m)[0];
+  const template = /^    name:\s+(.+)$/m.exec(native)?.[1];
+  const platforms = /^        os: \[([^\]]+)\]$/m.exec(native)?.[1];
+  assert.ok(template && platforms);
+  const jobs = platforms.split(", ").map((platform) => ({
+    name: template.replace("${{ matrix.os }}", platform),
+    status: "completed",
+    conclusion: "success",
+  }));
+  requirePlatformJobs(jobs);
   const frontend = workflows.ci.split(/^  frontend-node24:\s*$/m)[1];
   assert.ok(frontend);
   assert.match(frontend, /^    runs-on: ubuntu-latest\s*$/m);
@@ -101,7 +105,9 @@ test("signed release artifacts keep exact source, integrity checks and isolated 
   const [download] = actionSteps(source, "actions/download-artifact");
   assert.ok(upload && download);
   const uploadName = /^\s+name: (.+)$/m.exec(upload)?.[1];
-  assert.equal(/^\s+name: (.+)$/m.exec(download)?.[1], uploadName);
+  assert.equal(uploadName, "signed-${{ matrix.target }}");
+  assert.match(download, /^\s+pattern: signed-\*\s*$/m);
+  assert.match(download, /^\s+merge-multiple: true\s*$/m);
   assert.match(upload, /^\s+if-no-files-found: error\s*$/m);
   assert.match(upload, /^\s+archive: true\s*$/m);
   assert.match(upload, /^\s+overwrite: false\s*$/m);
@@ -125,6 +131,25 @@ test("signed release artifacts keep exact source, integrity checks and isolated 
     source.indexOf(uses(download)) <
       source.indexOf("node scripts/release-metadata.mjs"),
   );
+});
+
+test("signed packaging validates native hosts and applies each platform's strict dependency gate", () => {
+  const source = workflows.release;
+  for (const [target, { rustTarget }] of Object.entries(releaseTargets)) {
+    assert.ok(source.includes(`target: ${target}`), target);
+    assert.ok(source.includes(`rust-target: ${rustTarget}`), rustTarget);
+  }
+  assert.ok(
+    source.includes("node scripts/release-targets.mjs ${{ matrix.target }}"),
+  );
+  assert.ok(
+    source.includes("node scripts/collect-release.mjs ${{ matrix.target }}"),
+  );
+  assert.ok(
+    source.includes("--target ${{ matrix.rust-target }} --locked check"),
+  );
+  assert.ok(source.includes("npm run tauri build"));
+  assert.doesNotMatch(source, /continue-on-error:\s*true|--ignore\s+RUSTSEC-/);
 });
 
 test("every new signed release starts as a prerelease draft and existing releases are not changed", () => {

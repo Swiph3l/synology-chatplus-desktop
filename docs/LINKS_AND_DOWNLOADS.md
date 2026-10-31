@@ -112,17 +112,20 @@ or a different destination.
 
 ## Platform and validation boundaries
 
-The owned confirmation and native Save As integrations target Windows. Linux/macOS
-remain experimental; these integrations are unavailable and external links have no
-unconfirmed fallback. Provider behavior still determines whether a click creates a
-browser download, popup or notification; a public `window.open` override can also
-prevent an attachment popup.
+External-link confirmation has native paths on Windows, macOS and Linux; the new
+platforms require native acceptance and have no unconfirmed fallback. The managed
+Save As and download-status integration remains Windows-specific. On macOS/Linux,
+use the provider's web app in a browser for attachments. Provider behavior still
+determines whether a click creates a browser download, popup or notification; a
+public `window.open` override can also prevent an attachment popup. See
+[platform capability boundaries](PLATFORMS.md#capability-boundaries).
 
 Maintain regression coverage for exact URL preservation, rejected schemes/origins,
 stale/cancelled confirmations, related popup policy, modal queue reentrancy, selected
 path integrity, collision reservations and text-safe status rendering. Native dialog
-appearance, authenticated transfers and provider popup behavior also require
-[Windows acceptance](WINDOWS_ACCEPTANCE.md).
+appearance and provider popup behavior also require
+[platform acceptance](PLATFORMS.md#native-acceptance-checklist); authenticated
+transfers additionally need [Windows acceptance](WINDOWS_ACCEPTANCE.md).
 
 Source: [`navigation.rs`](../src-tauri/src/navigation.rs),
 [`external_links.rs`](../src-tauri/src/external_links.rs),

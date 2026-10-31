@@ -1,8 +1,16 @@
 ChatPlus Desktop
 Copyright (c) 2026 Swiph3l
+Copyright (c) 2026 turbogizzmo (adapted fork contributions)
 
 Licensed under the GNU General Public License v3.0 only (GPL-3.0-only).
 Original project: https://github.com/Swiph3l/synology-chatplus-desktop
+
+The 1.0.0 candidate adapts DSM package launching, WebKit notification handling
+and macOS interaction fixes from turbogizzmo's GPL-3.0-only forks:
+https://github.com/turbogizzmo/synology-chatplus-desktop-Windows
+https://github.com/turbogizzmo/synology-chatplus-desktop-OSX
+These adaptations retain the original project identity and use a shared,
+origin-checked WebKit transport for macOS and Linux.
 
 ChatPlus Desktop is an independent, unofficial community desktop client for
 Synology ChatPlus. It is not affiliated with, endorsed by, sponsored by,

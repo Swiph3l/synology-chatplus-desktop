@@ -13,6 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { releaseTargets } from "../scripts/release-targets.mjs";
 import {
   repositoryIdentity,
   validateSourceCommit,
@@ -56,6 +57,8 @@ async function fixture(t) {
     "collect-release.mjs",
     "release-identity.mjs",
     "updater-metadata.mjs",
+    "release-targets.mjs",
+    "release-metadata.mjs",
     "checksums.mjs",
   ]) {
     await copyFile(
@@ -98,12 +101,18 @@ async function fixture(t) {
   git("commit", "--quiet", "-m", "Prepared release fixture");
   const commit = git("rev-parse", "HEAD");
   git("tag", tag);
-  const collect = (cwd, environment = {}) =>
+  const collect = (
+    cwd,
+    environment = {},
+    target = "windows-x86_64",
+    rustTarget,
+  ) =>
     spawnSync(
       process.execPath,
       [
         path.join(repositoryRoot, "scripts/collect-release.mjs"),
-        "windows-x86_64",
+        target,
+        ...(rustTarget ? [rustTarget] : []),
       ],
       {
         cwd,
@@ -280,4 +289,121 @@ test("Collection enforces tag, synchronized application versions and artifact id
     repo.collect(repo.externalRoot),
     /Collected artifact version disagrees with release source/,
   );
+});
+
+for (const [target, config] of Object.entries(releaseTargets).filter(
+  ([target]) => target !== "windows-x86_64",
+)) {
+  test(`${target} collection keeps installer and signed updater distinct with URL-safe names`, async (t) => {
+    const repo = await fixture(t);
+    const root = repo.repositoryRoot;
+    const bundle = path.join(
+      root,
+      "src-tauri/target",
+      config.rustTarget,
+      "release/bundle",
+    );
+    await mkdir(bundle, { recursive: true });
+    const artifact = path.join(
+      bundle,
+      `ChatPlus Desktop${config.updaterExtension}`,
+    );
+    const setup = path.join(
+      bundle,
+      `ChatPlus Desktop${config.installerExtension}`,
+    );
+    await writeFile(artifact, application);
+    await writeFile(artifact + ".sig", signature);
+    await writeFile(setup, installer);
+    const collect = () => repo.collect(root, {}, target, config.rustTarget);
+    const result = collect();
+    assert.equal(result.status, 0, result.stderr);
+    const prefix = `${target}--ChatPlus-Desktop_${version}_${config.architecture}`;
+    const output = path.join(root, "release-artifacts");
+    assert.deepEqual(
+      await readFile(path.join(output, prefix + config.updaterExtension)),
+      application,
+    );
+    assert.deepEqual(
+      await readFile(path.join(output, prefix + config.installerExtension)),
+      installer,
+    );
+    const provenance = JSON.parse(
+      await readFile(path.join(output, `${target}--target.json`), "utf8"),
+    );
+    assert.equal(provenance.file, prefix + config.updaterExtension);
+    assert.equal(provenance.sourceCommit, repo.commit);
+    await writeFile(artifact + ".sig", "");
+    rejected(collect(), /Updater signature must be nonempty/);
+    await writeFile(artifact + ".sig", signature);
+    await writeFile(
+      path.join(bundle, `duplicate${config.updaterExtension}`),
+      application,
+    );
+    rejected(collect(), /Expected exactly one/);
+    rejected(
+      repo.collect(root, {}, target, "unrelated-target"),
+      /Rust build target disagrees/,
+    );
+  });
+}
+
+test("Release metadata requires all four signed targets from the exact source commit", async (t) => {
+  const repo = await fixture(t);
+  const root = repo.repositoryRoot;
+  const output = path.join(root, "release-artifacts");
+  await mkdir(output);
+  await writeFile(
+    path.join(root, "project.json"),
+    JSON.stringify({
+      owner: "Swiph3l",
+      repository: "synology-chatplus-desktop",
+    }),
+  );
+  await writeFile(path.join(root, "CHANGELOG.md"), "Fixture release notes");
+  const encodedSignature = Buffer.from(
+    "untrusted comment: fixture\nfixture\ntrusted comment: fixture\nfixture",
+  ).toString("base64");
+  const manifests = [];
+  for (const [target, config] of Object.entries(releaseTargets)) {
+    const file = `${target}--fixture${config.updaterExtension}`;
+    await writeFile(path.join(output, file), application);
+    await writeFile(path.join(output, file + ".sig"), encodedSignature);
+    const manifest = path.join(output, `${target}--target.json`);
+    const bytes = JSON.stringify({
+      target,
+      file,
+      version,
+      sourceCommit: repo.commit,
+    });
+    manifests.push({ manifest, bytes });
+    await writeFile(manifest, bytes);
+  }
+  const generate = () =>
+    spawnSync(process.execPath, ["scripts/release-metadata.mjs"], {
+      cwd: root,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        GITHUB_REF_NAME: tag,
+        GITHUB_SHA: repo.commit,
+      },
+    });
+  let result = generate();
+  assert.equal(result.status, 0, result.stderr);
+  const metadata = JSON.parse(
+    await readFile(path.join(output, "latest-prerelease.json"), "utf8"),
+  );
+  assert.deepEqual(
+    Object.keys(metadata.platforms).sort(),
+    Object.keys(releaseTargets).sort(),
+  );
+  for (const { manifest, bytes } of manifests) {
+    await rm(manifest);
+    rejected(generate(), /updater package is required/);
+    await writeFile(manifest, bytes);
+  }
+  const { manifest, bytes } = manifests[0];
+  await writeFile(manifest, bytes.replace(repo.commit, "0".repeat(40)));
+  rejected(generate(), /Artifact provenance must match/);
 });

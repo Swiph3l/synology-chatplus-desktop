@@ -7,6 +7,11 @@ deliver toasts without owning that dot. Service selection, focus, toast clicks a
 toast dismissal never acknowledge unread.
 
 Provider coverage and origin rules are in [Service providers](PROVIDERS.md).
+The Windows toast lifecycle is described below. macOS/Linux candidate paths use
+native polling of a bounded provider outbox, then the shared unread/notification
+policy and native notification plugin. They do not yet route notification activation
+to a service or withdraw individual notifications. See
+[platform capability boundaries and acceptance](PLATFORMS.md#capability-boundaries).
 
 ## Authoritative unread model
 

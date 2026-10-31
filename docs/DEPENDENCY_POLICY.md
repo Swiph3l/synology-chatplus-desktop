@@ -34,7 +34,9 @@ node scripts/audit-linux.mjs
 ```
 
 The default cargo-deny target is `x86_64-pc-windows-msvc`, including build and
-development dependencies. Vulnerabilities, unsoundness, yanked crates, unapproved
+development dependencies. Each signed release job additionally runs the strict
+gate for its actual target: `x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu`,
+`aarch64-apple-darwin` or `x86_64-apple-darwin`. Vulnerabilities, unsoundness, yanked crates, unapproved
 licenses and unknown sources fail the gate. The advisory ignore list is empty.
 Direct unmaintained dependencies fail; transitive maintenance notices remain
 visible in the whole-lockfile audit and need dependency review.
@@ -50,10 +52,19 @@ See [licensing](LICENSING.md) for distribution requirements.
 reported as requiring Linux review without failing the Windows gate:
 `glib 0.18.5` / `RUSTSEC-2024-0429`, provided glib is absent from the Windows
 normal/build/development graph. A changed version, another advisory, malformed
-output or tool failure fails closed. This exception does not approve a Linux release.
+output or tool failure fails closed. This exception does not approve a Linux release
+and is not used to bypass the signed release job's strict Linux target gate.
 
-Before distributing Linux binaries, run the strict target check and resolve or
-explicitly review its findings:
+The candidate's locked graph reaches glib through Tauri's GTK3/WebKitGTK
+dependencies. The [advisory](https://rustsec.org/advisories/RUSTSEC-2024-0429.html)
+is fixed in glib 0.20 or later, while the GTK3 dependencies require glib 0.18.
+The compatible 0.18 line has no fixed version. Linux distribution remains blocked
+until that chain is repaired; native CI/build preparation does not remove the
+block. The aggregate release requires all four target manifests and therefore
+cannot silently publish the other targets after a Linux security failure.
+
+Before distributing Linux binaries, repair the dependency chain and pass the strict
+target check. A review note or advisory ignore is not a passing gate:
 
 ```sh
 cargo deny --manifest-path src-tauri/Cargo.toml --config deny.toml --target x86_64-unknown-linux-gnu --locked check
@@ -75,5 +86,6 @@ the original vulnerable chain is repaired. Prefer compatible parent upgrades.
 Record the reason for the change, affected dependency paths, migration details
 and validation in the PR. Run the applicable [test gates](TESTING.md), including
 production asset checks. Native COM, session, notification and updater changes
-also require the relevant [Windows acceptance](WINDOWS_ACCEPTANCE.md) cases.
+also require the relevant [platform acceptance](PLATFORMS.md#native-acceptance-checklist)
+and [Windows acceptance](WINDOWS_ACCEPTANCE.md) cases for affected targets.
 Keep one-off audit output and machine-specific logs outside the source checkout.

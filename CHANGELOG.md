@@ -2,6 +2,41 @@
 
 All notable changes will be documented here. Versions follow Semantic Versioning.
 
+## 1.0.0 - prerelease candidate
+
+### Added
+
+- Prepare native macOS 14+ builds for Apple Silicon and Intel, and Linux x64
+  AppImage/Debian packages alongside the existing Windows x64 installer.
+- Add native CI and per-platform release provenance, package/signature checks
+  and exact-platform signed updater selection.
+- Add Brazilian Portuguese and Italian interface resources shared by the shell,
+  native menus and errors, bringing the total to nine languages.
+- Add a bounded WebKit notification/unread transport without granting remote
+  provider pages native IPC permissions, plus separate macOS account stores.
+
+### Fixed
+
+- Open Synology ChatPlus or Synology Chat from a bare NAS address through the
+  DSM package launcher. Existing `/chat/` or custom paths remain supported;
+  configured URLs and origin restrictions are preserved.
+- Adapt macOS menu, Dock and text-editing behavior from turbogizzmo's forks.
+
+### Changed
+
+- Incorporate dependency updates from PRs #44–49: Tauri CLI 2.12.4, Vite 8.3.5,
+  linkedom 0.18.14, Tokio 1.54.1, clipboard-manager/store 2.5.0 and the paired
+  CodeQL action update. Node typings remain aligned with supported Node 22/24.
+- Replace the yanked async-executor 1.14.0 dependency with compatible 1.14.1.
+- Include the fixes and performance work prepared for the unpublished 0.9.1
+  candidate below. Preserve upstream fork attribution in NOTICE.
+
+This candidate is unpublished. New platform support still needs native acceptance;
+Linux publication is blocked by `glib 0.18.5` / `RUSTSEC-2024-0429` until the strict
+target dependency check passes. See [platform support](docs/PLATFORMS.md) and the
+[release checklist](docs/RELEASE_CHECKLIST.md). No known advisory is waived by adding
+a platform build.
+
 ## 0.9.1 - prerelease candidate
 
 ### Fixed

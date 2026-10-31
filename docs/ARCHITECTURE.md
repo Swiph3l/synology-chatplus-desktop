@@ -51,9 +51,10 @@ provider-specific; see [providers](PROVIDERS.md).
 
 ID validation rejects traversal, case-insensitive collisions and Windows reserved
 names. A service ID is its account/profile identity; renaming does not change it.
-Additional views use app-local-data `services/<id>` profiles. Migration preserves the
-legacy `chatplus` ID's original default profile directory. Removal retains its disk
-profile. Replacing a service's provider or URL invalidates its live session and
+Additional views use app-local-data `services/<id>` profiles on Windows/Linux.
+macOS 14+ uses persistent WKWebView data-store identifiers derived from the
+application and service identities. Migration preserves the legacy `chatplus`
+ID's original default store. Removal retains local session data. Replacing a service's provider or URL invalidates its live session and
 cached observations. Provider authentication stays in the browser profile; the
 desktop does not extract or persist credentials itself.
 
@@ -82,7 +83,7 @@ may hide a title/tray badge without changing the unread state.
 `hasUnread` is boolean, with separate known-read/known-unread/unknown certainty,
 optional counts and conversation evidence. Counts remain unavailable where providers
 only expose mentions, ambiguous rows or incomplete navigation. Provider DOM
-observations are inputs, and submitting a Windows toast never defines unread.
+observations are inputs, and submitting a native notification never defines unread.
 Selection, focus, toast activation and toast dismissal cannot acknowledge unread.
 Explicit read actions retain their own provider and instance boundaries. See
 [NOTIFICATIONS.md](NOTIFICATIONS.md) for the transition and proof rules.
@@ -91,9 +92,19 @@ Explicit read actions retain their own provider and instance boundaries. See
 
 Local commands verify the invoking view label and local origin. The capability
 file grants event listen/unlisten to named bundled views; remote services have no
-native Tauri capability grants. A Windows WebView2 message bridge validates the
+native Tauri capability grants. The Windows WebView2 message bridge validates the
 configured service, exact source origin, packet shape, bounded values and current
-foreground generation before accepting provider observations.
+foreground generation before accepting provider observations. macOS and Linux
+use native `eval_with_callback` polling of a bounded provider outbox and feed the
+same validated transition path. Polling does not grant remote documents Tauri IPC
+access; stale service sessions and unexpected origins cannot submit observations.
+
+Non-Windows browser notification events pass through the provider shim to the
+native notification plugin. Notification preview, mute and unread policy stay in
+shared native code. Per-service notification activation and individual withdrawal
+remain Windows-specific. On macOS, background throttling is disabled for provider
+views so hidden services retain their event stream; runtime acceptance still needs
+to verify this behavior. [PLATFORMS.md](PLATFORMS.md) records platform limits.
 
 Provider documents receive project bootstrap code, not desktop command authority.
 Navigation and popup rules are per provider. Allowed popups use separate related
@@ -107,7 +118,8 @@ Windows download handling defers the original transfer for a queued native Save 
 picker, then displays the chosen full local destination. It does not copy cookies
 into a custom HTTP client or execute completed files. The selected path is ephemeral
 shell state. [Links and downloads](LINKS_AND_DOWNLOADS.md) defines routing,
-confirmation and destination contracts.
+confirmation and destination contracts. The managed download hook is
+Windows-specific; macOS/Linux do not yet implement its Save As/status contract.
 
 ## Build and release boundaries
 
@@ -122,8 +134,11 @@ excluded from production assets and release native commands.
 
 Normal local builds strip signing credentials and disable updater artifacts while
 retaining the public runtime verification key. Version tags alone enter the signed
-Windows draft-release workflow; required checks must pass on that commit, and public
-publication is a separate operation. [UPDATER.md](UPDATER.md) describes this boundary.
+cross-platform draft-release workflow. Windows x64, Linux x64 and both macOS
+architectures require their native checks and strict target security gates on the
+same commit. The aggregate requires every target manifest; the current upstream
+Linux glib advisory blocks distribution. Public publication is a separate operation.
+[UPDATER.md](UPDATER.md) describes this boundary.
 
 ## Source map
 

@@ -12,7 +12,8 @@ import {
   validateSigning,
   repositoryIdentity,
 } from "../scripts/release-identity.mjs";
-import { requireWindowsJob } from "../scripts/release-checks.mjs";
+import { requirePlatformJobs } from "../scripts/release-checks.mjs";
+import { releaseTargets } from "../scripts/release-targets.mjs";
 
 test("release requires exact synchronized version and production signing configuration", () => {
   const version = JSON.parse(readFileSync("package.json", "utf8")).version;
@@ -36,17 +37,23 @@ test("release requires exact synchronized version and production signing configu
     ),
   );
 });
-test("Windows gate ignores experimental platforms but rejects missing or failing Windows", () => {
-  requireWindowsJob([
-    { name: "validate (windows-latest, nsis)", conclusion: "success" },
-    { name: "validate (ubuntu-latest, deb)", conclusion: "failure" },
-  ]);
-  assert.throws(() => requireWindowsJob([]));
-  assert.throws(() =>
-    requireWindowsJob([
-      { name: "validate (windows-latest, nsis)", conclusion: "failure" },
-    ]),
-  );
+test("Release gate requires successful native CI for every distributed platform", () => {
+  const jobs = Object.values(releaseTargets).map(({ ciName }) => ({
+    name: ciName,
+    status: "completed",
+    conclusion: "success",
+  }));
+  requirePlatformJobs(jobs);
+  for (let i = 0; i < jobs.length; i++) {
+    assert.throws(() => requirePlatformJobs(jobs.filter((_, j) => j !== i)));
+    assert.throws(() => requirePlatformJobs([...jobs, jobs[i]]));
+    for (const conclusion of ["failure", "cancelled", "skipped", null])
+      assert.throws(() =>
+        requirePlatformJobs(
+          jobs.map((job, j) => (i === j ? { ...job, conclusion } : job)),
+        ),
+      );
+  }
 });
 test("beta metadata never overwrites stable manifest and checksums hash actual EXE bytes", async () => {
   assert.equal(manifestName("0.5.0-beta.1"), "latest-prerelease.json");

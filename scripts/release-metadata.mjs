@@ -4,6 +4,7 @@ import {
   repositoryIdentity,
   validateSourceCommit,
 } from "./release-identity.mjs";
+import { releaseTargets } from "./release-targets.mjs";
 const root = "release-artifacts";
 const targets = {};
 const source = validateSourceCommit(
@@ -19,11 +20,14 @@ for (const file of await readdir(root))
         "Artifact provenance must match the release version and exact source commit",
       );
     if (targets[manifest.target]) throw new Error("Duplicate release target");
+    if (!Object.hasOwn(releaseTargets, manifest.target))
+      throw new Error("Unsupported release target");
     targets[manifest.target] = manifest.file;
   }
 const project = JSON.parse(await readFile("project.json", "utf8"));
-if (!targets["windows-x86_64"] && !targets["windows-x86_64-nsis"])
-  throw new Error("A signed Windows x64 updater installer is required");
+for (const target of Object.keys(releaseTargets))
+  if (!targets[target])
+    throw new Error(`A signed ${target} updater package is required`);
 const metadata = await generate(
   root,
   version,

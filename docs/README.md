@@ -7,12 +7,13 @@ or IPC boundaries. User installation and feature information is in the
 
 ## Build and contribute
 
-| Guide                                       | Contents                                                  |
-| ------------------------------------------- | --------------------------------------------------------- |
-| [Development](DEVELOPMENT.md)               | Prerequisites, local setup, commands and source layout    |
-| [Testing](TESTING.md)                       | Automated checks, regression suites and test fixtures     |
-| [Windows acceptance](WINDOWS_ACCEPTANCE.md) | Reusable native and authenticated-provider test checklist |
-| [Contributing](../CONTRIBUTING.md)          | Review, coding and contribution conventions               |
+| Guide                                       | Contents                                                             |
+| ------------------------------------------- | -------------------------------------------------------------------- |
+| [Development](DEVELOPMENT.md)               | Prerequisites, local setup, commands and source layout               |
+| [Testing](TESTING.md)                       | Automated checks, regression suites and test fixtures                |
+| [Platforms](PLATFORMS.md)                   | Target status, capability limits, installation and native acceptance |
+| [Windows acceptance](WINDOWS_ACCEPTANCE.md) | Reusable native and authenticated-provider test checklist            |
+| [Contributing](../CONTRIBUTING.md)          | Review, coding and contribution conventions                          |
 
 ## Understand the application
 

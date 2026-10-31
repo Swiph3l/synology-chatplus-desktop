@@ -1,7 +1,7 @@
 # Contributing
 
 ChatPlus Desktop is maintained by Swiph3l. Contributions to bugs, provider integration,
-translations, accessibility, Windows testing and documentation are welcome.
+translations, accessibility, native platform testing and documentation are welcome.
 
 Start with the [documentation index](docs/README.md), [local development](docs/DEVELOPMENT.md)
 and [testing](docs/TESTING.md). The lightweight Tauri 2, Rust and vanilla TypeScript
@@ -17,15 +17,19 @@ architecture and clearly unofficial branding should remain intact.
 - Notification diagnostics must omit message content, credentials/tokens, tags and
   private URLs. Never commit test accounts, profiles, keys, logs or private screenshots.
 - Before review, run `git diff --check`, inspect staged/untracked files and record
-  automatic results and native Windows checks actually performed in the PR. Keep
+  automatic results and native checks actually performed on each platform in the PR. Keep
   release notes user-readable and technical guides current with the code.
 - Keep session notes, raw logs, local build receipts and machine-specific paths
   outside the source checkout. `docs` contains reusable developer documentation;
   see its [conventions](docs/README.md#documentation-conventions).
 
-Current development CI validates Windows; Linux/macOS are experimental. Native
-runtime acceptance is separate from a successful build. Tags enter a signed draft
-release workflow; routine contributions must not tag, publish or push a release.
+The `1.0.0` candidate adds native CI for Windows x64, Linux x64 and both macOS
+architectures. macOS and Linux remain candidates pending the
+[platform acceptance checklist](docs/PLATFORMS.md#native-acceptance-checklist).
+Linux distribution is blocked by the upstream glib advisory; do not weaken its
+strict target security gate to produce a package. Native runtime acceptance is
+separate from a successful build. Tags enter a signed draft release workflow;
+routine contributions must not tag, publish or push a release.
 
 By submitting a contribution, you agree that accepted work is distributed under
 [GNU GPLv3 (GPL-3.0-only)](LICENSE). You retain your copyright; there is no copyright

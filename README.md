@@ -1,8 +1,8 @@
 # ChatPlus Desktop
 
-<img src="public/chatplus.png" alt="ChatPlus Desktop Windows app icon" width="64" />
+<img src="public/chatplus.png" alt="ChatPlus Desktop app icon" width="64" />
 
-ChatPlus Desktop is an unofficial open-source Windows desktop client for Synology
+ChatPlus Desktop is an unofficial open-source desktop client for Synology
 ChatPlus and Synology Chat, with multi-service messaging support. It brings your
 self-hosted chat on a Synology NAS and services such as Discord into one lightweight
 Tauri application.
@@ -15,7 +15,7 @@ Tauri application.
 
 ## Why ChatPlus Desktop?
 
-- Keep Synology ChatPlus or Synology Chat close at hand with a convenient Windows app.
+- Keep Synology ChatPlus or Synology Chat close at hand with a convenient desktop app.
 - Switch between multiple communication services and separate account profiles.
 - See unread indicators and native notifications while working in other applications.
 - Keep the app in the system tray and choose your theme, language and update preferences.
@@ -52,27 +52,32 @@ client with no Meta affiliation.
 ## Features
 
 - Multiple chat services in one app, with persistent per-service sessions.
-- Native Windows notifications with Full, Sender/chat or Generic previews and sound.
-- Per-service unread dots and shared tray, title and taskbar unread presentation.
+- Native notifications with Full, Sender/chat or Generic previews and sound.
+- Per-service unread dots and shared tray/title unread presentation, plus Windows
+  taskbar indicators.
 - Service-specific desktop notification mute and tray restore/hide controls.
 - Automatic update checks (optional), signed updates and an **Include beta updates** preference.
-- PDF and ordinary attachment downloads through the provider's WebView2 session,
+- On Windows, PDF and ordinary attachment downloads through the provider's WebView2 session,
   with an explicit Save As dialog, visible destination and safe duplicate filenames.
 - External web links show their destination in a confirmation before opening the
   default browser.
 - Light, Dark and System themes; English, Polish, Spanish, German, French,
-  Japanese and Traditional Chinese interface.
-- Native menus, zoom/fullscreen, saved window geometry and optional start with Windows.
+  Japanese, Traditional Chinese, Brazilian Portuguese and Italian interface.
+- Native menus, zoom/fullscreen, saved window geometry and optional start at login.
 
-Current development is `0.5.0-beta.6`, focused on reliability. Windows x64 is the
-supported target; Linux/macOS are experimental. Native changes are covered by the
-[Windows acceptance checklist](docs/WINDOWS_ACCEPTANCE.md).
+Current development is the **`1.0.0` candidate**. Windows x64 remains the established
+target. Native build and release preparation now covers macOS 14+ on Apple Silicon
+and Intel, and Linux x64 with an Ubuntu 24.04 baseline. These new platforms require
+native acceptance before their support is promoted. Linux distribution is blocked
+by a known upstream glib advisory; the release workflow requires every target's
+security gate to pass. See [platform status and limitations](docs/PLATFORMS.md).
 
 ## Download
 
-**[Download Windows builds from GitHub Releases](https://github.com/Swiph3l/synology-chatplus-desktop/releases).**
+**[Download published builds from GitHub Releases](https://github.com/Swiph3l/synology-chatplus-desktop/releases).**
 
-Choose a published Windows x64 setup installer. Stable releases are intended for
+Choose a package explicitly published for your platform. Candidate preparation
+does not imply that macOS or Linux packages have been published. Stable releases are intended for
 regular use; beta and pre-release builds include changes for testing. Enable
 **Include beta updates** in Settings to consider both stable and beta releases;
 leave it off for stable releases only. Installation/restart requires confirmation.
@@ -84,22 +89,26 @@ Windows builds may display a SmartScreen prompt. See [update details](docs/UPDAT
 ## Installation
 
 1. Download the Windows x64 setup from [Releases](https://github.com/Swiph3l/synology-chatplus-desktop/releases).
-2. Run the installer; Microsoft WebView2 is required and can be installed by setup.
+   See [platform installation](docs/PLATFORMS.md) for macOS and Linux candidate requirements.
+2. Run the installer; Microsoft WebView2 is required on Windows and can be installed by setup.
 3. Enter your Synology ChatPlus/Synology Chat server URL, for example
-   `https://example.com/chat/`, and sign in through the provider's own interface.
+   `https://nas.example.com`, and sign in through the provider's own interface.
+   A bare NAS address uses Synology's Chat launcher. Existing `/chat/`, `/chatplus/`
+   or custom reverse-proxy paths are preserved; a dedicated chat hostname can use `/`.
 4. Use **Settings > Services** to add other services or separate accounts. Enable global
    Desktop notifications and the desired service preference, then Save.
 
-Provider notification preferences and Windows permissions also apply. Settings Save
+Provider notification preferences and operating-system permissions also apply. Settings Save
 keeps the window open with inline confirmation; Close is separate. Sessions are
-managed locally by WebView2. Finish drafts/calls before changing a service URL/provider.
+managed locally by the platform WebView. Finish drafts/calls before changing a service URL/provider.
 
 ## Privacy
 
 ChatPlus Desktop adds no advertising and does not monetize conversation content.
 Providers load from their own services; the shell does not collect sign-in passwords.
-WebView2 handles local cookies/session profiles, with separate profiles for added
-services. Removing a service retains its disk profile.
+The platform WebView handles local cookies/session profiles, with separate stores
+for added services. macOS isolation requires macOS 14 or later. Removing a service
+retains its local session store.
 
 Optional update checks contact GitHub for release metadata/packages. Notification
 previews use the provider's supplied content according to your preference. Diagnostics
@@ -110,7 +119,7 @@ own privacy policy still applies. See [security reporting](SECURITY.md).
 
 Start with [developer documentation](docs/README.md) and
 [CONTRIBUTING.md](CONTRIBUTING.md). Contributions to bug fixes, provider integration,
-translations, accessibility, documentation and Windows testing are welcome.
+translations, accessibility, documentation and native platform testing are welcome.
 
 See also [architecture](docs/ARCHITECTURE.md), [notifications](docs/NOTIFICATIONS.md),
 [provider integration](docs/PROVIDERS.md) and [testing](docs/TESTING.md).
@@ -118,7 +127,7 @@ See also [architecture](docs/ARCHITECTURE.md), [notifications](docs/NOTIFICATION
 ## Reporting bugs
 
 [Open a GitHub issue](https://github.com/Swiph3l/synology-chatplus-desktop/issues/new/choose)
-with app/Windows/WebView2 versions, provider version and safe reproduction steps.
+with app, operating-system and WebView versions, provider version and safe reproduction steps.
 For unread issues, describe foreground/background/minimized state, selected service,
 restore versus actual conversation input/reply, and sidebar/tray/toast results.
 About > **Copy diagnostics** supplies bounded privacy-safe transition information.

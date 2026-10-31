@@ -2,18 +2,20 @@ import assert from "node:assert/strict";
 import { setTimeout } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { validateSourceCommit } from "./release-identity.mjs";
+import { releaseTargets } from "./release-targets.mjs";
 
 const pending = (check) =>
   ["queued", "in_progress", "requested", "waiting", "pending"].includes(
     check.status,
   );
 
-export function requireWindowsJob(jobs) {
-  const windows = jobs.filter((job) =>
-    job.name.startsWith("validate (windows-latest,"),
-  );
-  assert.equal(windows.length, 1, "Expected one Windows CI job");
-  assert.equal(windows[0].conclusion, "success", "Windows CI must pass");
+export function requirePlatformJobs(jobs) {
+  for (const [target, { ciName }] of Object.entries(releaseTargets)) {
+    const matches = jobs.filter((job) => job.name === ciName);
+    assert.equal(matches.length, 1, `Expected one ${target} CI job`);
+    assert.equal(matches[0].status, "completed", `${target} CI must complete`);
+    assert.equal(matches[0].conclusion, "success", `${target} CI must pass`);
+  }
 }
 export async function waitForChecks(
   api,
@@ -66,25 +68,14 @@ export async function waitForChecks(
         waiting.push(`${workflow}: missing run on main for the tagged commit`);
         continue;
       }
-      let check = run;
+      const check = run;
       let jobs;
-      const label = workflow === "ci.yml" ? "Windows CI" : workflow;
+      const label = workflow === "ci.yml" ? "Native CI" : workflow;
       if (workflow === "ci.yml") {
         remainingTime();
         jobs = (
           await api(`/actions/runs/${run.id}/jobs?filter=latest&per_page=100`)
         ).jobs;
-        const windows = jobs.filter((job) =>
-          job.name.startsWith("validate (windows-latest,"),
-        );
-        if (!windows.length && pending(run)) {
-          waiting.push(
-            `${workflow}: waiting for the Windows job (${run.status})`,
-          );
-          continue;
-        }
-        assert.equal(windows.length, 1, "Expected one Windows CI job");
-        check = windows[0];
       }
       if (pending(check)) {
         assert.notEqual(
@@ -96,13 +87,12 @@ export async function waitForChecks(
         continue;
       }
       assert.equal(check.status, "completed", `${label} must complete`);
-      if (jobs) requireWindowsJob(jobs);
-      else
-        assert.equal(
-          check.conclusion,
-          "success",
-          `${workflow} must pass for the tagged commit`,
-        );
+      if (jobs) requirePlatformJobs(jobs);
+      assert.equal(
+        check.conclusion,
+        "success",
+        `${workflow} must pass for the tagged commit`,
+      );
       verified.push(`Verified ${workflow}: ${run.html_url}`);
     }
     if (!waiting.length) {

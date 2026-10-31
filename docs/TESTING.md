@@ -1,12 +1,18 @@
 # Testing
 
 Automated tests validate policy, state transitions and synthetic provider DOM.
-Native Windows acceptance covers actual WebView2 behavior, toast presentation,
-provider sessions and dialogs. Record those forms of evidence separately.
+Native acceptance covers actual WebView2, WKWebView or WebKitGTK behavior,
+notification presentation, provider sessions and dialogs. Record automated and
+native evidence separately for each operating system and architecture. macOS and
+Linux are candidate platforms; a build alone does not establish their acceptance.
+Stable `1.0.0` acceptance requires native results on every advertised target,
+authenticated provider and separate-account checks, and installed signed-update
+verification. Record unperformed checks as pending.
 
 ## Full automated checks
 
-From the repository root, with the Rust MSVC/C++ environment available:
+From the repository root, with the host's native development dependencies available
+(including the MSVC/C++ environment on Windows):
 
 ```sh
 npm ci
@@ -28,8 +34,10 @@ frontend assets and provider/theme bundles embedded by native builds. The releas
 asset check rejects development fixtures in production output. Prettier and
 rustfmt provide formatting checks; there is no separate application lint script.
 
-CI runs the Windows frontend/native checks and a second frontend job on the other
-supported Node major. Security workflows cover npm, Rust advisories,
+CI runs native checks on Windows x64, Ubuntu 24.04 x64, macOS Apple Silicon and macOS
+Intel, plus a separate frontend job on the other supported Node major. Linux
+headless native tests use `xvfb-run -a cargo test --locked --manifest-path
+src-tauri/Cargo.toml`. Security workflows cover npm, Rust advisories,
 licenses/sources, secrets and static analysis. Follow
 [DEPENDENCY_POLICY.md](DEPENDENCY_POLICY.md) when reviewing findings.
 
@@ -60,6 +68,7 @@ actually inspected.
 | Service IDs, profiles, startup and settings | `services.test.mjs`, `service-removal.test.mjs`, `service-settings.test.mjs`, native `services` and `state`                                  |
 | Theme persistence and provider isolation    | `theme.test.mjs`, `provider-bootstrap.test.mjs`                                                                                              |
 | Navigation and downloads                    | `navigation.test.mjs`, `attachment-download.test.mjs`, native `navigation`, `external_links` and `downloads`                                 |
+| Platform packages and native integration    | Release target/collection/metadata suites, native `platform`; [platform acceptance](PLATFORMS.md#native-acceptance-checklist)                |
 | Updater and release boundaries              | `updates.test.mjs`, release/wrapper/metadata/checksum suites, native updater tests                                                           |
 | Locales and UI contracts                    | `localization.test.mjs`, settings, rail, footer and notification-color suites                                                                |
 
@@ -86,8 +95,9 @@ Connection tests retain separate per-service transport states while suppressing
 duplicate reports.
 
 Operation counts are regression budgets, not measurements of whole-application
-CPU or memory. Compare native builds using the same services, accounts, window
-state and warm-up period; include the shell and its WebView2 descendants. Keep
+CPU or memory. Compare native builds using the same operating system, engine,
+services, accounts, window state and warm-up period; include the shell and its
+WebView processes. Keep
 native measurements, environment details and raw profiles outside the source
 checkout. Report live provider acceptance separately from fixture results.
 
@@ -125,10 +135,13 @@ Build a standalone debug app with:
 npm run tauri -- build --debug --no-bundle
 ```
 
-Use [WINDOWS_ACCEPTANCE.md](WINDOWS_ACCEPTANCE.md) for actual provider, notification,
-theme, download, session and desktop behavior. Record the build identity, Windows
-and WebView2 versions, provider version and each observed result. Keep logs and
-private screenshots outside the repository.
+Use the [platform acceptance checklist](PLATFORMS.md#native-acceptance-checklist)
+for actual provider, notification, theme, session and desktop behavior on every
+target. Windows additionally uses [WINDOWS_ACCEPTANCE.md](WINDOWS_ACCEPTANCE.md)
+for its toast/download contracts. Record build identity, OS/architecture and engine
+versions, provider version and each observed result. Keep logs and private
+screenshots outside the repository. Do not count an unimplemented platform feature
+or an unperformed authenticated-provider check as passing.
 
 Run optimized Rust tests when changing behavior sensitive to build mode:
 
@@ -141,3 +154,6 @@ production installer supplied through `CHATPLUS_SIGNED_ARTIFACT`. Run that fixtu
 explicitly when validating production signatures. It does not replace an installed
 signed-updater test. Packaging, installation and restart gates are covered by the
 [release checklist](RELEASE_CHECKLIST.md) and [updater guide](UPDATER.md).
+Each release target also needs its strict `cargo deny --target <rust-target>` gate.
+Linux distribution remains blocked by the upstream glib advisory; the reporting
+exception for Windows validation does not approve Linux packages.

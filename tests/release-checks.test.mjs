@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { waitForChecks } from "../scripts/release-checks.mjs";
+import { releaseTargets } from "../scripts/release-targets.mjs";
 
 const commit = "a".repeat(40);
 const workflows = ["ci.yml", "codeql.yml", "security.yml"];
@@ -18,7 +19,7 @@ const run = (workflow, overrides = {}) => ({
   ...overrides,
 });
 const windows = (overrides = {}) => ({
-  name: "validate (windows-latest, stable)",
+  name: "validate (windows-latest, dev)",
   status: "completed",
   conclusion: "success",
   ...overrides,
@@ -28,7 +29,23 @@ const snapshot = (runs = {}, jobs = { 1: [windows()] }) => ({
     ...Object.fromEntries(workflows.map((name) => [name, [run(name)]])),
     ...runs,
   },
-  jobs,
+  jobs: Object.fromEntries(
+    Object.entries(jobs).map(([id, entries]) => [
+      id,
+      entries.length
+        ? [
+            ...entries,
+            ...Object.values(releaseTargets)
+              .filter(({ ciName }) => !ciName.includes("windows-latest"))
+              .map(({ ciName }) => ({
+                name: ciName,
+                status: "completed",
+                conclusion: "success",
+              })),
+          ]
+        : [],
+    ]),
+  ),
 });
 
 function harness(snapshots, { requestTime = () => 0, ...options } = {}) {
@@ -183,7 +200,7 @@ test("One shared deadline reports pending statuses and missing runs", async () =
   await assert.rejects(gate.wait(), (error) => {
     assert.match(error.message, /Timed out/);
     assert.ok(error.message.includes(commit));
-    assert.match(error.message, /Windows CI: requested/);
+    assert.match(error.message, /Native CI: queued/);
     assert.match(error.message, /codeql\.yml: waiting/);
     assert.match(error.message, /security\.yml: missing run/);
     return true;
@@ -222,16 +239,16 @@ test("Completed or inconsistent checks fail immediately", async (t) => {
     });
   }
   for (const [name, jobs, message] of [
-    ["missing Windows", [], /Expected one Windows CI job/],
+    ["missing Windows", [], /Expected one windows-x86_64 CI job/],
     [
       "duplicate Windows",
       [windows(), windows()],
-      /Expected one Windows CI job/,
+      /Expected one windows-x86_64 CI job/,
     ],
     [
       "pending Windows in completed CI",
       [windows({ status: "in_progress", conclusion: null })],
-      /cannot be pending in a completed workflow/,
+      /must complete/,
     ],
     [
       "unknown Windows status",
@@ -319,7 +336,7 @@ test("Every poll rechecks prior successes when a newer run or rerun appears", as
   }
 });
 
-test("Successful Windows CI permits experimental platform failures", async () => {
+test("Release rejects a failed CI workflow even when native job snapshots succeeded", async () => {
   const gate = harness([
     snapshot(
       { "ci.yml": [run("ci.yml", { conclusion: "failure" })] },
@@ -335,6 +352,6 @@ test("Successful Windows CI permits experimental platform failures", async () =>
       },
     ),
   ]);
-  await gate.wait();
+  await assert.rejects(gate.wait(), /ci.yml must pass/);
   assert.deepEqual(gate.sleeps, []);
 });

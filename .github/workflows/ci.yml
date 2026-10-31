@@ -9,8 +9,12 @@ permissions:
 jobs:
   validate:
     # Swiph3l: Release artifacts are tag-only; branch CI must stay lightweight.
-    name: validate (windows-latest, dev)
-    runs-on: windows-latest
+    name: validate (${{ matrix.os }}, dev)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-24.04, macos-15, macos-15-intel]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (Node 24)
         with:
@@ -24,6 +28,11 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt
+      - name: Install Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libayatana-appindicator3-dev librsvg2-dev patchelf libssl-dev xvfb
       - run: npm ci
       - run: npm run check:dependencies
       - run: npm run format:check
@@ -34,8 +43,11 @@ jobs:
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
       - run: cargo check --locked --manifest-path src-tauri/Cargo.toml
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+        if: runner.os != 'Linux'
+      - run: xvfb-run -a cargo test --locked --manifest-path src-tauri/Cargo.toml
+        if: runner.os == 'Linux'
   frontend-node24:
-    # Swiph3l: Cover Node 24 without duplicating Rust builds or renaming the Windows release gate.
+    # Swiph3l: Cover Node 24 separately from the native platform matrix.
     name: frontend (ubuntu-latest, Node 24)
     runs-on: ubuntu-latest
     steps:

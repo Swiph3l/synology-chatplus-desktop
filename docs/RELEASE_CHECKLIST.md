@@ -1,14 +1,22 @@
 # Release checklist
 
-Version tags trigger the Windows x64 signed draft-release pipeline. Every new
-draft is marked prerelease, including plain tags such as `v0.9.0`. Publishing
-and stable promotion are separate maintainer actions. Linux and macOS are
-experimental and need their own target validation before distribution.
+Version tags trigger the native matrix signed draft-release pipeline for Windows
+x64, Linux x64 and macOS Apple Silicon/Intel. Every new draft is marked prerelease,
+including plain tags such as `v1.0.0`. Publishing and stable promotion are separate
+maintainer actions. New platforms need [native acceptance](PLATFORMS.md) before
+distribution. Linux is currently blocked by the strict glib advisory gate; do not
+tag a candidate expecting a complete release until that gate passes.
 
 Keep the candidate commit, tool versions, test results and final artifact hashes
 with the release record. An unchecked or unavailable check is not a pass.
 
 ## Source and validation
+
+For 1.0.0, treat the platform matrix below as the support contract. Keep new
+platforms explicitly marked candidate until their native checklist passes, retain
+existing settings/session identities through upgrades, and publish only capabilities
+actually exercised on the advertised systems. A version bump does not complete
+these checks.
 
 - [ ] Review the source revision and confirm it contains no private files,
       account profiles, machine paths or development fixtures.
@@ -16,11 +24,14 @@ with the release record. An unchecked or unavailable check is not a pass.
       intended tag, and write user-facing release notes.
 - [ ] Run the [automated gates](TESTING.md), dependency/secret audits and
       [target-specific dependency policy](DEPENDENCY_POLICY.md).
-- [ ] Require Windows CI, CodeQL and security checks on the exact tagged main
+- [ ] Require all four native CI jobs, CodeQL and security checks on the exact tagged main
       commit. Review failures and advisories rather than suppressing them.
 - [ ] Complete [Windows acceptance](WINDOWS_ACCEPTANCE.md) for the candidate,
       including isolated profiles, background startup, notifications, read
       actions, links, downloads, themes and DPI.
+- [ ] Complete macOS 14+ Apple Silicon/Intel and Linux acceptance in
+      [platform support](PLATFORMS.md), including two-account isolation,
+      notifications, Edit shortcuts, restart and signed upgrade behavior.
 - [ ] Review remote-view capabilities, local command origin checks and provider
       navigation/permission boundaries.
 
@@ -29,9 +40,13 @@ with the release record. An unchecked or unavailable check is not a pass.
 - [ ] Provision production signing as described in
       [UPDATER_SIGNING.md](UPDATER_SIGNING.md). Keep private credentials outside
       source and limited to the release build step.
-- [ ] Build the signed NSIS setup using the tag workflow. Keep package version,
+- [ ] Pass strict dependency checks for every target; resolve findings without
+      extending the Windows-only glib audit exception to Linux.
+- [ ] Build signed NSIS, AppImage and macOS update packages using the tag workflow. Keep package version,
       tag, source commit, manifest URL and signature aligned.
 - [ ] Verify the collected package with the production signature fixture.
+- [ ] Review all four provenance records and updater manifest targets; verify
+      that `.dmg` and `.deb` manual downloads are not used as update payloads.
 - [ ] Inspect installer name, publisher, icon, license, architecture and contents.
       Exclude local profiles, private URLs, build logs and debug fixtures.
 - [ ] Generate npm/Rust SBOMs and retain required third-party notices and
@@ -41,6 +56,9 @@ with the release record. An unchecked or unavailable check is not a pass.
 - [ ] Check app/installer Authenticode and scan the final files with an active,
       updated antivirus engine. Record actual results; updater signing does not
       imply Authenticode or remove SmartScreen warnings.
+- [ ] Verify macOS Developer ID signing/notarization separately when configured;
+      a Tauri update signature does not establish Apple trust. Confirm the
+      actual Gatekeeper behavior of the distributed image.
 
 Useful verification commands, with the final artifact substituted:
 
@@ -57,6 +75,9 @@ must use an artifact intended for public distribution.
 ## Installation and updates
 
 - [ ] Fresh-install on clean Windows with WebView2 present and absent.
+- [ ] Fresh-install the `.dmg` on macOS 14+ for each architecture and the Linux
+      `.deb`/AppImage on the supported WebKitGTK 4.1 distribution. Verify executable
+      permission, FUSE requirements and package dependencies.
 - [ ] Upgrade from a supported prior production-key version. Verify the installed
       version, settings, isolated provider sessions and normal restart behavior.
 - [ ] Exercise stable/beta eligibility with **Include beta updates** off and on;
@@ -71,7 +92,7 @@ must use an artifact intended for public distribution.
 
 - [ ] Review the generated draft assets, channel manifest, signatures, checksums,
       SBOMs, attestation and release notes. The updater targets the NSIS setup,
-      not the standalone application.
+      native AppImage or macOS app archive appropriate to the platform.
 - [ ] Capture current, sanitized [screenshots](screenshots/README.md) if needed.
 - [ ] Approve initial publication as a prerelease with the unchanged reviewed
       artifacts. Confirm discovery with **Include beta updates** on, exclusion
