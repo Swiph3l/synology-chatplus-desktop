@@ -12,7 +12,7 @@ establish authenticated-provider or desktop behavior.
 | Windows x64         | Windows with Microsoft Edge WebView2 | WebView2      | NSIS setup `.exe`                                | Established target; run the Windows acceptance checklist for changes |
 | macOS Apple Silicon | macOS 14 or later, arm64             | WKWebView     | `.dmg`, `.app`; `.app.tar.gz` for signed updates | Candidate; native acceptance pending                                 |
 | macOS Intel         | macOS 14 or later, x86_64            | WKWebView     | `.dmg`, `.app`; `.app.tar.gz` for signed updates | Candidate; native acceptance pending                                 |
-| Linux x64           | Ubuntu 24.04 build/runtime baseline  | WebKitGTK 4.1 | `.AppImage`, `.deb`                              | Candidate; distribution blocked by upstream glib advisory            |
+| Linux x64           | Ubuntu 24.04 build/runtime baseline  | WebKitGTK 4.1 | `.AppImage`, `.deb`                              | Candidate; backport validation and native acceptance pending         |
 
 Use only packages actually published in [GitHub Releases](https://github.com/Swiph3l/synology-chatplus-desktop/releases).
 The prepared target list is not a list of available downloads. macOS packages are
@@ -47,7 +47,7 @@ still require native verification.
 | Managed attachment downloads with native Save As and download status            | Implemented through WebView2   | Unavailable                                   | Unavailable                               |
 | External-link confirmation                                                      | Implemented                    | Candidate                                     | Candidate                                 |
 | Native menus, window restore and start at login                                 | Implemented                    | Candidate; Edit menu and Dock reopen handling | Candidate; desktop session dependent      |
-| Signed update installation                                                      | Windows installer              | Application archive; candidate                | AppImage; candidate and release-blocked   |
+| Signed update installation                                                      | Windows installer              | Application archive; candidate                | AppImage; candidate                       |
 
 Use the provider's web app in a browser for attachments when managed downloads are
 unavailable. Provider login popups, authentication redirects, calls and browser
@@ -100,22 +100,26 @@ signing follows [UPDATER.md](UPDATER.md) and the
 Native CI runs `validate (windows-latest, dev)`,
 `validate (ubuntu-24.04, dev)`, `validate (macos-15, dev)` and
 `validate (macos-15-intel, dev)`. A separate frontend job exercises Node 24.
-Linux headless Rust tests run under Xvfb. These jobs cover builds and automated
+Linux headless Rust tests run under Xvfb. Its CI job also runs the glib iterator
+regression with optimizations enabled. These jobs cover builds and automated
 tests; they do not substitute for the checklist below.
 
 ## Linux security gate
 
-The locked GTK3 dependency chain includes `glib 0.18.5`, affected by
+The GTK3 dependency chain uses a checked local copy of `glib 0.18.5` with the
+upstream fix for
 [RUSTSEC-2024-0429](https://rustsec.org/advisories/RUSTSEC-2024-0429.html).
-The upstream fix requires glib 0.20 or later; the candidate's Tauri/GTK3 graph
-requires the 0.18 line. Adding a second newer glib package does not repair that
-chain. See [dependency policy](DEPENDENCY_POLICY.md#linux-advisory-boundary).
+Its original archive, complete file inventory, narrow source change and resolved
+Cargo graph are verified separately from registry advisory scans. Linux CI runs
+an integration regression in debug and optimized builds. See
+[dependency policy](DEPENDENCY_POLICY.md#linux-advisory-boundary) for the retained
+source provenance and original-registry advisory review.
 
-The strict Linux target audit blocks distribution. Its Windows-only reporting
-exception is not Linux release approval. The signed draft release requires all
-four target manifests and their security gates; a failed Linux gate blocks the
-aggregate draft instead of silently dropping Linux. Do not add an advisory ignore
-to make a candidate pass.
+Distribution requires successful backport verification, strict target audits and
+native acceptance for the candidate revision. The signed draft still requires
+all four target manifests and security gates; a Linux failure blocks the aggregate
+draft instead of silently dropping Linux. No advisory ignore is added, and the
+source backport alone does not complete native acceptance.
 
 ## Native acceptance checklist
 
@@ -162,5 +166,5 @@ passing test. Windows changes also need [WINDOWS_ACCEPTANCE.md](WINDOWS_ACCEPTAN
     or clear newer unread.
 12. For a release candidate, install a correctly signed update on the same platform
     and architecture, reject altered signatures and verify confirmed restart and
-    retained sessions. Linux needs its strict security gate resolved first. Keep
+    retained sessions. Linux also needs its backport and strict security checks. Keep
     updater verification distinct from OS code signing and notarization.

@@ -72,9 +72,10 @@ client with no Meta affiliation.
 Current development is the **`1.0.0` candidate**. Windows x64 remains the established
 target. Native build and release preparation now covers macOS 14+ on Apple Silicon
 and Intel, and Linux x64 with an Ubuntu 24.04 baseline. These new platforms require
-native acceptance before their support is promoted. Linux distribution is blocked
-by a known upstream glib advisory; the release workflow requires every target's
-security gate to pass. See [platform status and limitations](docs/PLATFORMS.md).
+native acceptance before their support is promoted. Linux uses a verified source
+backport of the upstream glib iterator fix; its native debug/optimized regression
+and every target's security gate must pass before distribution. See
+[platform status and limitations](docs/PLATFORMS.md).
 
 ## Download
 

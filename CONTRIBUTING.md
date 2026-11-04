@@ -26,8 +26,9 @@ architecture and clearly unofficial branding should remain intact.
 The `1.0.0` candidate adds native CI for Windows x64, Linux x64 and both macOS
 architectures. macOS and Linux remain candidates pending the
 [platform acceptance checklist](docs/PLATFORMS.md#native-acceptance-checklist).
-Linux distribution is blocked by the upstream glib advisory; do not weaken its
-strict target security gate to produce a package. Native runtime acceptance is
+The glib source backport requires its source/resolution guard, strict audit and
+Linux debug/optimized iterator regression. Preserve the verified vendor source;
+do not weaken those checks to produce a package. Native runtime acceptance is
 separate from a successful build. Tags enter a signed draft release workflow;
 routine contributions must not tag, publish or push a release.
 

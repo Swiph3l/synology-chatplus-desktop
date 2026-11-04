@@ -136,8 +136,11 @@ Normal local builds strip signing credentials and disable updater artifacts whil
 retaining the public runtime verification key. Version tags alone enter the signed
 cross-platform draft-release workflow. Windows x64, Linux x64 and both macOS
 architectures require their native checks and strict target security gates on the
-same commit. The aggregate requires every target manifest; the current upstream
-Linux glib advisory blocks distribution. Public publication is a separate operation.
+same commit. The GTK3 graph resolves to the checked glib source backport. Source
+inventory/dependency-resolution verification, an original-registry advisory
+review and strict Linux auditing accompany the debug/optimized iterator
+regression. The aggregate still requires every target manifest and all security
+gates. Native acceptance and public publication remain separate operations.
 [UPDATER.md](UPDATER.md) describes this boundary.
 
 ## Source map

@@ -18,6 +18,16 @@ webpki-root-certs uses CDLA-Permissive-2.0; its complete license is retained in
 third-party/webpki-root-certs-LICENSE.txt and bundled. Its cargo-deny exception is
 limited to that crate. No blanket license-check exemptions are used.
 
+The modified [glib 0.18.5 source](../vendor/glib-0.18.5) retains its upstream
+[MIT license](../vendor/glib-0.18.5/LICENSE) and
+[copyright notices](../vendor/glib-0.18.5/COPYRIGHT). It contains a narrow upstream
+security fix recorded with the original archive and file hashes in
+[security/glib-backport.json](../security/glib-backport.json). Preserve those
+notices when distributing the included code; the application's GPL does not
+relicense the vendored crate. Include the patched source and provenance in the
+corresponding-source distribution, and retain the glib notices with binary
+distribution notices. See the [backport policy](DEPENDENCY_POLICY.md#linux-advisory-boundary).
+
 WebView2 is separately supplied by Microsoft. Synology's web application and marks
 remain third-party property. This project's license does not relicense dependencies.
 Before binary distribution, assemble required notices and corresponding source for

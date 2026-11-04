@@ -131,10 +131,11 @@ a separately downloadable `.dmg`. Linux uses
 The disk image and Debian package are manual downloads, not updater payloads.
 
 The aggregate manifest requires all four targets and their exact source provenance.
-Strict target dependency checks run before release packaging. Linux is currently
-blocked by `glib 0.18.5` / `RUSTSEC-2024-0429`; the Windows-only audit exception
-does not authorize a Linux package. Native acceptance and Apple signing/notarization
-are separate checks; see [platform support](PLATFORMS.md).
+Strict target dependency checks run before release packaging. Linux additionally
+requires verification of the checked glib source backport, actual Cargo resolution,
+original-registry advisory review and debug/optimized iterator regression. No
+advisory ignore replaces these checks. Native acceptance and Apple signing/notarization
+remain separate checks; see [platform support](PLATFORMS.md).
 
 ## More detail and acceptance
 

@@ -23,6 +23,7 @@ npm test
 npm audit
 npm run build
 npm run check:release
+node scripts/check-glib-backport.mjs --metadata
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 cargo check --locked --manifest-path src-tauri/Cargo.toml
 cargo test --locked --manifest-path src-tauri/Cargo.toml
@@ -155,5 +156,20 @@ explicitly when validating production signatures. It does not replace an install
 signed-updater test. Packaging, installation and restart gates are covered by the
 [release checklist](RELEASE_CHECKLIST.md) and [updater guide](UPDATER.md).
 Each release target also needs its strict `cargo deny --target <rust-target>` gate.
-Linux distribution remains blocked by the upstream glib advisory; the reporting
-exception for Windows validation does not approve Linux packages.
+The GTK3 graph includes a verified glib iterator backport. Its source/resolution
+guard must pass, and `node scripts/audit-linux.mjs` requires both `cargo-audit`
+and `cargo-deny` to check the compiled dependency graph and separately review
+the original registry identity. A path dependency disappearing from an advisory
+report is not evidence that it is fixed.
+
+On Linux, exercise the first-party integration regression in both modes:
+
+```sh
+cargo test --locked --manifest-path src-tauri/Cargo.toml --test glib_variant_iter
+cargo test --release --locked --manifest-path src-tauri/Cargo.toml --test glib_variant_iter
+```
+
+The Linux CI job runs the optimized regression in addition to its full debug
+suite, and release jobs run full debug/release suites. Until those native checks
+complete for the candidate, record them as pending. These checks do not establish
+authenticated provider, desktop or installed-update acceptance.

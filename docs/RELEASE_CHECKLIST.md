@@ -4,8 +4,8 @@ Version tags trigger the native matrix signed draft-release pipeline for Windows
 x64, Linux x64 and macOS Apple Silicon/Intel. Every new draft is marked prerelease,
 including plain tags such as `v1.0.0`. Publishing and stable promotion are separate
 maintainer actions. New platforms need [native acceptance](PLATFORMS.md) before
-distribution. Linux is currently blocked by the strict glib advisory gate; do not
-tag a candidate expecting a complete release until that gate passes.
+distribution. The Linux glib source backport must pass its provenance, dependency,
+strict audit and optimized regression checks before a complete release can proceed.
 
 Keep the candidate commit, tool versions, test results and final artifact hashes
 with the release record. An unchecked or unavailable check is not a pass.
@@ -24,6 +24,10 @@ these checks.
       intended tag, and write user-facing release notes.
 - [ ] Run the [automated gates](TESTING.md), dependency/secret audits and
       [target-specific dependency policy](DEPENDENCY_POLICY.md).
+- [ ] Verify the glib backport with `node scripts/check-glib-backport.mjs --metadata`
+      and `node scripts/audit-linux.mjs`. On Linux, record the `glib_variant_iter`
+      integration test in debug and release modes. Keep the original-registry
+      advisory review with the release evidence.
 - [ ] Require all four native CI jobs, CodeQL and security checks on the exact tagged main
       commit. Review failures and advisories rather than suppressing them.
 - [ ] Complete [Windows acceptance](WINDOWS_ACCEPTANCE.md) for the candidate,
@@ -40,8 +44,8 @@ these checks.
 - [ ] Provision production signing as described in
       [UPDATER_SIGNING.md](UPDATER_SIGNING.md). Keep private credentials outside
       source and limited to the release build step.
-- [ ] Pass strict dependency checks for every target; resolve findings without
-      extending the Windows-only glib audit exception to Linux.
+- [ ] Pass strict dependency checks for every target. Verify the reviewed glib
+      backport and its actual Cargo resolution; do not add advisory ignores.
 - [ ] Build signed NSIS, AppImage and macOS update packages using the tag workflow. Keep package version,
       tag, source commit, manifest URL and signature aligned.
 - [ ] Verify the collected package with the production signature fixture.
@@ -51,6 +55,8 @@ these checks.
       Exclude local profiles, private URLs, build logs and debug fixtures.
 - [ ] Generate npm/Rust SBOMs and retain required third-party notices and
       corresponding source. See [LICENSING.md](LICENSING.md).
+- [ ] Retain the vendored glib MIT license, copyright notices and source/backport
+      provenance with the corresponding source and distribution notices.
 - [ ] Finalize distribution filenames and signing before generating checksums.
       Verify downloaded bytes against `SHA256SUMS.txt` and artifact attestations.
 - [ ] Check app/installer Authenticode and scan the final files with an active,

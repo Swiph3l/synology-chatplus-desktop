@@ -31,8 +31,11 @@ sudo apt-get install --no-install-recommends -y libwebkit2gtk-4.1-dev build-esse
 ```
 
 Packaging/executing AppImages additionally needs compatible FUSE support; the
-Ubuntu 24.04 release environment uses `libfuse2t64`. Linux distribution remains
-blocked by the upstream advisory described in [PLATFORMS.md](PLATFORMS.md).
+Ubuntu 24.04 release environment uses `libfuse2t64`. The GTK3 graph uses a checked
+source backport of glib's iterator fix. Keep the vendored files unchanged; run
+the source/resolution guard and strict audit described in
+[DEPENDENCY_POLICY.md](DEPENDENCY_POLICY.md#linux-advisory-boundary), plus the
+debug/optimized Linux regression. Native acceptance remains pending.
 
 See [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for native
 platform setup. On Windows, load the C++ build environment when running Cargo directly.

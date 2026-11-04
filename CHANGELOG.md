@@ -22,6 +22,10 @@ All notable changes will be documented here. Versions follow Semantic Versioning
 
 ### Fixed
 
+- Backport the upstream glib string-iterator fix for the GTK3-compatible Linux
+  dependency graph. Verify the retained source and resolved dependency, preserve
+  the original advisory review, and require strict audits and optimized regression
+  coverage.
 - Preserve nested provider authentication windows, including form POST data,
   opener callbacks and delayed `about:blank` navigation. Limit simultaneous
   popups and close windows when their service is removed, disabled or pointed
@@ -45,11 +49,12 @@ All notable changes will be documented here. Versions follow Semantic Versioning
 - Include the fixes and performance work prepared for the unpublished 0.9.1
   candidate below. Preserve upstream fork attribution in NOTICE.
 
-This candidate is unpublished. New platform support still needs native acceptance;
-Linux publication is blocked by `glib 0.18.5` / `RUSTSEC-2024-0429` until the strict
-target dependency check passes. See [platform support](docs/PLATFORMS.md) and the
-[release checklist](docs/RELEASE_CHECKLIST.md). No known advisory is waived by adding
-a platform build.
+This candidate is unpublished. New platform support still needs native acceptance.
+Linux includes a checked source backport for `RUSTSEC-2024-0429`; its native
+debug/optimized regression and all target security gates must pass before
+distribution. See [platform support](docs/PLATFORMS.md) and the
+[release checklist](docs/RELEASE_CHECKLIST.md). No advisory ignore replaces the fix
+or its validation.
 
 ## 0.9.1 - prerelease candidate
 

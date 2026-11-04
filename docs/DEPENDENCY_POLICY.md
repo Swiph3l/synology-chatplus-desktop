@@ -28,6 +28,7 @@ cross-language version constraints.
 ```sh
 npm run check:dependencies
 npm audit
+node scripts/check-glib-backport.mjs --metadata
 cargo audit --file src-tauri/Cargo.lock
 cargo deny --manifest-path src-tauri/Cargo.toml --config deny.toml --locked check
 node scripts/audit-linux.mjs
@@ -48,27 +49,48 @@ See [licensing](LICENSING.md) for distribution requirements.
 
 ## Linux advisory boundary
 
-[audit-linux.mjs](../scripts/audit-linux.mjs) permits exactly one result to be
-reported as requiring Linux review without failing the Windows gate:
-`glib 0.18.5` / `RUSTSEC-2024-0429`, provided glib is absent from the Windows
-normal/build/development graph. A changed version, another advisory, malformed
-output or tool failure fails closed. This exception does not approve a Linux release
-and is not used to bypass the signed release job's strict Linux target gate.
+The GTK3/WebKitGTK graph requires glib 0.18. The published `0.18.5` crate has
+[RUSTSEC-2024-0429](https://rustsec.org/advisories/RUSTSEC-2024-0429.html), an
+invalid immutable out-parameter in `VariantStrIter::impl_get`. The repository
+vendors that exact crate at [vendor/glib-0.18.5](../vendor/glib-0.18.5) and applies
+the upstream two-line mutable out-parameter fix from
+[gtk-rs commit 05dff0e](https://github.com/gtk-rs/gtk-rs-core/commit/05dff0ee696f9bcd8617cd48c4b812d046d440cb).
+The crate retains version `0.18.5`; this is a reviewed source backport, not an
+upgrade to the incompatible glib 0.20 API.
 
-The candidate's locked graph reaches glib through Tauri's GTK3/WebKitGTK
-dependencies. The [advisory](https://rustsec.org/advisories/RUSTSEC-2024-0429.html)
-is fixed in glib 0.20 or later, while the GTK3 dependencies require glib 0.18.
-The compatible 0.18 line has no fixed version. Linux distribution remains blocked
-until that chain is repaired; native CI/build preparation does not remove the
-block. The aggregate release requires all four target manifests and therefore
-cannot silently publish the other targets after a Linux security failure.
+[security/glib-backport.json](../security/glib-backport.json) records the original
+registry source, archive checksum, complete file inventory and patched file hash.
+[check-glib-backport.mjs](../scripts/check-glib-backport.mjs) verifies the retained
+source and, with `--metadata`, the actual Cargo dependency resolution. Every GTK
+consumer must resolve to that same checked copy. Missing, additional or modified
+source files and an unexpected package resolution fail the guard.
 
-Before distributing Linux binaries, repair the dependency chain and pass the strict
-target check. A review note or advisory ignore is not a passing gate:
+Registry advisory scanners do not establish that a path dependency contains the
+fix. [audit-linux.mjs](../scripts/audit-linux.mjs) therefore combines the source
+and resolution guard, the strict Linux target audit and a separate advisory review
+using the original registry package identity. The original advisory remains
+recorded rather than disappearing behind the path override. Unexpected advisories,
+malformed output and tool failures must fail. The advisory ignore list remains
+empty; the former Windows-only Linux warning exception no longer approves a run.
+
+Run the source/audit checks on any development host with Cargo, cargo-audit and cargo-deny.
+On Linux, also run the integration regression in both build modes; optimized
+execution matters for this pointer-write defect:
 
 ```sh
+node scripts/check-glib-backport.mjs --metadata
+node scripts/audit-linux.mjs
 cargo deny --manifest-path src-tauri/Cargo.toml --config deny.toml --target x86_64-unknown-linux-gnu --locked check
+cargo test --locked --manifest-path src-tauri/Cargo.toml --test glib_variant_iter
+cargo test --release --locked --manifest-path src-tauri/Cargo.toml --test glib_variant_iter
 ```
+
+All checks need results for the candidate revision. A vendored source hash is not
+native runtime acceptance, and an audit pass does not cover other code paths or
+the operating system's GLib libraries. Retire the backport when a compatible
+maintained dependency graph supplies the fix. The aggregate release still
+requires all four target manifests and security gates; Linux failures block the
+whole draft instead of silently dropping a platform.
 
 Inspect normal/build and development edges when evaluating reachability:
 
