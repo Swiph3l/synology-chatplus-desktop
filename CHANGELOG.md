@@ -26,6 +26,8 @@ All notable changes will be documented here. Versions follow Semantic Versioning
 
 ### Changed
 
+- Make contributors visible near the README heading with linked GitHub avatars,
+  generated from the same registry as About and the detailed credits.
 - Incorporate dependency updates from PRs #44–49: Tauri CLI 2.12.4, Vite 8.3.5,
   linkedom 0.18.14, Tokio 1.54.1, clipboard-manager/store 2.5.0 and the paired
   CodeQL action update. Node typings remain aligned with supported Node 22/24.

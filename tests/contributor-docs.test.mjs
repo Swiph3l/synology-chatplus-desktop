@@ -49,7 +49,7 @@ test("a registry-only contributor and Linux port can be credited and regenerated
   const registry = JSON.parse(await readFile(registryPath, "utf8"));
   registry.contributors.push({
     id: "community-tester",
-    name: "Community Tester",
+    name: 'Community Tester "Linux"',
     username: "community-tester",
     contributions: ["port"],
   });
@@ -76,12 +76,27 @@ test("a registry-only contributor and Linux port can be credited and regenerated
   assert.equal(updated.status, 0, updated.stderr);
   const readme = await readFile(join(project, "README.md"), "utf8");
   assert.ok(
-    readme.includes("[Community Tester](https://github.com/community-tester)"),
+    readme.includes(
+      '[Community Tester "Linux"](https://github.com/community-tester)',
+    ),
   );
   assert.ok(
     readme.includes(
-      "[Linux community variant by Community Tester](https://github.com/community-tester/chatplus-linux)",
+      '[Linux community variant by Community Tester "Linux"](https://github.com/community-tester/chatplus-linux)',
     ),
+  );
+  const preview = readme.slice(
+    readme.indexOf("<!-- contributors:preview:start -->"),
+    readme.indexOf("<!-- contributors:preview:end -->"),
+  );
+  assert.ok(
+    preview.includes('src="https://github.com/community-tester.png?size=128"'),
+  );
+  assert.ok(preview.includes('alt="Community Tester &quot;Linux&quot;"'));
+  assert.ok(
+    readme.indexOf("<!-- contributors:preview:start -->") <
+      readme.indexOf("## Why ChatPlus Desktop?"),
+    "contributor portraits appear near the README heading",
   );
   assert.equal(run("--check").status, 0);
 });

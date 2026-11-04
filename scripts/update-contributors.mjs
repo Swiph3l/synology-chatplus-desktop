@@ -4,11 +4,25 @@ import { fileURLToPath } from "node:url";
 const root = new URL("../", import.meta.url);
 const start = "<!-- contributors:start -->";
 const end = "<!-- contributors:end -->";
+const previewStart = "<!-- contributors:preview:start -->";
+const previewEnd = "<!-- contributors:preview:end -->";
 const usernamePattern = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
 const repositoryPattern = /^(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$/;
 const idPattern = /^[a-z][a-z0-9-]{0,63}$/;
 const platformNames = { windows: "Windows", macos: "macOS", linux: "Linux" };
 const markdown = (value) => value.replace(/[\\`*_[\]<>]/g, "\\$&");
+const html = (value) =>
+  value.replace(
+    /[&<>"']/g,
+    (character) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[character],
+  );
 
 function requireValue(condition, message) {
   if (!condition) throw new Error(message);
@@ -103,6 +117,44 @@ function section(registry, english) {
   ].join("\n");
 }
 
+function preview(registry) {
+  const portraits = registry.contributors.map((person) => {
+    const profile = `https://github.com/${person.username}`;
+    const name = html(person.name);
+    return `[<img src="${profile}.png?size=128" width="64" height="64" alt="${name}" title="${name}" />](${profile})`;
+  });
+  const names = registry.contributors
+    .map(
+      (person) =>
+        `[${markdown(person.name)}](https://github.com/${person.username})`,
+    )
+    .join(" · ");
+  return [
+    previewStart,
+    "",
+    "**Contributors** · [People and community variants](#contributors)",
+    "",
+    ...portraits,
+    "",
+    names,
+    previewEnd,
+  ].join("\n");
+}
+
+function replaceBlock(source, first, last, content) {
+  requireValue(
+    source.split(first).length === 2 &&
+      source.split(last).length === 2 &&
+      source.indexOf(first) < source.indexOf(last),
+    `README.md must contain exactly one ordered ${first} marker block.`,
+  );
+  return (
+    source.slice(0, source.indexOf(first)) +
+    content +
+    source.slice(source.indexOf(last) + last.length)
+  );
+}
+
 try {
   const args = process.argv.slice(2);
   requireValue(
@@ -115,20 +167,14 @@ try {
     readFile(new URL("README.md", root), "utf8"),
   ]);
   const readme = readmeSource.replace(/\r\n/g, "\n");
-  requireValue(
-    readme.split(start).length === 2 &&
-      readme.split(end).length === 2 &&
-      readme.indexOf(start) < readme.indexOf(end),
-    "README.md must contain exactly one ordered contributors marker block.",
+  const registry = JSON.parse(registrySource);
+  const generated = section(registry, JSON.parse(englishSource));
+  const updated = replaceBlock(
+    replaceBlock(readme, start, end, generated),
+    previewStart,
+    previewEnd,
+    preview(registry),
   );
-  const generated = section(
-    JSON.parse(registrySource),
-    JSON.parse(englishSource),
-  );
-  const updated =
-    readme.slice(0, readme.indexOf(start)) +
-    generated +
-    readme.slice(readme.indexOf(end) + end.length);
   if (args.includes("--check")) {
     requireValue(
       readme === updated,

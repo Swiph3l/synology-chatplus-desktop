@@ -50,7 +50,7 @@ contributions developed in community variants. Contributors retain the license
 and copyright terms described above.
 
 The shared [contributors.json](contributors.json) registry supplies both About and
-the generated README section. To add a person or a community variant:
+the generated README preview and detailed credits. To add a person or a community variant:
 
 1. Add a contributor with a stable unique `id`, their preferred public `name`, a
    verified GitHub `username`, and the applicable `contributions` roles. Role labels
@@ -69,3 +69,10 @@ regeneration. Keep the README marker comments intact and avoid editing their
 generated content directly. Rebuild the application to include the registry update
 in About. Profile and repository links use native allowlisted targets derived from
 the registry; opening About never fetches remote contributor or commit statistics.
+
+The README shows linked GitHub avatars near its heading so reviewed contributors
+are visible on the repository's main page. About keeps its bundled initials and
+works offline. GitHub's own Contributors panel is calculated separately from commit
+history and its statistics can be cached. Preserve original authorship and use a
+verified `Co-authored-by` trailer for jointly authored work. See
+[GitHub's contributor documentation](https://docs.github.com/en/repositories/viewing-activity-and-data-for-your-repository/viewing-a-projects-contributors).

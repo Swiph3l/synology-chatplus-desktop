@@ -13,6 +13,16 @@ Tauri application.
 [![CI](https://github.com/Swiph3l/synology-chatplus-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/Swiph3l/synology-chatplus-desktop/actions/workflows/ci.yml)
 [![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8DB)](https://v2.tauri.app/)
 
+<!-- contributors:preview:start -->
+
+**Contributors** · [People and community variants](#contributors)
+
+[<img src="https://github.com/Swiph3l.png?size=128" width="64" height="64" alt="Swiph3l" title="Swiph3l" />](https://github.com/Swiph3l)
+[<img src="https://github.com/turbogizzmo.png?size=128" width="64" height="64" alt="turbogizzmo" title="turbogizzmo" />](https://github.com/turbogizzmo)
+
+[Swiph3l](https://github.com/Swiph3l) · [turbogizzmo](https://github.com/turbogizzmo)
+<!-- contributors:preview:end -->
+
 ## Why ChatPlus Desktop?
 
 - Keep Synology ChatPlus or Synology Chat close at hand with a convenient desktop app.
