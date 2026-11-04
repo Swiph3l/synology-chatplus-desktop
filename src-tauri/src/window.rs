@@ -171,11 +171,7 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
         WindowEvent::ThemeChanged(theme)
             if matches!(state::current(&handle).theme, Theme::System) =>
         {
-            let color = if *theme == tauri::Theme::Dark {
-                tauri::window::Color(15, 17, 21, 255)
-            } else {
-                tauri::window::Color(255, 255, 255, 255)
-            };
+            let color = crate::services::provider_background_color(&Theme::System, *theme);
             // Swiph3l: Shell chrome follows its local stylesheet; remote views retain provider colors.
             let _ = event_window.set_background_color(Some(crate::shell::background_color(
                 *theme == tauri::Theme::Dark,
@@ -272,22 +268,15 @@ pub fn apply_theme(app: &AppHandle) -> Result<(), String> {
     }
     if let Some(w) = app.get_window("main") {
         #[cfg(not(windows))]
-        let theme = match settings.theme {
-            Theme::System => None,
-            Theme::Dark => Some(tauri::Theme::Dark),
-            Theme::Light => Some(tauri::Theme::Light),
-        };
+        let theme = settings.theme.native();
         #[cfg(not(windows))]
         w.set_theme(theme)
             .map_err(|_| "Could not apply window theme.")?;
         // Swiph3l: Live set_theme on Windows can destabilize the native menu bar.
         // Keep the frame stable and apply theme through page/background updates.
-        let dark = match settings.theme {
-            Theme::Dark => true,
-            Theme::Light => false,
-            Theme::System => w.theme().ok() == Some(tauri::Theme::Dark),
-        };
-        w.set_background_color(Some(crate::shell::background_color(dark)))
+        let system = w.theme().unwrap_or(tauri::Theme::Light);
+        let shell_background = crate::shell::themed_background_color(&settings.theme, system);
+        w.set_background_color(Some(shell_background))
             .map_err(|_| "Could not apply background.")?;
         for service in &settings.services {
             if !service.provider.definition().theme {
@@ -296,11 +285,10 @@ pub fn apply_theme(app: &AppHandle) -> Result<(), String> {
             let Some(view) = app.get_webview(&crate::services::label(&service.id)) else {
                 continue;
             };
-            view.set_background_color(Some(if dark {
-                tauri::window::Color(15, 17, 21, 255)
-            } else {
-                tauri::window::Color(255, 255, 255, 255)
-            }))
+            view.set_background_color(Some(crate::services::provider_background_color(
+                &settings.theme,
+                system,
+            )))
             .map_err(|_| "Could not apply provider background.")?;
             view.eval(&format!(
                 "window.__chatplusSetTheme?.({})",
@@ -309,7 +297,7 @@ pub fn apply_theme(app: &AppHandle) -> Result<(), String> {
             .map_err(|_| "Could not apply page theme.")?;
         }
         if let Some(rail) = app.get_webview("main") {
-            let _ = rail.set_background_color(Some(crate::shell::background_color(dark)));
+            let _ = rail.set_background_color(Some(shell_background));
             let _ = rail.eval(&format!(
                 "document.documentElement.dataset.theme = {}",
                 serde_json::to_string(&settings.theme).unwrap()

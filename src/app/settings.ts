@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { ServiceConfig } from "./providers";
 import type { Language } from "../i18n";
-export type Theme = "system" | "light" | "dark";
+export type Theme = "system" | "light" | "dark" | "retro";
 export interface Settings {
   onboardingCompleted: boolean;
   serverUrl: string;

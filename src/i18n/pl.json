@@ -1,4 +1,9 @@
 {
+  "settings.retro": "Retro (Windows 95/98)",
+  "settings.retroHelp": "Klasyczne kolory i kontrolki. Na Windows potwierdzaniu linków towarzyszy oryginalny dźwięk retro.",
+  "settings.retroSound": "Odsłuchaj dźwięk retro",
+  "settings.retroSoundMuted": "Włącz dźwięki powiadomień, aby odsłuchać próbkę.",
+  "settings.retroSoundFailed": "Nie udało się odtworzyć próbki.",
   "externalLink.httpWarning": "Ten link używa nieszyfrowanego połączenia HTTP.",
   "externalLink.failed": "Nie udało się otworzyć linku. Sprawdź domyślną przeglądarkę i spróbuj ponownie.",
   "downloads.destination": "Miejsce pobierania: {path}",
