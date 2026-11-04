@@ -131,7 +131,9 @@ fn permitted(settings: &state::Settings, service: &ServiceConfig, target: &url::
                 && current.provider == service.provider
                 && current.url == service.url
         })
-        && navigation::external_target(target).is_some()
+        // Swiph3l: Recheck routing at the final opener boundary. Provider login
+        // and authenticated attachments must retain their originating profile.
+        && navigation::external_anchor_target(service, target).is_some()
 }
 
 fn open_confirmed(
@@ -1061,6 +1063,56 @@ mod tests {
             "ms-settings:notifications",
         ] {
             assert!(!permitted(&settings, &service, &input.parse().unwrap()));
+        }
+    }
+
+    #[test]
+    fn confirmed_provider_auth_routes_never_leave_their_session_through_the_opener() {
+        let (mut settings, mut service, external) = fixture();
+        service.provider = crate::providers::ProviderId::Messenger;
+        service.url = "https://www.facebook.com/messages/".into();
+        settings.services = vec![service.clone()];
+        for input in [
+            "https://www.facebook.com/messages/",
+            "https://www.facebook.com/login.php?next=https%3A%2F%2Fwww.facebook.com%2Fmessages%2F",
+            "https://www.facebook.com/dialog/oauth?client_id=example&state=opaque",
+            "https://www.facebook.com/connect/login_success.html#access_token=example",
+            "https://www.facebook.com/checkpoint/?next=%2Fmessages%2F",
+        ] {
+            let target = input.parse().unwrap();
+            assert!(!permitted(&settings, &service, &target), "{input}");
+            open_confirmed(true, &settings, &service, &target, |_| {
+                panic!("provider authentication must stay in its WebView profile")
+            })
+            .unwrap();
+        }
+        let mut opened = Vec::new();
+        open_confirmed(true, &settings, &service, &external, |target| {
+            opened.push(target.to_owned());
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(opened, vec![external.as_str()]);
+    }
+
+    #[test]
+    fn confirmed_authenticated_attachment_popups_never_use_the_system_opener() {
+        let (mut settings, mut service, _) = fixture();
+        service.provider = crate::providers::ProviderId::Discord;
+        service.url = "https://discord.com/app/".into();
+        settings.services = vec![service.clone()];
+        for input in [
+            "https://cdn.discordapp.com/attachments/1/2/report.pdf?ex=example",
+            "https://media.discordapp.net/attachments/1/2/photo.png",
+            "blob:https://discord.com/attachment-id",
+        ] {
+            let target = input.parse().unwrap();
+            assert!(crate::downloads::attachment_popup(&service, &target));
+            assert!(!permitted(&settings, &service, &target), "{input}");
+            open_confirmed(true, &settings, &service, &target, |_| {
+                panic!("authenticated attachments must keep their originating profile")
+            })
+            .unwrap();
         }
     }
 

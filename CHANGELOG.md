@@ -18,6 +18,9 @@ All notable changes will be documented here. Versions follow Semantic Versioning
 
 ### Fixed
 
+- Recheck the destination before opening a confirmed browser link, preventing
+  internal Facebook authentication pages and session-bound attachments from being
+  sent to the system browser.
 - Open Synology ChatPlus or Synology Chat from a bare NAS address through the
   DSM package launcher. Existing `/chat/` or custom paths remain supported;
   configured URLs and origin restrictions are preserved.
