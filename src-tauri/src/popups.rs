@@ -124,7 +124,12 @@ pub fn request(
 }
 
 fn popup_background(theme: &state::Theme, system: tauri::Theme) -> tauri::window::Color {
-    crate::shell::themed_background_color(theme, system)
+    let dark = match theme {
+        state::Theme::Dark => true,
+        state::Theme::Light => false,
+        state::Theme::System => system == tauri::Theme::Dark,
+    };
+    crate::shell::background_color(dark)
 }
 
 /// Update only app-owned chrome/default canvas, never provider or PDF document CSS.
@@ -297,8 +302,6 @@ mod tests {
         for (theme, system, expected) in [
             (Theme::Dark, tauri::Theme::Light, (22, 26, 32, 255)),
             (Theme::Light, tauri::Theme::Dark, (246, 247, 249, 255)),
-            (Theme::Retro, tauri::Theme::Dark, (192, 192, 192, 255)),
-            (Theme::Retro, tauri::Theme::Light, (192, 192, 192, 255)),
             (Theme::System, tauri::Theme::Dark, (22, 26, 32, 255)),
             (Theme::System, tauri::Theme::Light, (246, 247, 249, 255)),
         ] {

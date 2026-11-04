@@ -128,7 +128,6 @@ pub enum Theme {
     System,
     Light,
     Dark,
-    Retro,
 }
 impl Theme {
     pub fn label(&self) -> &'static str {
@@ -136,21 +135,13 @@ impl Theme {
             Self::System => "system",
             Self::Light => "light",
             Self::Dark => "dark",
-            Self::Retro => "retro",
         }
     }
     pub fn native(&self) -> Option<tauri::Theme> {
         match self {
             Self::System => None,
-            Self::Light | Self::Retro => Some(tauri::Theme::Light),
+            Self::Light => Some(tauri::Theme::Light),
             Self::Dark => Some(tauri::Theme::Dark),
-        }
-    }
-    pub fn is_dark(&self, system: tauri::Theme) -> bool {
-        match self {
-            Self::System => system == tauri::Theme::Dark,
-            Self::Dark => true,
-            Self::Light | Self::Retro => false,
         }
     }
 }
@@ -546,47 +537,6 @@ fn to_utf16le(value: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn retro_is_opt_in_and_round_trips_without_changing_service_profiles() {
-        let empty: Settings = serde_json::from_value(serde_json::json!({})).unwrap();
-        assert!(empty.theme == Theme::System);
-        assert!(Theme::default() == Theme::System);
-        for legacy_theme in ["system", "light", "dark"] {
-            let mut settings: Settings = serde_json::from_value(serde_json::json!({
-                "serverUrl": "https://nas.example.com/chat/",
-                "language": "pl",
-                "theme": legacy_theme,
-            }))
-            .unwrap();
-            settings.migrate_services().unwrap();
-            assert_eq!(settings.theme.label(), legacy_theme);
-            let mut expected = serde_json::to_value(&settings).unwrap();
-            expected["theme"] = "retro".into();
-            settings.theme = Theme::Retro;
-            let saved = serde_json::to_value(&settings).unwrap();
-            assert_eq!(saved, expected);
-            let restored: Settings = serde_json::from_value(saved.clone()).unwrap();
-            assert!(restored.theme == Theme::Retro);
-            assert_eq!(restored.services, settings.services);
-            assert_eq!(restored.active_service, settings.active_service);
-            assert_eq!(serde_json::to_value(restored).unwrap(), saved);
-        }
-    }
-
-    #[test]
-    fn retro_selects_light_native_chrome_and_artwork_regardless_of_system_theme() {
-        assert_eq!(Theme::System.native(), None);
-        assert_eq!(Theme::Light.native(), Some(tauri::Theme::Light));
-        assert_eq!(Theme::Dark.native(), Some(tauri::Theme::Dark));
-        assert_eq!(Theme::Retro.native(), Some(tauri::Theme::Light));
-        for system in [tauri::Theme::Light, tauri::Theme::Dark] {
-            assert!(!Theme::Retro.is_dark(system));
-            assert!(!Theme::Light.is_dark(system));
-            assert!(Theme::Dark.is_dark(system));
-            assert_eq!(Theme::System.is_dark(system), system == tauri::Theme::Dark);
-        }
-    }
 
     #[test]
     fn autostart_preserves_production_and_isolates_alternate_identifiers() {

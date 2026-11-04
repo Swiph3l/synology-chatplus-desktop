@@ -587,9 +587,8 @@ fn show_if_ready(app: &AppHandle, request_id: &str) {
         failed(app);
         return;
     }
-    let settings = state::current(app);
-    if settings.notification_sound {
-        crate::platform::prompt_sound(&settings.theme);
+    if state::current(app).notification_sound {
+        crate::platform::gentle_prompt_sound();
     }
 }
 

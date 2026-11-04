@@ -71,7 +71,7 @@ export async function renderExternalLink() {
     // Swiph3l: This restricted child needs only its retained prompt and a theme
     // event. Fetching general settings would expose unrelated profile details.
     unlisten = await listen<Theme>("theme-changed", ({ payload }) => {
-      if (!disposed && ["system", "light", "dark", "retro"].includes(payload)) {
+      if (!disposed && ["system", "light", "dark"].includes(payload)) {
         observedTheme = payload;
         applyTheme(payload);
       }

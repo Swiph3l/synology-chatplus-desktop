@@ -22,19 +22,17 @@ pub(crate) fn background_color(dark: bool) -> tauri::window::Color {
         tauri::window::Color(246, 247, 249, 255)
     }
 }
-pub(crate) fn themed_background_color(theme: &Theme, system: tauri::Theme) -> tauri::window::Color {
-    if *theme == Theme::Retro {
-        tauri::window::Color(192, 192, 192, 255)
-    } else {
-        background_color(theme.is_dark(system))
-    }
-}
 pub fn theme_window(window: &tauri::WebviewWindow, theme: &Theme) -> tauri::Result<()> {
     // Swiph3l: Live native theme switching on Windows can make the menu bar unstable.
     // Keep native frame theme unchanged at runtime; page/theme colors are still updated.
     #[cfg(not(windows))]
     window.set_theme(theme.native())?;
-    window.set_background_color(Some(themed_background_color(theme, window.theme()?)))
+    let dark = match theme {
+        Theme::Dark => true,
+        Theme::Light => false,
+        Theme::System => window.theme()? == tauri::Theme::Dark,
+    };
+    window.set_background_color(Some(background_color(dark)))
 }
 fn open(
     app: &AppHandle,

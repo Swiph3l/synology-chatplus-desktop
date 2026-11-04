@@ -154,7 +154,6 @@ async function fixture(options = {}) {
     window,
     document,
     navigator: { userAgent: "Windows" },
-    Audio: options.Audio,
     structuredClone,
     URL,
     URLSearchParams,
@@ -313,98 +312,6 @@ function freshSettings(overrides = {}) {
     ...overrides,
   };
 }
-
-test("Retro saves through the existing preferences without changing service identities", async () => {
-  const f = await fixture();
-  const services = structuredClone(f.settings.services);
-  const theme = f.document.getElementById("theme");
-  theme.value = "retro";
-  dispatch(f.window, theme, "change");
-  assert.equal(f.document.getElementById("retro-options").hidden, false);
-  dispatch(f.window, f.document.getElementById("settings"), "submit");
-  await f.flush();
-  assert.equal(f.settings.theme, "retro");
-  assert.deepEqual(
-    f.settings.services,
-    services.map((service) => ({ notificationColor: "auto", ...service })),
-  );
-  const reopened = await fixture({ settings: structuredClone(f.settings) });
-  assert.equal(reopened.document.getElementById("theme").value, "retro");
-  assert.equal(reopened.document.getElementById("retro-options").hidden, false);
-});
-
-test("Retro preview is explicit and respects draft mute and theme changes", async () => {
-  const heard = [];
-  const f = await fixture({
-    settings: { theme: "retro", notificationSound: false },
-    Audio: class {
-      constructor(url) {
-        this.url = url;
-        heard.push(this);
-      }
-      addEventListener() {}
-      async play() {
-        this.played = true;
-      }
-      pause() {
-        this.paused = true;
-      }
-    },
-  });
-  const preview = f.document.getElementById("preview-retro-sound");
-  const mute = f.document.getElementById("notification-sound");
-  assert.equal(preview.disabled, true);
-  preview.click();
-  await f.flush();
-  assert.equal(heard.length, 0);
-  mute.checked = true;
-  dispatch(f.window, mute, "change");
-  assert.equal(preview.disabled, false);
-  preview.click();
-  await f.flush();
-  assert.equal(heard.length, 1);
-  assert.equal(heard[0].url, "/sounds/retro-prompt.wav");
-  assert.equal(heard[0].played, true);
-  mute.checked = false;
-  dispatch(f.window, mute, "change");
-  assert.equal(heard[0].paused, true);
-  const theme = f.document.getElementById("theme");
-  theme.value = "light";
-  dispatch(f.window, theme, "change");
-  assert.equal(f.document.getElementById("retro-options").hidden, true);
-  assert.equal(
-    f.calls.filter(({ command }) => command === "save_settings").length,
-    0,
-  );
-});
-
-test("restarting a pending Retro preview does not report its deliberate cancellation as failure", async () => {
-  const heard = [];
-  const f = await fixture({
-    settings: { theme: "retro", notificationSound: true },
-    Audio: class {
-      constructor() {
-        heard.push(this);
-      }
-      addEventListener() {}
-      play() {
-        if (heard.length > 1) return Promise.resolve();
-        return new Promise((_, reject) => {
-          this.reject = reject;
-        });
-      }
-      pause() {
-        this.reject?.(new Error("play aborted by pause"));
-      }
-    },
-  });
-  const preview = f.document.getElementById("preview-retro-sound");
-  preview.click();
-  preview.click();
-  await f.flush();
-  assert.equal(heard.length, 2);
-  assert.equal(f.document.getElementById("retro-sound-status").textContent, "");
-});
 
 test("native permission remains authoritative when the browser shim reports denied", async () => {
   const f = await fixture({

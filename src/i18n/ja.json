@@ -1,9 +1,4 @@
 {
-  "settings.retro": "レトロ（Windows 95/98）",
-  "settings.retroHelp": "クラシックな配色と操作部品。Windows ではリンクを開く確認時にオリジナルのレトロな音が鳴ります。",
-  "settings.retroSound": "レトロな音を試聴",
-  "settings.retroSoundMuted": "試聴するには通知音を有効にしてください。",
-  "settings.retroSoundFailed": "試聴を再生できませんでした。",
   "externalLink.httpWarning": "このリンクは暗号化されていない HTTP 接続を使用します。",
   "externalLink.failed": "リンクを開けませんでした。既定のブラウザーを確認して、もう一度お試しください。",
   "downloads.destination": "ダウンロード先: {path}",

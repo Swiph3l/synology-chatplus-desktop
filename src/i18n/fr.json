@@ -1,9 +1,4 @@
 {
-  "settings.retro": "Rétro (Windows 95/98)",
-  "settings.retroHelp": "Couleurs et commandes classiques. Sous Windows, la confirmation des liens utilise un son rétro original.",
-  "settings.retroSound": "Écouter le son rétro",
-  "settings.retroSoundMuted": "Activez les sons des notifications pour écouter l’aperçu.",
-  "settings.retroSoundFailed": "Impossible de lire l’aperçu.",
   "externalLink.httpWarning": "Ce lien utilise une connexion HTTP non chiffrée.",
   "externalLink.failed": "Impossible d’ouvrir le lien. Vérifiez votre navigateur par défaut et réessayez.",
   "downloads.destination": "Destination du téléchargement : {path}",

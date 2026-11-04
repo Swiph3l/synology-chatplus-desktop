@@ -1,9 +1,4 @@
 {
-  "settings.retro": "復古（Windows 95/98）",
-  "settings.retroHelp": "經典桌面配色與控制項。在 Windows 上，開啟連結的確認視窗會使用原創復古音效。",
-  "settings.retroSound": "試聽復古音效",
-  "settings.retroSoundMuted": "請啟用通知音效以試聽。",
-  "settings.retroSoundFailed": "無法播放試聽音效。",
   "externalLink.httpWarning": "此連結使用未加密的 HTTP 連線。",
   "externalLink.failed": "無法開啟連結。請檢查預設瀏覽器後再試一次。",
   "downloads.destination": "下載目的地：{path}",

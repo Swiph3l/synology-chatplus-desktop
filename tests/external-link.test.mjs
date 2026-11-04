@@ -197,7 +197,7 @@ test("language, explicit theme and live theme updates use the narrow prompt/even
     ["ja", "キャンセル"],
     ["zh-TW", "取消"],
   ]) {
-    for (const theme of ["dark", "light", "system", "retro"]) {
+    for (const theme of ["dark", "light", "system"]) {
       const f = await fixture({ language, theme });
       assert.equal(f.document.documentElement.lang, language);
       assert.equal(f.document.documentElement.dataset.theme, theme);
@@ -208,9 +208,6 @@ test("language, explicit theme and live theme updates use the narrow prompt/even
       assert.ok(!f.document.body.textContent.includes("{url}"));
       f.listeners.get("theme-changed")({ payload: "light" });
       assert.equal(f.document.documentElement.dataset.theme, "light");
-      f.listeners.get("theme-changed")({ payload: "retro" });
-      assert.equal(f.document.documentElement.dataset.theme, "retro");
-      f.listeners.get("theme-changed")({ payload: "light" });
       f.listeners.get("theme-changed")({
         payload: { theme: "dark", private: "ignored" },
       });

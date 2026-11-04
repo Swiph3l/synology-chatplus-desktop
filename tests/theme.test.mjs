@@ -129,21 +129,6 @@ const settle = () => new Promise(setImmediate);
 const themeStyle = (document) =>
   document.querySelector("style#chatplus-desktop-theme");
 
-test("explicit Retro survives dark-system changes and reuses the existing provider style", () => {
-  const { window, document, media } = fixture("retro", true);
-  const style = themeStyle(document);
-  assert.equal(document.documentElement.dataset.chatplusTheme, "retro");
-  assert.match(style.textContent, /data-chatplus-theme="retro"/);
-  media.matches = false;
-  media.change();
-  assert.equal(document.documentElement.dataset.chatplusTheme, "retro");
-  window.__chatplusSetTheme("light");
-  assert.equal(document.documentElement.dataset.chatplusTheme, "light");
-  window.__chatplusSetTheme("retro");
-  assert.equal(document.documentElement.dataset.chatplusTheme, "retro");
-  assert.equal(themeStyle(document), style);
-});
-
 test("bundled bootstrap injects actual CSS before page content and follows system theme", () => {
   const { window, document, media } = fixture();
   const root = document.documentElement;

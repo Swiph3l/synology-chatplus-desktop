@@ -1,6 +1,5 @@
 import "./ui/shell.css";
 import "./settings/settings.css";
-import "./ui/retro.css";
 const page = new URLSearchParams(location.search).get("page");
 if (page === "external-link") {
   const { renderExternalLink } = await import("./ui/external-link");

@@ -44,10 +44,6 @@ unavailable. ChatPlus is independent of WhatsApp
 and Meta; [WhatsApp integration](docs/PROVIDERS.md#whatsapp) describes the current
 capabilities and limitations.
 
-An optional **Retro (Windows 95/98)** theme adds classic desktop controls to the
-shell and Synology ChatPlus. Its original chime can be previewed in Appearance
-settings and accompanies Windows link confirmations when sounds are enabled.
-
 Messenger uses the official Facebook messages page and its Facebook login flow.
 Read actions and DOM unread totals are unavailable.
 See [Messenger integration](docs/PROVIDERS.md#messenger); this is an independent
