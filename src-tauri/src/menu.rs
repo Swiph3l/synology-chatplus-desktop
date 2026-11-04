@@ -21,6 +21,7 @@ pub enum Action {
     System,
     Light,
     Dark,
+    Retro,
     ZoomIn,
     ZoomOut,
     ZoomReset,
@@ -50,6 +51,7 @@ impl Action {
             Self::System => "theme.system",
             Self::Light => "theme.light",
             Self::Dark => "theme.dark",
+            Self::Retro => "theme.retro",
             Self::ZoomIn => "view.zoom-in",
             Self::ZoomOut => "view.zoom-out",
             Self::ZoomReset => "view.zoom-reset",
@@ -79,6 +81,7 @@ impl Action {
             Self::System,
             Self::Light,
             Self::Dark,
+            Self::Retro,
             Self::ZoomIn,
             Self::ZoomOut,
             Self::ZoomReset,
@@ -444,15 +447,16 @@ pub fn themes(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
         .unwrap_or_else(|e| e.into_inner())
         .push(("Theme".into(), menu.clone()));
     let selected = state::current(app).theme;
-    for (action, title, theme) in [
-        (Action::System, "System", Theme::System),
-        (Action::Light, "Light", Theme::Light),
-        (Action::Dark, "Dark", Theme::Dark),
+    for (action, key, theme) in [
+        (Action::System, "settings.system", Theme::System),
+        (Action::Light, "settings.light", Theme::Light),
+        (Action::Dark, "settings.dark", Theme::Dark),
+        (Action::Retro, "settings.retro", Theme::Retro),
     ] {
         let item = CheckMenuItem::with_id(
             app,
             action.id(),
-            crate::i18n::localize(&state::current(app).language, title),
+            crate::i18n::text(&state::current(app).language, key),
             true,
             selected == theme,
             None::<&str>,
@@ -476,6 +480,7 @@ pub fn refresh(app: &AppHandle) {
                 Theme::System => "settings.system",
                 Theme::Light => "settings.light",
                 Theme::Dark => "settings.dark",
+                Theme::Retro => "settings.retro",
             };
             let _ = item.set_text(crate::i18n::text(&settings.language, key));
         }
@@ -667,11 +672,12 @@ pub fn dispatch(app: &AppHandle, action: Action) -> Result<(), String> {
             app.exit(0);
             Ok(())
         }
-        Action::System | Action::Light | Action::Dark => {
+        Action::System | Action::Light | Action::Dark | Action::Retro => {
             let mut settings = state::current(app);
             settings.theme = match action {
                 Action::Light => Theme::Light,
                 Action::Dark => Theme::Dark,
+                Action::Retro => Theme::Retro,
                 _ => Theme::System,
             };
             state::persist(app, settings)?;

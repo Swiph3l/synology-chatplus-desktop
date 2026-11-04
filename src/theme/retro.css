@@ -1,0 +1,263 @@
+/* Original Windows 95/98-inspired treatment for the opted-in ChatPlus provider.
+   Scope every rule to its root preference and EOS body; other providers keep
+   their own CSS, icons, attachments and native interaction behavior. */
+:root[data-chatplus-theme="retro"] {
+  color-scheme: light;
+  background: #c0c0c0;
+}
+
+:root[data-chatplus-theme="retro"] body.eos-scope {
+  color-scheme: light;
+  font-family: "MS Sans Serif", Tahoma, Arial, sans-serif;
+  color: #000;
+  background: #c0c0c0;
+  --eos-bg-surface-z0: #fff;
+  --eos-bg-surface-z1: #c0c0c0;
+  --eos-bg-surface-z2: #dfdfdf;
+  --eos-bg-surface-z3: #c0c0c0;
+  --eos-bg-surface-primary: #fff;
+  --eos-bg-surface-secondary: #c0c0c0;
+  --eos-bg-surface-tertiary: #dfdfdf;
+  --eos-bg-fill-primary: #c0c0c0;
+  --eos-bg-fill-secondary: #dfdfdf;
+  --eos-bg-fill-tertiary: #fff;
+  --eos-bg-fill-quaternary: #c0c0c0;
+  --eos-bg-fill-theme-light: #dfdfdf;
+  --eos-bg-fill-theme-light-hover: #d4d4d4;
+  --eos-bg-fill-theme-light-active: #c0c0c0;
+  --eos-fg-on-fill-theme-light: #000;
+  --eos-fg-primary: #000;
+  --eos-fg-secondary: #404040;
+  --eos-fg-tertiary: #595959;
+  --eos-fg-theme: #000080;
+  --eos-border-secondary: #808080;
+  --eos-border-tertiary: #808080;
+  --eos-border-quaternary: #c0c0c0;
+  --chatplus-retro-raised:
+    inset 1px 1px #fff, inset -1px -1px #000, inset 2px 2px #dfdfdf,
+    inset -2px -2px #808080;
+  --chatplus-retro-inset:
+    inset 1px 1px #808080, inset -1px -1px #fff, inset 2px 2px #000,
+    inset -2px -2px #dfdfdf;
+}
+
+:root[data-chatplus-theme="retro"]
+  body.eos-scope
+  :is(#chat-main-app, .layout-body-wrapper, .layout-content) {
+  color: #000;
+  background-color: #c0c0c0 !important;
+}
+
+:root[data-chatplus-theme="retro"]
+  body.eos-scope
+  :is(
+    [data-testid="sidebar-layout"],
+    [data-testid="sidebar-layout-content"],
+    .layout-panel-body
+  ) {
+  color: #000;
+  background-color: #c0c0c0 !important;
+  border-color: #808080 !important;
+  border-radius: 0 !important;
+  box-shadow: var(--chatplus-retro-raised);
+}
+
+:root[data-chatplus-theme="retro"]
+  body.eos-scope
+  [data-testid="sidebar-layout-header"] {
+  color: #fff !important;
+  background-color: #000080 !important;
+  border-radius: 0 !important;
+}
+
+:root[data-chatplus-theme="retro"]
+  body.eos-scope
+  :is(
+    .message-viewer-scrollbar,
+    [data-testid="thread-viewer-comments-section"]
+  ) {
+  color: #000;
+  background-color: #fff !important;
+  border-radius: 0 !important;
+}
+
+:root[data-chatplus-theme="retro"]
+  body.eos-scope
+  :is(
+    button,
+    input,
+    select,
+    textarea,
+    .v-button,
+    .v-textfield-wrapper,
+    .v-textfield-input-wrapper,
+    .v-textarea,
+    .v-textarea-wrapper,
+    .v-select2-wrapper,
+    .v-multiselect-wrapper,
+    .v-select2-dropdown,
+    .v-multiselect-dropdown,
+    [data-testid="message-create-box-paste-zone"],
+    [data-testid="message-create-box-text-area"],
+    [data-testid="post-toolbar"]
+  ) {
+  border-radius: 0 !important;
+  font-family: "MS Sans Serif", Tahoma, Arial, sans-serif;
+}
+
+:root[data-chatplus-theme="retro"]
+  body.eos-scope
+  :is(button, .v-button, [data-testid="reaction-button"]) {
+  color: #000 !important;
+  background-color: #c0c0c0 !important;
+  border: 1px solid #c0c0c0 !important;
+  box-shadow: var(--chatplus-retro-raised) !important;
+}
+
+:root[data-chatplus-theme="retro"]
+  body.eos-scope
+  :is(button, .v-button, [data-testid="reaction-button"]):hover {
+  color: #000 !important;
+  background-color: #c0c0c0 !important;
+}
+
+:root[data-chatplus-theme="retro"]
+  body.eos-scope
+  :is(button, .v-button, [data-testid="reaction-button"]):is(
+    :active,
+    [aria-pressed="true"]
+  ) {
+  background-color: #dfdfdf !important;
+  box-shadow: var(--chatplus-retro-inset) !important;
+}
+
+:root[data-chatplus-theme="retro"]
+  body.eos-scope
+  :is(button, .v-button):disabled {
+  color: #595959 !important;
+  text-shadow: 1px 1px #fff;
+}
+
+:root[data-chatplus-theme="retro"]
+  body.eos-scope
+  :is(
+    #chat-search-input,
+    [data-testid="message-create-box-paste-zone"],
+    [data-testid="message-create-box-text-area"],
+    .v-textfield-wrapper,
+    .v-textfield-input-wrapper,
+    .v-textarea,
+    .v-textarea-wrapper,
+    .v-select2-wrapper,
+    .v-multiselect-wrapper,
+    .v-multiselect-input
+  ) {
+  color: #000 !important;
+  background-color: #fff !important;
+  border-color: #c0c0c0 !important;
+  box-shadow: var(--chatplus-retro-inset) !important;
+  caret-color: #000;
+}
+
+:root[data-chatplus-theme="retro"]
+  body.eos-scope
+  :is(
+    .v-textfield-input,
+    .v-textfield-wrapper input,
+    .v-textarea-input,
+    .v-textfield-textarea,
+    .v-textarea textarea,
+    .v-textarea-wrapper textarea,
+    .v-textfield-wrapper textarea,
+    .v-form-item textarea,
+    .v-form-item-control textarea,
+    [role="dialog"] textarea
+  ) {
+  color: #000 !important;
+  background-color: #fff !important;
+  caret-color: #000;
+}
+
+:root[data-chatplus-theme="retro"]
+  body.eos-scope
+  :is(
+    .message-viewer-scrollbar,
+    [data-testid="thread-viewer-comments-section"],
+    [data-testid="message-create-box-paste-zone"]
+  )
+  :is([contenteditable="true"], [aria-busy="true"], [role="progressbar"]) {
+  color: #000 !important;
+  background-color: #fff !important;
+  caret-color: #000;
+}
+
+:root[data-chatplus-theme="retro"]
+  body.eos-scope
+  :is(
+    [data-testid="post-toolbar"],
+    [role="dialog"],
+    [role="menu"],
+    [role="listbox"],
+    [role="tooltip"],
+    .v-select2-dropdown,
+    .v-multiselect-dropdown
+  ) {
+  color: #000 !important;
+  background-color: #c0c0c0 !important;
+  border: 1px solid #c0c0c0;
+  border-radius: 0 !important;
+  box-shadow: var(--chatplus-retro-raised) !important;
+}
+
+:root[data-chatplus-theme="retro"]
+  body.eos-scope
+  :is(
+    .module-item-option.activated,
+    .module-item-option:hover,
+    [role="option"]:hover,
+    [role="option"][aria-selected="true"]
+  ) {
+  color: #fff !important;
+  background-color: #000080 !important;
+}
+
+:root[data-chatplus-theme="retro"]
+  body.eos-scope
+  :is(
+    button,
+    input,
+    select,
+    textarea,
+    [contenteditable="true"],
+    [tabindex]
+  ):focus-visible {
+  outline: 1px dotted #000 !important;
+  outline-offset: 2px;
+}
+
+:root[data-chatplus-theme="retro"] body.eos-scope button:focus-visible {
+  outline-offset: -4px;
+}
+
+:root[data-chatplus-theme="retro"] body.eos-scope ::placeholder {
+  color: #595959 !important;
+  opacity: 1;
+}
+
+:root[data-chatplus-theme="retro"] body.eos-scope ::selection {
+  color: #fff;
+  background: #000080;
+}
+
+:root[data-chatplus-theme="retro"] body.eos-scope ::-webkit-scrollbar {
+  width: 16px;
+  height: 16px;
+  background: #dfdfdf;
+}
+
+:root[data-chatplus-theme="retro"] body.eos-scope ::-webkit-scrollbar-thumb {
+  background: #c0c0c0;
+  border: 1px solid #c0c0c0;
+  border-radius: 0;
+  box-shadow: var(--chatplus-retro-raised);
+}

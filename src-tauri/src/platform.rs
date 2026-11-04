@@ -37,27 +37,38 @@ pub fn notification_presentation_state() -> NotificationPresentationState {
     )
 }
 
-pub fn gentle_prompt_sound() {
+pub fn prompt_sound(theme: &crate::state::Theme) {
     #[cfg(windows)]
     {
         use windows::{
             core::PCWSTR,
             Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_MEMORY, SND_NODEFAULT, SND_NOSTOP},
         };
-        // Swiph3l: Original low-level 200 ms PCM chime with a smooth attack/release.
-        // Static aligned storage outlives asynchronous playback; never fall back
-        // to the system warning sound or interrupt another sound from this process.
+        // Swiph3l: Original PCM cues are for explicit local prompts only. Keep
+        // asynchronous storage aligned/static and never fall back to a system
+        // sound or interrupt an existing cue. Toasts retain native OS audio/DND.
         #[repr(align(4))]
-        struct AlignedSound([u8; 9_644]);
-        static SOUND: AlignedSound = AlignedSound(*include_bytes!("../sounds/link-prompt.wav"));
+        struct AlignedSound<const N: usize>([u8; N]);
+        static GENTLE: AlignedSound<{ include_bytes!("../sounds/link-prompt.wav").len() }> =
+            AlignedSound(*include_bytes!("../sounds/link-prompt.wav"));
+        static RETRO: AlignedSound<
+            { include_bytes!("../../public/sounds/retro-prompt.wav").len() },
+        > = AlignedSound(*include_bytes!("../../public/sounds/retro-prompt.wav"));
+        let sound: &[u8] = if matches!(theme, crate::state::Theme::Retro) {
+            &RETRO.0
+        } else {
+            &GENTLE.0
+        };
         let _ = unsafe {
             PlaySoundW(
-                PCWSTR(SOUND.0.as_ptr().cast()),
+                PCWSTR(sound.as_ptr().cast()),
                 None,
                 SND_MEMORY | SND_ASYNC | SND_NODEFAULT | SND_NOSTOP,
             )
         };
     }
+    #[cfg(not(windows))]
+    let _ = theme;
 }
 
 /// WebView2 provides reliable transport completion; generic Tauri page-finished

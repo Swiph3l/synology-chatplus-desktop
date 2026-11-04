@@ -1,4 +1,9 @@
 {
+  "settings.retro": "Retro (Windows 95/98)",
+  "settings.retroHelp": "Classic desktop colors and controls. On Windows, link confirmation uses an original retro chime.",
+  "settings.retroSound": "Preview retro sound",
+  "settings.retroSoundMuted": "Enable notification sounds to hear the preview.",
+  "settings.retroSoundFailed": "Could not play the preview.",
   "externalLink.httpWarning": "This link uses an unencrypted HTTP connection.",
   "externalLink.failed": "Could not open the link. Check your default browser and try again.",
   "downloads.destination": "Download destination: {path}",

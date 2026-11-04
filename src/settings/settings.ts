@@ -27,6 +27,10 @@ import {
   type ServiceConfig,
 } from "../app/providers";
 import { normalizeNotificationColor } from "../app/notification-colors";
+import {
+  playRetroSoundPreview,
+  stopRetroSoundPreview,
+} from "../app/retro-sound";
 
 export async function renderSettings() {
   const app = document.querySelector<HTMLElement>("#app")!;
@@ -67,13 +71,13 @@ export async function renderSettings() {
       <div class="settings-content">
       <div data-panel="general">
       <fieldset class="server-section"><legend>${t("settings.server")}</legend><label for="server">${t("settings.serverUrl")}</label><input id="server" type="url" required placeholder="https://example.com/chat/" autocomplete="url" spellcheck="false"><small>${t("settings.serverHelp")}</small></fieldset>
-      <fieldset><legend>${t("settings.appearance")}</legend><div class="settings-appearance-controls"><div><label for="theme">${t("settings.theme")}</label><select id="theme"><option value="system">${t("settings.system")}</option><option value="light">${t("settings.light")}</option><option value="dark">${t("settings.dark")}</option></select></div><div><label for="language">${t("settings.language")}</label><select id="language" aria-describedby="language-help">${Object.entries(
+      <fieldset><legend>${t("settings.appearance")}</legend><div class="settings-appearance-controls"><div><label for="theme">${t("settings.theme")}</label><select id="theme"><option value="system">${t("settings.system")}</option><option value="light">${t("settings.light")}</option><option value="dark">${t("settings.dark")}</option><option value="retro">${t("settings.retro")}</option></select></div><div><label for="language">${t("settings.language")}</label><select id="language" aria-describedby="language-help">${Object.entries(
         languageNames,
       )
         .map(([code, name]) => `<option value="${code}">${name}</option>`)
         .join(
           "",
-        )}</select></div></div><small id="language-help">${t("settings.languageHelp")}</small></fieldset>
+        )}</select></div></div><small id="language-help">${t("settings.languageHelp")}</small><div id="retro-options" hidden><small>${t("settings.retroHelp")}</small><button id="preview-retro-sound" type="button" class="secondary">${t("settings.retroSound")}</button><small id="retro-sound-status" role="status" aria-live="polite"></small></div></fieldset>
       <fieldset><legend>${t("settings.startup")}</legend><label class="toggle"><input id="autostart" type="checkbox">${/Windows/i.test(navigator.userAgent) ? t("settings.startWindows") : t("settings.startLogin")}</label></fieldset>
       <fieldset><legend>${t("settings.window")}</legend><label class="toggle"><input id="minimize" type="checkbox">${t("settings.minimizeTray")}</label><label class="toggle"><input id="close" type="checkbox">${t("settings.closeTray")}</label><label class="toggle"><input id="external" type="checkbox">${t("settings.externalLinks")}</label></fieldset>
       </div>
@@ -116,6 +120,29 @@ export async function renderSettings() {
     </form>`;
   const input = (id: string) => document.getElementById(id) as HTMLInputElement;
   const theme = document.querySelector<HTMLSelectElement>("#theme");
+  const retroOptions = document.getElementById("retro-options")!;
+  const retroPreview = document.getElementById(
+    "preview-retro-sound",
+  ) as HTMLButtonElement;
+  const retroStatus = document.getElementById("retro-sound-status")!;
+  const refreshRetroOptions = () => {
+    const retro = theme?.value === "retro";
+    const muted = !input("notification-sound").checked;
+    retroOptions.hidden = !retro;
+    retroPreview.disabled = muted;
+    retroStatus.textContent = muted ? t("settings.retroSoundMuted") : "";
+    if (!retro || muted) stopRetroSoundPreview();
+  };
+  retroPreview.addEventListener("click", () => {
+    if (theme?.value !== "retro" || !input("notification-sound").checked)
+      return;
+    retroStatus.textContent = "";
+    void playRetroSoundPreview().catch(() => {
+      if (theme?.value === "retro" && input("notification-sound").checked)
+        retroStatus.textContent = t("settings.retroSoundFailed");
+    });
+  });
+  window.addEventListener("pagehide", stopRetroSoundPreview, { once: true });
   const status = document.getElementById("status")!;
   const button = document.querySelector<HTMLButtonElement>("#save")!;
   const saveFeedback = document.getElementById("save-feedback")!;
@@ -276,8 +303,13 @@ export async function renderSettings() {
     (
       document.getElementById("notification-preview") as HTMLSelectElement
     ).value = original.notificationPreview;
-    theme.addEventListener("change", () => applyTheme(theme.value as Theme));
+    theme.addEventListener("change", () => {
+      applyTheme(theme.value as Theme);
+      refreshRetroOptions();
+    });
   }
+  input("notification-sound").addEventListener("change", refreshRetroOptions);
+  refreshRetroOptions();
   const preferenceControls = [
     ["theme", "theme"],
     ["language", "language"],
@@ -303,6 +335,7 @@ export async function renderSettings() {
       else control.value = String(settings[key]);
     }
     applyTheme(settings.theme);
+    refreshRetroOptions();
   };
   const readDraft = (): Settings => ({
     ...original,
@@ -597,6 +630,7 @@ export async function renderSettings() {
     );
     serviceManager?.refresh();
     applyTheme(theme ? (theme.value as Theme) : payload.theme);
+    refreshRetroOptions();
     if (externalConflict) status.textContent = t("settings.externalConflict");
     updateDirty();
     void refreshNotificationPermission?.();
