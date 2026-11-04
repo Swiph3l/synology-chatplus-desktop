@@ -219,12 +219,6 @@ pub fn attachment_popup(service: &ServiceConfig, target: &url::Url) -> bool {
         })
 }
 
-pub fn popup_allowed(service: &ServiceConfig, target: &url::Url) -> bool {
-    target.as_str() == "about:blank"
-        || service.provider.allows(&service.url, target)
-        || attachment_popup(service, target)
-}
-
 fn attachment_popup_script(service: &ServiceConfig, target: &url::Url) -> Option<String> {
     if target.scheme() != "https" || !attachment_popup(service, target) {
         return None;
@@ -651,176 +645,9 @@ pub fn attach(_: &AppHandle, _: &Webview, _: &str) -> tauri::Result<()> {
     Ok(())
 }
 
-pub fn is_popup_label(label: &str) -> bool {
-    label.strip_prefix("attachment-").is_some_and(|serial| {
-        !serial.is_empty() && serial.bytes().all(|byte| byte.is_ascii_digit())
-    })
-}
-
-fn popup_background(theme: &crate::state::Theme, system: tauri::Theme) -> tauri::window::Color {
-    let dark = match theme {
-        crate::state::Theme::Dark => true,
-        crate::state::Theme::Light => false,
-        crate::state::Theme::System => system == tauri::Theme::Dark,
-    };
-    crate::shell::background_color(dark)
-}
-
-/// Update only app-owned chrome/default canvas, never provider or PDF document CSS.
-pub fn apply_popup_appearance(
-    window: &tauri::WebviewWindow,
-    theme: &crate::state::Theme,
-) -> tauri::Result<()> {
-    use tauri::Manager;
-    if !is_popup_label(window.label()) {
-        return Ok(());
-    }
-    // Swiph3l: This auxiliary frame has no menu. Native per-window theme updates
-    // are safe here without changing the main window's menu/theme lifecycle.
-    window.set_theme(theme.native())?;
-    window.set_background_color(Some(popup_background(theme, window.theme()?)))?;
-    window.set_title(&crate::i18n::t(
-        window.app_handle(),
-        "window.attachmentTitle",
-    ))
-}
-
-pub fn popup(
-    app: &AppHandle,
-    service: &ServiceConfig,
-    features: tauri::webview::NewWindowFeatures,
-) -> tauri::Result<tauri::WebviewWindow> {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    let configured = service.clone();
-    let popup_service = service.clone();
-    let nav_app = app.clone();
-    let popup_app = app.clone();
-    let label = format!("attachment-{}", NEXT.fetch_add(1, Ordering::Relaxed));
-    let popup_label = label.clone();
-    let nav_label = label.clone();
-    let theme = crate::state::current(app).theme;
-    let system = app
-        .get_window("main")
-        .and_then(|window| window.theme().ok())
-        .unwrap_or(tauri::Theme::Light);
-    let center = features.position().is_none();
-    let mut builder = WebviewWindowBuilder::new(
-        app,
-        label,
-        WebviewUrl::External("about:blank".parse().unwrap()),
-    )
-    .title(crate::i18n::t(app, "window.attachmentTitle"))
-    .visible(false)
-    .theme(theme.native())
-    .background_color(popup_background(&theme, system))
-    .inner_size(900., 650.)
-    // Swiph3l: Defaults precede opener features so explicit size/position survive.
-    // The related WebView2 environment/profile must keep authentication/blob access.
-    .window_features(features)
-    .on_navigation(move |target| {
-        if !crate::services::configured(&nav_app, &configured) {
-            return false;
-        }
-        if popup_allowed(&configured, target) {
-            true
-        } else {
-            crate::services::external(&nav_app, &configured, target, &nav_label);
-            false
-        }
-    })
-    .on_new_window(move |target, _| {
-        if crate::services::configured(&popup_app, &popup_service) {
-            if popup_allowed(&popup_service, &target) {
-                // Reuse this attachment view instead of recursively opening
-                // unbounded blank windows; the original provider stays intact.
-                if target.as_str() != "about:blank" {
-                    if let Some(view) = popup_app.get_webview(&popup_label) {
-                        let _ = view.navigate(target);
-                    }
-                }
-            } else {
-                crate::services::external(&popup_app, &popup_service, &target, &popup_label);
-            }
-        }
-        tauri::webview::NewWindowResponse::Deny
-    });
-    if center {
-        builder = builder.center();
-    }
-    #[cfg(windows)]
-    if let Some(main) = app.get_window("main") {
-        builder = builder.owner_raw(main.hwnd()?);
-    }
-    let window = builder.build()?;
-    let setup = (|| -> tauri::Result<()> {
-        // Configure app chrome before the initially blank related view can become
-        // visible. Do not inherit the desktop's File/View/Window/Help menu.
-        #[cfg(not(target_os = "macos"))]
-        window.remove_menu()?;
-        apply_popup_appearance(&window, &theme)?;
-        let themed_window = window.clone();
-        window.on_window_event(move |event| {
-            if let tauri::WindowEvent::ThemeChanged(system) = event {
-                if crate::state::current(themed_window.app_handle()).theme
-                    == crate::state::Theme::System
-                {
-                    // System changes update only the native/default canvas, without
-                    // reinjecting anything into the remote document or recursing set_theme.
-                    let _ = themed_window.set_background_color(Some(popup_background(
-                        &crate::state::Theme::System,
-                        *system,
-                    )));
-                }
-            }
-        });
-        attach(app, window.as_ref(), &service.id)?;
-        window.show()
-    })();
-    if let Err(error) = setup {
-        // Swiph3l: build() already registered this hidden window with Tauri.
-        // Dropping the handle would leave an orphan after a later setup failure.
-        if window.destroy().is_err() {
-            let _ = window.close();
-        }
-        return Err(error);
-    }
-    Ok(window)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn attachment_canvas_respects_explicit_and_system_theme_without_touching_document_content() {
-        use crate::state::Theme;
-        for (theme, system, expected) in [
-            (Theme::Dark, tauri::Theme::Light, (22, 26, 32, 255)),
-            (Theme::Light, tauri::Theme::Dark, (246, 247, 249, 255)),
-            (Theme::System, tauri::Theme::Dark, (22, 26, 32, 255)),
-            (Theme::System, tauri::Theme::Light, (246, 247, 249, 255)),
-        ] {
-            let color = popup_background(&theme, system);
-            assert_eq!((color.0, color.1, color.2, color.3), expected);
-        }
-    }
-    #[test]
-    fn attachment_chrome_updates_are_scoped_to_app_generated_popup_labels() {
-        for label in ["attachment-0", "attachment-123"] {
-            assert!(is_popup_label(label));
-        }
-        for label in [
-            "main",
-            "settings",
-            "service-attachment-1",
-            "external-link-1",
-            "attachment-",
-            "attachment-private",
-        ] {
-            assert!(!is_popup_label(label));
-        }
-    }
     #[test]
     fn self_attachment_popup_script_accepts_only_recognized_targets_and_json_escapes_exact_url() {
         let discord = service(ProviderId::Discord);
@@ -909,34 +736,6 @@ mod tests {
         assert_eq!(names.reserve_selected(&chosen), Ok(chosen));
     }
 
-    #[test]
-    fn provider_popup_keeps_same_origin_authentication_without_allowing_external_or_opaque_targets()
-    {
-        let service = service(ProviderId::SynologyChatplus);
-        for allowed in [
-            "about:blank",
-            "https://chat.example.com/attachment?id=opaque",
-            "blob:https://chat.example.com/opaque",
-        ] {
-            assert!(
-                popup_allowed(&service, &allowed.parse().unwrap()),
-                "{allowed}"
-            );
-        }
-        for denied in [
-            "https://other.example.com/file.pdf",
-            "https://chat.example.com.evil.example/file.pdf",
-            "blob:null/opaque",
-            "blob:https://other.example.com/opaque",
-            "file:///file.pdf",
-            "data:text/html,hello",
-        ] {
-            assert!(
-                !popup_allowed(&service, &denied.parse().unwrap()),
-                "{denied}"
-            );
-        }
-    }
     #[test]
     fn attachment_names_preserve_spaces_unicode_and_all_extensions() {
         for name in [

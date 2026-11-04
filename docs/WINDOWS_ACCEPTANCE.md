@@ -105,6 +105,9 @@ threads, loading history, composer focus, message editing and reaction/menu open
 
 - [ ] Official login works with ordinary WebView2. For WhatsApp, check QR and exposed
       phone-number pairing without recording secrets or bypassing security checks.
+- [ ] For Messenger, continue beyond the login form through the account's actual
+      Facebook authorization and any offered verification, then confirm return to
+      messages. An anonymous login-page check does not cover this stage.
 - [ ] Reload, restart, linked-session retention and logout work for the tested instance.
 - [ ] A second instance stays isolated through login/logout and notification routing.
 - [ ] Experimental status remains visible; unsupported read operations are not offered.
@@ -115,6 +118,14 @@ threads, loading history, composer focus, message editing and reaction/menu open
       HTTP has its additional warning. Cancel/Escape opens nothing; Open launches once.
 - [ ] Same-provider popups, delayed popup navigation, previews and regular/blob
       attachments preserve the originating provider and native routing policy.
+- [ ] In an isolated local provider fixture, submit a form with `method="post"`,
+      `target="_blank"` and `rel="opener"` from a related popup. The child receives
+      the original method/body, calls back to that popup and can close without
+      replacing it. Repeat with `window.open("about:blank")` followed by delayed
+      same-provider navigation. Keep synthetic values in the fixture.
+- [ ] An eighth open popup is allowed; a ninth is refused without replacing an
+      existing window. Closing one allows another. Disabling, removing or changing
+      the originating service closes its popups without closing another service's.
 - [ ] Unsafe schemes, credentials, foreign blobs and stale/disabled-origin requests
       do not reach the external opener.
 - [ ] Native Save As precedes each download. Chosen destination/status remain visible;

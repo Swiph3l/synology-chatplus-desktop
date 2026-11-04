@@ -474,7 +474,7 @@ fn source_matches(
         && if main {
             navigation::provider_document(service, current)
         } else {
-            crate::downloads::popup_allowed(service, current)
+            crate::popups::allowed(service, current)
         }
 }
 

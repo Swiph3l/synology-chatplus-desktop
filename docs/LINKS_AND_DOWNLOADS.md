@@ -63,8 +63,22 @@ A popup must preserve the opener's WebView2 environment and isolated profile.
 Replacing the main provider view or opening a fresh profile breaks opener,
 authentication and blob semantics. Validate every later navigation against the
 captured service configuration; remote popup pages receive no Tauri capabilities.
-Nested allowed windows reuse the attachment view instead of recursively creating
-blank windows. Unrelated external targets still require confirmation.
+Nested allowed windows follow the same related-window creation path as the first
+popup. The browser retains the original request, including a form's POST body,
+the immediate `window.opener`, its callbacks and later navigation from
+`about:blank`. Replacing the request with `navigate()` loses those semantics.
+Unrelated external targets still require confirmation.
+
+At most eight related popups may remain open across the application. Close an
+existing popup before retrying a request at the limit; closing a popup frees its
+slot. Removing or disabling a service, or changing its provider/address, closes
+its existing popups, while other services' windows stay open. Renaming a service
+keeps its windows. Every navigation and new-window request also rechecks the
+captured service identity.
+
+On Windows, a provider's `window.close()` also destroys the popup's native frame.
+Closing only the embedded WebView leaves an empty window and occupies a popup
+slot. This handling applies to related popups, preserving the main application.
 
 Attachment windows use the shell theme for their native frame and default loading
 canvas, with a localized title and no inherited desktop menu. Configure these

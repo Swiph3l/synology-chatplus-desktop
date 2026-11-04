@@ -18,6 +18,12 @@ All notable changes will be documented here. Versions follow Semantic Versioning
 
 ### Fixed
 
+- Preserve nested provider authentication windows, including form POST data,
+  opener callbacks and delayed `about:blank` navigation. Limit simultaneous
+  popups and close windows when their service is removed, disabled or pointed
+  at a different provider/address.
+- Close the full Windows popup when its provider requests `window.close()`,
+  preventing an empty native frame from remaining after the page closes.
 - Recheck the destination before opening a confirmed browser link, preventing
   internal Facebook authentication pages and session-bound attachments from being
   sent to the system browser.

@@ -13,6 +13,7 @@ mod navigation;
 mod notification_bridge;
 mod notification_presentation;
 mod platform;
+mod popups;
 mod project;
 mod provider_read;
 mod providers;
@@ -65,6 +66,7 @@ fn main() {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let builder = tauri::Builder::default()
         .manage(single_instance::Activation::default())
+        .manage(popups::Service::default())
         // Swiph3l: ChatPlus Desktop must run as a single instance.
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             single_instance::activate(app);

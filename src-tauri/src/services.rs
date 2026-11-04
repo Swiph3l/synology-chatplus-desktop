@@ -401,7 +401,7 @@ pub fn active(app: &AppHandle) -> Option<Webview> {
 pub fn configured(app: &AppHandle, service: &ServiceConfig) -> bool {
     configured_identity(&state::current(app), service)
 }
-fn configured_identity(settings: &state::Settings, service: &ServiceConfig) -> bool {
+pub(crate) fn configured_identity(settings: &state::Settings, service: &ServiceConfig) -> bool {
     settings.services.iter().any(|current| {
         current.enabled && SessionIdentity::from(current) == SessionIdentity::from(service)
     })
@@ -1118,6 +1118,7 @@ pub fn remove(app: &AppHandle, id: &str) -> Result<(), String> {
 
 fn reconcile_current(app: &AppHandle, old: &state::Settings) -> Result<(), String> {
     let settings = state::current(app);
+    crate::popups::reconcile(app)?;
     for service in &old.services {
         if !settings.services.iter().any(|s| {
             s.id == service.id
@@ -1230,23 +1231,7 @@ fn create_registered(
             }
         })
         .on_new_window(move |target, features| {
-            if !configured(&popup_app, &popup_service) {
-                return tauri::webview::NewWindowResponse::Deny;
-            }
-            if crate::downloads::popup_allowed(&popup_service, &target) {
-                return match crate::downloads::popup(&popup_app, &popup_service, features) {
-                    Ok(window) => tauri::webview::NewWindowResponse::Create { window },
-                    Err(_) => {
-                        crate::shell::report(
-                            &popup_app,
-                            "Could not open the attachment. Try the download again.".into(),
-                        );
-                        tauri::webview::NewWindowResponse::Deny
-                    }
-                };
-            }
-            external(&popup_app, &popup_service, &target, "main");
-            tauri::webview::NewWindowResponse::Deny
+            crate::popups::request(&popup_app, &popup_service, &target, features, "main")
         })
         .on_page_load(move |view, payload| {
             if let Some(lifecycle) = load_app.try_state::<Lifecycle>() {
