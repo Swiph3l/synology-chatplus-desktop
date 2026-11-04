@@ -37,6 +37,12 @@ transfer or CLA. Contribute only work you have the right to submit and preserve
 third-party licenses/notices. See [licensing notes](docs/LICENSING.md) and
 [security reporting](SECURITY.md).
 
+Preserve original authorship when importing changes from a fork. For jointly
+authored work, add a `Co-authored-by` trailer using the contributor's verified
+GitHub-associated email or no-reply address. GitHub calculates its standard
+Contributors view from repository history; see its
+[contributor documentation](https://docs.github.com/en/repositories/viewing-activity-and-data-for-your-repository/viewing-a-projects-contributors).
+
 Useful issue-label suggestions for maintainers: bug, good first issue, help wanted,
 notifications, provider, windows, translations and documentation. These are
 recommendations; contribution changes do not create repository labels/settings.

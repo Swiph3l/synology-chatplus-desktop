@@ -121,6 +121,10 @@ Start with [developer documentation](docs/README.md) and
 [CONTRIBUTING.md](CONTRIBUTING.md). Contributions to bug fixes, provider integration,
 translations, accessibility, documentation and native platform testing are welcome.
 
+See [Contributors on GitHub](https://github.com/Swiph3l/synology-chatplus-desktop/graphs/contributors)
+for project activity, and [community forks](https://github.com/Swiph3l/synology-chatplus-desktop/forks)
+to explore related work.
+
 See also [architecture](docs/ARCHITECTURE.md), [notifications](docs/NOTIFICATIONS.md),
 [provider integration](docs/PROVIDERS.md) and [testing](docs/TESTING.md).
 
