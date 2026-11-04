@@ -1,7 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod build_metadata;
 mod commands;
-mod community;
 mod connection;
 mod desktop_notifications;
 mod diagnostics;

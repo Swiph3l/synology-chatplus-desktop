@@ -1,13 +1,5 @@
 import type { Theme } from "./settings";
-export type CommunityLink =
-  | "community:contribute"
-  | "community:contributors"
-  | "community:fork"
-  | "community:forks"
-  | `community:person:${string}`
-  | `community:fork:${string}`;
-export type ProjectLink =
-  "github" | "issues" | "star" | "support" | CommunityLink;
+export type ProjectLink = "github" | "issues" | "star" | "support";
 export interface AboutInfo {
   project: {
     project_name: string;

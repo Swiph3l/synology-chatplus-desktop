@@ -13,16 +13,6 @@ Tauri application.
 [![CI](https://github.com/Swiph3l/synology-chatplus-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/Swiph3l/synology-chatplus-desktop/actions/workflows/ci.yml)
 [![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8DB)](https://v2.tauri.app/)
 
-<!-- contributors:preview:start -->
-
-**Contributors** · [People and community variants](#contributors)
-
-[<img src="https://github.com/Swiph3l.png?size=128" width="64" height="64" alt="Swiph3l" title="Swiph3l" />](https://github.com/Swiph3l)
-[<img src="https://github.com/turbogizzmo.png?size=128" width="64" height="64" alt="turbogizzmo" title="turbogizzmo" />](https://github.com/turbogizzmo)
-
-[Swiph3l](https://github.com/Swiph3l) · [turbogizzmo](https://github.com/turbogizzmo)
-<!-- contributors:preview:end -->
-
 ## Why ChatPlus Desktop?
 
 - Keep Synology ChatPlus or Synology Chat close at hand with a convenient desktop app.
@@ -124,27 +114,6 @@ Optional update checks contact GitHub for release metadata/packages. Notificatio
 previews use the provider's supplied content according to your preference. Diagnostics
 omit message content, credentials, cookies/tokens and private URLs. Your provider's
 own privacy policy still applies. See [security reporting](SECURITY.md).
-
-<!-- contributors:start -->
-
-## Contributors
-
-Thank you to the people whose accepted work helps maintain and improve ChatPlus Desktop.
-Credits recognize reviewed code, ports, translations, testing and documentation.
-
-- [Swiph3l](https://github.com/Swiph3l) — Project creator; Project maintenance.
-- [turbogizzmo](https://github.com/turbogizzmo) — macOS port and desktop integration; Synology DSM launching; WebKit notification integration.
-
-Community variants:
-
-- [Windows community variant by turbogizzmo](https://github.com/turbogizzmo/synology-chatplus-desktop-Windows)
-- [macOS community variant by turbogizzmo](https://github.com/turbogizzmo/synology-chatplus-desktop-OSX)
-
-[Fork this project](https://github.com/Swiph3l/synology-chatplus-desktop/fork) to build a variant,
-or [contribute code, a translation, testing or documentation](CONTRIBUTING.md).
-This list and About are generated from [contributors.json](contributors.json); see the
-[credit workflow](CONTRIBUTING.md#contributor-credit) when adding a person or variant.
-<!-- contributors:end -->
 
 ## Contributing
 
