@@ -1,6 +1,6 @@
 [package]
 name = "chatplus-desktop"
-version = "1.0.0"
+version = "1.0.1"
 description = "Unofficial community desktop client for Synology ChatPlus."
 authors = ["Swiph3l"]
 license = "GPL-3.0-only"

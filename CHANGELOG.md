@@ -2,6 +2,15 @@
 
 All notable changes will be documented here. Versions follow Semantic Versioning.
 
+## 1.0.1 - 2026-11-04
+
+### Fixed
+
+- Allow Messenger's Google account verification to open and return to Facebook
+  without leaving a blank authentication window. Preserve related popups, form
+  POST data, callbacks and the originating account profile.
+- Keep Help and Privacy links usable during same-window Google verification.
+
 ## 1.0.0 - prerelease candidate
 
 ### Added
