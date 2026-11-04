@@ -6,6 +6,10 @@ All notable changes will be documented here. Versions follow Semantic Versioning
 
 ### Added
 
+- Add an optional Windows 95/98-inspired Retro theme for the desktop interface
+  and Synology ChatPlus, with classic controls and keyboard focus indicators.
+- Add an original retro chime, an explicit sound preview and themed Windows link
+  confirmation audio that respects the saved sound preference.
 - Prepare native macOS 14+ builds for Apple Silicon and Intel, and Linux x64
   AppImage/Debian packages alongside the existing Windows x64 installer.
 - Add native CI and per-platform release provenance, package/signature checks

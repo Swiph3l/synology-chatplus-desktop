@@ -220,15 +220,11 @@ pub fn icon_path(
 ) -> Result<std::path::PathBuf, String> {
     use tauri::Manager;
     let settings = crate::state::current(app);
-    let dark = match settings.theme {
-        crate::state::Theme::Dark => true,
-        crate::state::Theme::Light => false,
-        crate::state::Theme::System => {
-            app.get_window("main")
-                .and_then(|window| window.theme().ok())
-                == Some(tauri::Theme::Dark)
-        }
-    };
+    let system = app
+        .get_window("main")
+        .and_then(|window| window.theme().ok())
+        .unwrap_or(tauri::Theme::Light);
+    let dark = settings.theme.is_dark(system);
     let accent = if dark { [57, 126, 219] } else { [37, 99, 197] };
     let provider = service.map_or(ProviderId::SynologyChatplus, |service| service.provider);
     let color = service.map_or(accent, |service| {

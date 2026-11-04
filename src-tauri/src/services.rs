@@ -23,6 +23,19 @@ impl Lifecycle {
 const STARTUP_GAP: Duration = Duration::from_millis(750);
 const STARTUP_LOAD_LIMIT: Duration = Duration::from_secs(8);
 
+pub(crate) fn provider_background_color(
+    theme: &state::Theme,
+    system: tauri::Theme,
+) -> tauri::window::Color {
+    if *theme == state::Theme::Retro {
+        tauri::window::Color(192, 192, 192, 255)
+    } else if theme.is_dark(system) {
+        tauri::window::Color(15, 17, 21, 255)
+    } else {
+        tauri::window::Color(255, 255, 255, 255)
+    }
+}
+
 #[derive(Clone, PartialEq, Eq)]
 struct SessionIdentity {
     id: String,
@@ -1289,18 +1302,12 @@ fn create_registered(
         }
     }
     if service.provider.definition().theme {
-        let dark = match settings.theme {
-            state::Theme::Dark => true,
-            state::Theme::Light => false,
-            state::Theme::System => window.theme().ok() == Some(tauri::Theme::Dark),
-        };
         // Swiph3l: Document-start CSS cannot color the child WebView's native
         // pre-document/navigation frame. Match the opt-in provider's theme early.
-        builder = builder.background_color(if dark {
-            tauri::window::Color(15, 17, 21, 255)
-        } else {
-            tauri::window::Color(255, 255, 255, 255)
-        });
+        builder = builder.background_color(provider_background_color(
+            &settings.theme,
+            window.theme().unwrap_or(tauri::Theme::Light),
+        ));
         builder = builder.initialization_script(format!(
             "window.__chatplusTheme = {};\n{}",
             serde_json::to_string(&settings.theme).unwrap(),

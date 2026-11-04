@@ -1,4 +1,9 @@
 {
+  "settings.retro": "Retro (Windows 95/98)",
+  "settings.retroHelp": "Klassische Desktopfarben und Bedienelemente. Unter Windows nutzt die Linkbestätigung einen eigens erstellten Retro-Klang.",
+  "settings.retroSound": "Retro-Klang anhören",
+  "settings.retroSoundMuted": "Aktiviere Benachrichtigungstöne, um die Vorschau anzuhören.",
+  "settings.retroSoundFailed": "Die Vorschau konnte nicht abgespielt werden.",
   "externalLink.httpWarning": "Dieser Link verwendet eine unverschlüsselte HTTP-Verbindung.",
   "externalLink.failed": "Der Link konnte nicht geöffnet werden. Prüfe deinen Standardbrowser und versuche es erneut.",
   "downloads.destination": "Downloadziel: {path}",

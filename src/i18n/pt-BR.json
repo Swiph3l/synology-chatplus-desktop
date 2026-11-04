@@ -1,4 +1,9 @@
 {
+  "settings.retro": "Retrô (Windows 95/98)",
+  "settings.retroHelp": "Cores e controles clássicos. No Windows, a confirmação de links usa um som retrô original.",
+  "settings.retroSound": "Ouvir som retrô",
+  "settings.retroSoundMuted": "Ative os sons de notificação para ouvir a prévia.",
+  "settings.retroSoundFailed": "Não foi possível reproduzir a prévia.",
   "externalLink.httpWarning": "Este link usa uma conexão HTTP sem criptografia.",
   "externalLink.failed": "Não foi possível abrir o link. Verifique o navegador padrão e tente novamente.",
   "downloads.destination": "Destino do download: {path}",

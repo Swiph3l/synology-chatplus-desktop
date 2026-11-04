@@ -1,5 +1,7 @@
-import css from "./dark.css?inline";
+import darkCss from "./dark.css?inline";
+import retroCss from "./retro.css?inline";
 import type { Theme } from "../app/settings";
+const css = `${darkCss}\n${retroCss}`;
 declare global {
   interface Window {
     __chatplusTheme?: Theme;
