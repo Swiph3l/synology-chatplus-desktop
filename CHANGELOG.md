@@ -12,6 +12,7 @@ All notable changes will be documented here. Versions follow Semantic Versioning
   and exact-platform signed updater selection.
 - Add Brazilian Portuguese and Italian interface resources shared by the shell,
   native menus and errors, bringing the total to nine languages.
+- Add a Contributors link in About that opens GitHub's standard contributor graph.
 - Add a bounded WebKit notification/unread transport without granting remote
   provider pages native IPC permissions, plus separate macOS account stores.
 

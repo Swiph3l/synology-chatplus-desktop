@@ -27,6 +27,7 @@ pub const PROJECT: Project = Project {
 #[serde(rename_all = "lowercase")]
 pub enum Link {
     Github,
+    Contributors,
     Issues,
     Star,
     Support,
@@ -35,6 +36,9 @@ impl Project {
     pub fn link(&self, link: Link) -> Option<&str> {
         match link {
             Link::Github => Some(self.github_repository_url),
+            Link::Contributors => {
+                Some("https://github.com/Swiph3l/synology-chatplus-desktop/graphs/contributors")
+            }
             Link::Issues => Some(self.github_issues_url),
             Link::Star => Some(self.github_star_url),
             Link::Support => self.support_url.filter(|s| !s.trim().is_empty()),
@@ -60,6 +64,14 @@ mod tests {
     fn community_links_are_explicit_and_support_is_optional() {
         assert_eq!(PROJECT.link(Link::Star), PROJECT.link(Link::Github));
         assert!(PROJECT.link(Link::Issues).unwrap().ends_with("/issues"));
+        assert_eq!(
+            PROJECT.link(Link::Contributors),
+            Some("https://github.com/Swiph3l/synology-chatplus-desktop/graphs/contributors")
+        );
+        assert!(matches!(
+            serde_json::from_str::<Link>("\"contributors\"").unwrap(),
+            Link::Contributors
+        ));
         assert!(PROJECT.link(Link::Support).is_none());
         let mut project = PROJECT.clone();
         project.support_url = Some(" ");
