@@ -256,6 +256,7 @@ fn create(
         #[cfg(windows)]
         attach_script_close(&window)?;
         apply_popup_appearance(&window, &theme)?;
+        crate::authentication_diagnostics::attach(app, window.as_ref(), service);
         crate::downloads::attach(app, window.as_ref(), &service.id)?;
         // A settings worker may have invalidated this owner while build() ran.
         // Ownership was reserved before build(), so reconciliation sees pending

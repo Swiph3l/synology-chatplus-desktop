@@ -1363,6 +1363,7 @@ fn create_registered(
             .map_err(|_| "Could not register service shortcuts.")?;
         crate::platform::observe_connection(app, &view, &service.id)
             .map_err(|_| "Could not observe service connection.")?;
+        crate::authentication_diagnostics::attach(app, &view, service);
         crate::downloads::attach(app, &view, &service.id)
             .map_err(|_| "Could not observe attachment downloads.")?;
         crate::external_links::attach(app, &view, service)

@@ -51,6 +51,8 @@ node --test tests/theme.test.mjs tests/provider-bootstrap.test.mjs
 node --test tests/discord-unread.test.mjs tests/discord-read.test.mjs tests/provider-read.test.mjs
 node --test tests/synology-adapters.test.mjs tests/minimized-notification.test.mjs
 node --test tests/whatsapp.test.mjs tests/whatsapp-unread.test.mjs
+node --test tests/external-links.test.mjs tests/messenger.test.mjs
+cargo test --locked --manifest-path src-tauri/Cargo.toml authentication_diagnostics::
 cargo test --locked --manifest-path src-tauri/Cargo.toml unread::
 cargo test --locked --manifest-path src-tauri/Cargo.toml services::removal_tests
 ```
@@ -59,6 +61,17 @@ Some Node suites rebuild the ignored provider bootstrap bundles so they exercise
 production code. Do not substitute copied selectors or real account data for
 synthetic fixtures. Keep fixtures faithful to the public provider UI that was
 actually inspected.
+
+Messenger authentication diagnostics tests must verify that serialization contains
+only fixed categories, booleans and valid HTTP status codes, including failures
+on unrecognized Google/Facebook routes. Cover hostile URL/query sentinels,
+lookalike hosts, non-Messenger services, stale navigation and the 64-event memory
+bound. On Windows, use an isolated synthetic provider profile to verify main-view
+and related-popup responses reach **Copy diagnostics** without changing request
+methods, POST data, callbacks or navigation. Keep real credentials, cookies,
+headers, bodies and account details out of fixtures and reports. A successful
+existing session and a successful fresh login are separate acceptance checks;
+HTTP 400 remediation must not be reported as passing without a real reproduction.
 
 | Area                                        | Primary suites or modules                                                                                                                    |
 | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |

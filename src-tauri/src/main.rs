@@ -1,4 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod authentication_diagnostics;
 mod build_metadata;
 mod commands;
 mod connection;
@@ -146,6 +147,7 @@ fn main() {
             app.manage(updates::Service::default());
             app.manage(unread::Service::default());
             app.manage(diagnostics::NotificationHistory::default());
+            app.manage(authentication_diagnostics::History::default());
             app.manage(services::Lifecycle::default());
             app.manage(external_links::Service::default());
             app.manage(desktop_notifications::Service::default());

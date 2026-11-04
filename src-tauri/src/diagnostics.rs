@@ -687,6 +687,7 @@ pub fn report(app: &tauri::AppHandle) -> String {
         report.push_str("\nRecent notification transitions (bounded memory):\n");
         report.push_str(&serde_json::to_string_pretty(&history.events).unwrap_or_default());
     }
+    crate::authentication_diagnostics::append_report(app, &mut report);
     report
 }
 
@@ -705,9 +706,10 @@ pub struct AboutInfo {
     pub theme: String,
     pub server_configured: bool,
     pub connection_state: Connection,
+    pub authentication_diagnostics: serde_json::Value,
 }
 pub fn snapshot(app: &tauri::AppHandle) -> AboutInfo {
-    from_settings(
+    let mut info = from_settings(
         build_metadata::current(),
         RuntimeInfo {
             os: std::env::consts::OS.into(),
@@ -717,7 +719,9 @@ pub fn snapshot(app: &tauri::AppHandle) -> AboutInfo {
         },
         &state::current(app),
         connection::current(app),
-    )
+    );
+    info.authentication_diagnostics = crate::authentication_diagnostics::snapshot_json(app);
+    info
 }
 fn from_settings(
     build: BuildMetadata,
@@ -732,6 +736,7 @@ fn from_settings(
         theme: settings.theme.label().into(),
         server_configured: !settings.server_url.is_empty(),
         connection_state,
+        authentication_diagnostics: serde_json::json!([]),
     }
 }
 fn safe(value: &str) -> String {
@@ -1076,6 +1081,8 @@ mod tests {
         );
         let text = format(&info);
         let json = serde_json::to_string(&info).unwrap();
+        let value = serde_json::to_value(&info).unwrap();
+        assert_eq!(value["authentication_diagnostics"], serde_json::json!([]));
         for data in [&text, &json] {
             assert!(!data.contains(&settings.server_url));
             assert!(!data.contains("private.example.invalid"));

@@ -212,6 +212,22 @@ alternative verification method. Encrypted-history PIN restoration requires a
 separate authenticated acceptance check; ordinary login and messaging do not prove
 that restoration completed. ChatPlus does not read, store or submit the PIN.
 
+On Windows, local About/settings diagnostics and **Copy diagnostics** include up
+to 64 recent Messenger authentication events retained in memory. Events use fixed Google/Facebook stage,
+request-method and transport categories, parameter presence flags and numeric HTTP
+status codes. HTTP 4xx/5xx responses on unrecognized routes are retained as coarse
+categories. The collector excludes URLs and query values, credentials, cookies,
+account names, headers and request or response bodies. It creates no permanent
+authentication log or automatic network export and does not change navigation or
+verification requirements.
+The history is shared across Messenger instances; reproduce one sign-in attempt
+at a time before copying it. An empty history is inconclusive.
+
+A generic Google HTTP 400 after submitting the sign-in form has no confirmed
+cause or remedy yet. A working session that was already signed in does not
+verify fresh login. Retain these as separate acceptance results when reporting
+authentication behavior.
+
 The dedicated DOM adapter reports unknown. Browser notification arrivals supply
 unread and native delivery; Facebook navigation badges, contact labels, title
 counts and missing/filtered lists are not message evidence. Counts, conversation
