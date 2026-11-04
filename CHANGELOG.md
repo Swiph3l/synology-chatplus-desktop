@@ -2,6 +2,24 @@
 
 All notable changes will be documented here. Versions follow Semantic Versioning.
 
+## 1.0.2 - 2026-11-04
+
+### Added
+
+- Add bounded Messenger authentication diagnostics on Windows. Keep the last 64
+  events in memory as fixed stage, method and transport categories, parameter
+  presence flags and numeric HTTP status codes. Make them available to the local
+  About/settings diagnostics and copy them on the explicit **Copy diagnostics**
+  action, without automatic file or network export.
+- Retain HTTP 4xx/5xx responses on unrecognized Google Accounts and Facebook
+  routes so a generic sign-in error remains visible in the diagnostic summary.
+  URLs, query values, credentials, cookies, account names, headers and request or
+  response bodies are excluded; no permanent authentication log is created.
+
+The Google verification flow from 1.0.1 and existing service profiles are retained.
+The cause and remedy for the reported Google HTTP 400 remain unconfirmed; a
+working signed-in session does not establish that a fresh login succeeds.
+
 ## 1.0.1 - 2026-11-04
 
 ### Fixed
