@@ -21,11 +21,58 @@ const post = "a".repeat(26);
 const nextPost = "b".repeat(26);
 const settle = () => new Promise(setImmediate);
 
+function fixtureClock() {
+  let now = 0;
+  let serial = 0;
+  const timers = new Map();
+  return {
+    Date: class extends Date {
+      static now() {
+        return now;
+      }
+    },
+    setTimeout(callback, delay) {
+      const id = ++serial;
+      timers.set(id, { at: now + delay, callback });
+      return id;
+    },
+    clearTimeout(id) {
+      timers.delete(id);
+    },
+    pause(ms) {
+      now += ms;
+    },
+    async advance(ms) {
+      // A verifier Promise schedules the retry in its continuation. Flush that
+      // work before advancing timers, regardless of the host runner's load.
+      await settle();
+      const until = now + ms;
+      for (;;) {
+        const next = [...timers]
+          .filter(([, timer]) => timer.at <= until)
+          .sort(
+            ([firstId, first], [secondId, second]) =>
+              first.at - second.at || firstId - secondId,
+          )[0];
+        if (!next) break;
+        const [id, timer] = next;
+        now = Math.max(now, timer.at);
+        timers.delete(id);
+        timer.callback();
+        await settle();
+      }
+      now = until;
+      await settle();
+    },
+  };
+}
+
 function fixture({
   configured = "https://chat.example.test/mm/",
   path = "/mm/team/channels/town-square",
   timeout = 1000,
 } = {}) {
+  const clock = fixtureClock();
   const { document, window: dom } = parseHTML(`<html><body>
     <header><button id="header">Channel header</button></header>
     <div id="postListContent"><div id="postListScrollContainer">
@@ -72,8 +119,8 @@ function fixture({
       display: node.style.display || "block",
       visibility: node.style.visibility || "visible",
     }),
-    setTimeout,
-    clearTimeout,
+    setTimeout: clock.setTimeout,
+    clearTimeout: clock.clearTimeout,
     fetch: async (...args) => {
       fetchCalls.push(args);
       throw new Error("The injected verifier must own all transport.");
@@ -101,6 +148,7 @@ function fixture({
   host.chrome = { webview: { postMessage: bridge.postMessage } };
   const context = {
     URL,
+    Date: clock.Date,
     AbortController,
     Event: dom.Event,
     KeyboardEvent: class {},
@@ -135,6 +183,8 @@ function fixture({
     fetchCalls,
     messages: bridge.messages,
     diagnostics: bridge.diagnostics,
+    advance: clock.advance,
+    pause: clock.pause,
     recordMutation(record) {
       for (const observer of observers) observer.queued.push(record);
     },
@@ -234,7 +284,7 @@ test("Mattermost focus, header, synthetic input and initial pre-arrival input ne
   f.gesture("header");
   f.gesture("message-body", { trusted: false });
   f.gesture("post_textbox", { trusted: false, type: "input" });
-  await new Promise((resolve) => setTimeout(resolve, 5));
+  await f.advance(5);
   assert.equal(f.calls.length, 0);
   assertNoRead(f);
 });
@@ -247,7 +297,7 @@ test("Mattermost duplicate input shares one pending query and failed/unknown met
   f.gesture("post_textbox", { type: "input" });
   assert.equal(f.calls.length, 1);
   f.calls[0].resolve(null);
-  await new Promise((resolve) => setTimeout(resolve, 10));
+  await f.advance(1);
   assert.equal(
     f.calls.length,
     2,
@@ -264,7 +314,9 @@ test("Mattermost request timeout cannot turn a late successful reply into a read
   t.after(() => f.dispose());
   f.foreground();
   f.gesture();
-  await new Promise((resolve) => setTimeout(resolve, 15));
+  await f.advance(4);
+  assert.equal(f.calls[0].signal.aborted, false);
+  await f.advance(1);
   assert.equal(f.calls[0].signal.aborted, true);
   assertNoRead(f);
   f.calls[0].resolve(true);
@@ -321,7 +373,7 @@ test("Mattermost full native read stops further metadata requests until a new ar
   const previous = f.messages.length;
   f.gesture();
   f.gesture("post_textbox", { type: "input" });
-  await new Promise((resolve) => setTimeout(resolve, 5));
+  await f.advance(5);
   assert.equal(
     f.calls.length,
     1,
@@ -372,7 +424,13 @@ test("Mattermost read diagnostics contain only fixed outcomes and generation", a
   f.foreground();
   f.gesture();
   f.calls[0].resolve(null);
-  await new Promise((resolve) => setTimeout(resolve, 10));
+  // Model a loaded CI runner pausing before the verifier's continuation creates
+  // its retry. Wall-clock sleeps can resume the test before that retry exists.
+  f.pause(25);
+  await f.advance(0);
+  assert.equal(f.calls.length, 1, "retry waits for its own timer");
+  await f.advance(1);
+  assert.equal(f.calls.length, 2, "retry is ready before resolving its reply");
   f.calls[1].resolve(true);
   await settle();
   assert.deepEqual(
