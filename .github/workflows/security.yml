@@ -26,6 +26,8 @@ jobs:
         with:
           toolchain: stable
       - run: npm ci
+      - name: Verify the glib backport source and resolved dependency
+        run: node scripts/check-glib-backport.mjs --metadata
       - run: npm run check:dependencies
       - run: npm audit
       - name: Install free Rust audit tools
@@ -41,7 +43,7 @@ jobs:
       - name: License, source and advisory policy
         if: ${{ !cancelled() }}
         run: cargo deny --manifest-path src-tauri/Cargo.toml --config deny.toml --locked check
-      - name: Linux advisory review for Windows beta
+      - name: Strict Linux audit and original glib advisory review
         if: ${{ !cancelled() }}
         run: node scripts/audit-linux.mjs
       - name: Gitleaks current tree and history (free CLI)

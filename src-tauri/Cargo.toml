@@ -53,3 +53,11 @@ base64 = "0.23.1"
 minisign = "0.10.0"
 rcgen = "0.14.10"
 tauri = { version = "~2.12.5", features = ["test"] }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+glib = "=0.18.5"
+
+[patch.crates-io]
+# Swiph3l: Preserve GTK3 compatibility while backporting the upstream iterator
+# soundness fix. security/glib-backport.json pins every published and patched byte.
+glib = { path = "../vendor/glib-0.18.5" }

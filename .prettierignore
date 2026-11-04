@@ -9,3 +9,5 @@ src-tauri/theme-bootstrap.css
 # Preserve official provider brand resources byte-for-byte.
 public/providers/whatsapp.svg
 public/providers/messenger.svg
+# Third-party crate bytes are checked against their provenance manifest.
+vendor

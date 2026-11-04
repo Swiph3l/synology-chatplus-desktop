@@ -60,6 +60,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
       - run: npm ci
+      - name: Verify the glib backport source and resolved dependency
+        run: node scripts/check-glib-backport.mjs --metadata
       - run: npm run check:dependencies
       - run: npm run format:check
       - run: npm run typecheck
@@ -79,6 +81,8 @@ jobs:
       - run: cargo install cargo-audit --version 0.22.2 --locked
       - run: cargo install cargo-deny --version 0.20.2 --locked
       - run: cargo audit --file src-tauri/Cargo.lock
+      - name: Strict Linux audit and original glib advisory review
+        run: node scripts/audit-linux.mjs
       # Swiph3l: A platform enters the draft only after its own advisory/license gate passes.
       - run: cargo deny --manifest-path src-tauri/Cargo.toml --config deny.toml --target ${{ matrix.rust-target }} --locked check
       - name: Build and sign updater packages

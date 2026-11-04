@@ -18,7 +18,12 @@
   },
   "bundle": {
     "createUpdaterArtifacts": false,
-    "resources": ["../NOTICE", "../third-party/webpki-root-certs-LICENSE.txt"],
+    "resources": [
+      "../NOTICE",
+      "../third-party/webpki-root-certs-LICENSE.txt",
+      "../vendor/glib-0.18.5/LICENSE",
+      "../vendor/glib-0.18.5/COPYRIGHT"
+    ],
     "active": true,
     "targets": ["nsis"],
     "shortDescription": "Unofficial community desktop client for Synology ChatPlus.",

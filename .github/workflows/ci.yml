@@ -34,6 +34,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libayatana-appindicator3-dev librsvg2-dev patchelf libssl-dev xvfb
       - run: npm ci
+      - name: Verify the glib backport source and resolved dependency
+        run: node scripts/check-glib-backport.mjs --metadata
       - run: npm run check:dependencies
       - run: npm run format:check
       - run: npm run typecheck
@@ -46,6 +48,9 @@ jobs:
         if: runner.os != 'Linux'
       - run: xvfb-run -a cargo test --locked --manifest-path src-tauri/Cargo.toml
         if: runner.os == 'Linux'
+      - name: Verify the optimized glib Variant iterator regression on Linux
+        if: runner.os == 'Linux'
+        run: xvfb-run -a cargo test --release --locked --manifest-path src-tauri/Cargo.toml --test glib_variant_iter
   frontend-node24:
     # Swiph3l: Cover Node 24 separately from the native platform matrix.
     name: frontend (ubuntu-latest, Node 24)

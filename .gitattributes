@@ -2,3 +2,5 @@
 *.png binary
 *.ico binary
 *.icns binary
+# Preserve reviewed upstream archive bytes used by the glib backport guard.
+vendor/** -text whitespace=-blank-at-eof
