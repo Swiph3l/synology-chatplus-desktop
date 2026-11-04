@@ -69,10 +69,16 @@ navigation can use normal routes and query parameters within its allowed origin.
 | Slack                             | HTTPS `slack.com` or a subdomain, port 443 |
 | Mattermost                        | Exact configured HTTP(S) origin            |
 
-Sibling domains, suffix lookalikes, URL credentials and unsupported ports are not
-authentication exceptions. Off-origin HTTP(S) links require the external-browser
-preference and an explicit destination confirmation. External identity-provider
-cookie handoff is not implemented, which limits some SSO flows.
+Messenger also permits `https://accounts.google.com:443` for Facebook account
+verification navigation, including related popups and same-window redirects. This
+exception does not make Google a provider origin or grant it notification,
+read-state or native command access. It preserves the browser's original request,
+opener and return to Facebook.
+
+Other sibling domains, suffix lookalikes, URL credentials and unsupported ports
+are not authentication exceptions. Other off-origin HTTP(S) links require the
+external-browser preference and an explicit destination confirmation. External
+identity-provider cookie handoff is not implemented, which limits some SSO flows.
 
 Related popups share the originating profile and remain subject to navigation
 guards. Downloads use that profile's authenticated WebView2 pipeline; ChatPlus
@@ -193,8 +199,18 @@ provide account-wide zero or change unread state. See
 ### Messenger
 
 The entry URL is `https://www.facebook.com/messages/`. Normal Facebook login and
-same-origin security checkpoints stay within that exact origin. The normal
-WebView2 identity and isolated service profile are retained.
+same-origin security checkpoints stay within that exact origin. Facebook's Google
+account verification may navigate to the exact Google Accounts origin described
+above and return in the same service profile. The normal WebView2 identity and
+isolated service profile are retained.
+
+Google can independently reject embedded sign-in with `disallowed_useragent` under
+its [OAuth policy](https://developers.google.com/identity/protocols/oauth2/policies).
+Permitting the verification navigation does not bypass that restriction or prove
+account verification succeeds for every account. If offered, use Facebook's own
+alternative verification method. Encrypted-history PIN restoration requires a
+separate authenticated acceptance check; ordinary login and messaging do not prove
+that restoration completed. ChatPlus does not read, store or submit the PIN.
 
 The dedicated DOM adapter reports unknown. Browser notification arrivals supply
 unread and native delivery; Facebook navigation badges, contact labels, title

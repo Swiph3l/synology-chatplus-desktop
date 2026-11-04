@@ -108,6 +108,16 @@ threads, loading history, composer focus, message editing and reaction/menu open
 - [ ] For Messenger, continue beyond the login form through the account's actual
       Facebook authorization and any offered verification, then confirm return to
       messages. An anonymous login-page check does not cover this stage.
+- [ ] If Facebook offers Google verification, test the real button, an initially
+      blank related popup with a later redirect, and a same-window redirect. Google
+      Accounts must load without an external article prompt; a successful provider
+      callback returns to the originating Facebook session. Record Google policy
+      rejection separately from blocked navigation; retain the ordinary WebView2
+      identity. Do not copy credentials or cookies to a system browser.
+- [ ] Test encrypted-history restoration with a consenting account's PIN. Confirm
+      the provider finishes restoring history or displays a usable provider error;
+      a spinner remaining indefinitely is a failure. Do not record the PIN, keys,
+      network payloads or message contents. Passing login does not pass this check.
 - [ ] Reload, restart, linked-session retention and logout work for the tested instance.
 - [ ] A second instance stays isolated through login/logout and notification routing.
 - [ ] Experimental status remains visible; unsupported read operations are not offered.

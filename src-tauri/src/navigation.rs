@@ -70,13 +70,29 @@ pub fn provider_document(service: &crate::providers::ServiceConfig, target: &Url
     target.scheme() == "blob" && crate::downloads::attachment_popup(service, target)
 }
 
+/// Messenger can ask Google to verify the Facebook account. This is navigation
+/// permission only: Google is not a provider origin and receives no provider
+/// notification, read-state or native IPC trust. Keep the exact account origin
+/// for the multi-step sign-in flow and its return to Facebook.
+pub fn authentication_document(service: &crate::providers::ServiceConfig, target: &Url) -> bool {
+    service.provider == crate::providers::ProviderId::Messenger
+        && target.scheme() == "https"
+        && target.port_or_known_default() == Some(443)
+        && target.host_str() == Some("accounts.google.com")
+        && target.username().is_empty()
+        && target.password().is_none()
+}
+
 /// External anchor clicks may request confirmation, but may not take ownership
 /// of provider navigation or authenticated attachment popups.
 pub fn external_anchor_target(
     service: &crate::providers::ServiceConfig,
     target: &Url,
 ) -> Option<ExternalTarget> {
-    if provider_document(service, target) || crate::downloads::attachment_popup(service, target) {
+    if provider_document(service, target)
+        || authentication_document(service, target)
+        || crate::downloads::attachment_popup(service, target)
+    {
         return None;
     }
     external_target(target)
@@ -117,6 +133,56 @@ mod tests {
             "https://user:secret@nas.example.com/",
         ] {
             assert!(!same_server(&Url::parse(target).unwrap(), &origin));
+        }
+    }
+
+    #[test]
+    fn messenger_google_verification_is_navigation_only_and_never_an_external_article() {
+        use crate::providers::ProviderId;
+        let service = provider_service(ProviderId::Messenger, "https://www.facebook.com/messages/");
+        for value in [
+            "https://accounts.google.com/o/oauth2/v2/auth?state=synthetic",
+            "https://accounts.google.com:443/v3/signin/challenge/pwd",
+        ] {
+            let target = Url::parse(value).unwrap();
+            assert!(authentication_document(&service, &target), "{value}");
+            assert!(!provider_document(&service, &target), "{value}");
+            assert!(!service.provider.allows(&service.url, &target), "{value}");
+            assert!(
+                external_anchor_target(&service, &target).is_none(),
+                "{value}"
+            );
+        }
+        for value in [
+            "http://accounts.google.com/",
+            "https://accounts.google.com:8443/",
+            "https://accounts.google.com.evil.example/",
+            "https://google.com/",
+            "https://www.google.com/",
+            "https://user@accounts.google.com/",
+            "https://user:secret@accounts.google.com/",
+            "blob:https://accounts.google.com/opaque",
+            "data:text/html,hello",
+        ] {
+            assert!(
+                !authentication_document(&service, &Url::parse(value).unwrap()),
+                "{value}"
+            );
+        }
+        for provider in [
+            ProviderId::SynologyChatplus,
+            ProviderId::SynologyChat,
+            ProviderId::Slack,
+            ProviderId::Discord,
+            ProviderId::Whatsapp,
+            ProviderId::Mattermost,
+        ] {
+            let mut other = service.clone();
+            other.provider = provider;
+            assert!(!authentication_document(
+                &other,
+                &Url::parse("https://accounts.google.com/").unwrap()
+            ));
         }
     }
     #[test]

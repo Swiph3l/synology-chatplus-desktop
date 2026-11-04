@@ -1232,7 +1232,9 @@ fn create_registered(
             if !configured(&nav_app, &nav_service) {
                 return false;
             }
-            if crate::navigation::provider_document(&nav_service, target) {
+            if crate::navigation::provider_document(&nav_service, target)
+                || crate::navigation::authentication_document(&nav_service, target)
+            {
                 true
             } else {
                 if crate::downloads::attachment_popup(&nav_service, target) {

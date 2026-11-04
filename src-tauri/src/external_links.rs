@@ -327,6 +327,13 @@ pub fn initialization_script(service: &ServiceConfig) -> String {
     )
 }
 
+/// Auth documents may request the same explicit external-link confirmation as
+/// the provider. This grants no provider notifications, read-state or commands.
+fn external_link_document(service: &ServiceConfig, source: &url::Url) -> bool {
+    navigation::provider_document(service, source)
+        || navigation::authentication_document(service, source)
+}
+
 fn anchor_message_target(
     service: &ServiceConfig,
     source: &url::Url,
@@ -339,10 +346,7 @@ fn anchor_message_target(
         chatplus_external_link: u8,
         href: String,
     }
-    if json.len() > 64 * 1024
-        || source != current
-        || !navigation::provider_document(service, source)
-    {
+    if json.len() > 64 * 1024 || source != current || !external_link_document(service, source) {
         return None;
     }
     let intent: Intent = serde_json::from_str(json).ok()?;
@@ -472,7 +476,7 @@ fn source_matches(
 ) -> bool {
     current == expected
         && if main {
-            navigation::provider_document(service, current)
+            external_link_document(service, current)
         } else {
             crate::popups::allowed(service, current)
         }
@@ -980,6 +984,53 @@ mod tests {
     }
 
     #[test]
+    fn messenger_auth_document_help_links_require_the_exact_live_auth_source() {
+        let (_, mut service, _) = fixture();
+        service.provider = crate::providers::ProviderId::Messenger;
+        service.url = "https://www.facebook.com/messages/".into();
+        let source: url::Url = "https://accounts.google.com/v3/signin/identifier"
+            .parse()
+            .unwrap();
+        let help: url::Url = "https://support.google.com/accounts/answer/synthetic"
+            .parse()
+            .unwrap();
+        let json = serde_json::json!({"chatplusExternalLink":1,"href":help.as_str()}).to_string();
+        assert_eq!(
+            anchor_message_target(&service, &source, &source, &json),
+            Some(help)
+        );
+        assert!(source_matches(&service, true, &source, &source));
+        assert!(!navigation::provider_document(&service, &source));
+        assert!(!service.provider.allows(&service.url, &source));
+
+        let changed = "https://accounts.google.com/v3/signin/challenge/pwd"
+            .parse()
+            .unwrap();
+        assert!(anchor_message_target(&service, &source, &changed, &json).is_none());
+        assert!(!source_matches(&service, true, &source, &changed));
+        for value in [
+            "http://accounts.google.com/",
+            "https://accounts.google.com:8443/",
+            "https://accounts.google.com.evil.example/",
+            "https://user:secret@accounts.google.com/",
+            "https://support.google.com/",
+        ] {
+            let rejected = value.parse().unwrap();
+            assert!(
+                anchor_message_target(&service, &rejected, &rejected, &json).is_none(),
+                "{value}"
+            );
+            assert!(
+                !source_matches(&service, true, &rejected, &rejected),
+                "{value}"
+            );
+        }
+        service.provider = crate::providers::ProviderId::Whatsapp;
+        assert!(anchor_message_target(&service, &source, &source, &json).is_none());
+        assert!(!source_matches(&service, true, &source, &source));
+    }
+
+    #[test]
     fn anchor_bridge_cannot_open_provider_routes_attachments_or_non_web_targets() {
         let (_, mut service, _) = fixture();
         let source: url::Url = service.url.parse().unwrap();
@@ -1079,6 +1130,8 @@ mod tests {
             "https://www.facebook.com/dialog/oauth?client_id=example&state=opaque",
             "https://www.facebook.com/connect/login_success.html#access_token=example",
             "https://www.facebook.com/checkpoint/?next=%2Fmessages%2F",
+            "https://accounts.google.com/o/oauth2/v2/auth?state=synthetic",
+            "https://accounts.google.com/v3/signin/challenge/pwd",
         ] {
             let target = input.parse().unwrap();
             assert!(!permitted(&settings, &service, &target), "{input}");

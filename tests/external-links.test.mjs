@@ -16,13 +16,16 @@ const { installExternalLinks } = await import(
 function fixture({
   provider = "whatsapp",
   origin = "https://web.whatsapp.com",
+  documentOrigin = origin,
   post,
   beforeCapture,
 } = {}) {
   const { window, document } = parseHTML(
     "<html><head></head><body></body></html>",
   );
-  Object.defineProperty(document, "baseURI", { value: `${origin}/app/` });
+  Object.defineProperty(document, "baseURI", {
+    value: `${documentOrigin}/app/`,
+  });
   // Linkedom does not implement ancestor capture ordering. Model only that
   // transport phase explicitly; real DOM nodes, listeners and URL parsing stay
   // in use, and every installation must request capture on the window.
@@ -217,6 +220,77 @@ test("Slack workspace and Discord signed attachment links keep their native prof
     assert.equal(f.providerCalls(), 1, href);
     assert.deepEqual(f.messages, [], href);
   }
+});
+
+test("Messenger Google verification preserves popup and same-window provider handlers", () => {
+  for (const target of ["_blank", "_self", "google-verification", ""]) {
+    for (const href of [
+      "https://accounts.google.com/o/oauth2/v2/auth?state=synthetic",
+      "https://accounts.google.com:443/v3/signin/challenge/pwd",
+    ]) {
+      const f = fixture({
+        provider: "messenger",
+        origin: "https://www.facebook.com",
+      });
+      f.anchor.href = href;
+      f.anchor.target = target;
+      let handled = false;
+      f.anchor.addEventListener("click", (event) => {
+        handled = true;
+        event.preventDefault();
+      });
+      f.click();
+      assert.equal(handled, true, `${target}: ${href}`);
+      assert.equal(f.providerCalls(), 1, href);
+      assert.deepEqual(f.messages, [], href);
+    }
+  }
+});
+
+test("Google verification navigation is limited to the exact Messenger account origin", () => {
+  for (const href of [
+    "http://accounts.google.com/",
+    "https://accounts.google.com:8443/",
+    "https://accounts.google.com.evil.test/",
+    "https://google.com/",
+    "https://www.google.com/",
+  ]) {
+    const f = fixture({
+      provider: "messenger",
+      origin: "https://www.facebook.com",
+    });
+    f.anchor.href = href;
+    assert.equal(f.click().allowed, false, href);
+    assert.equal(f.messages.length, 1, href);
+    assert.equal(f.providerCalls(), 0, href);
+  }
+  for (const provider of ["slack", "discord", "whatsapp", "mattermost"]) {
+    const f = fixture({ provider });
+    f.anchor.href = "https://accounts.google.com/o/oauth2/v2/auth";
+    assert.equal(f.click().allowed, false, provider);
+    assert.equal(f.messages.length, 1, provider);
+  }
+});
+
+test("same-window Google auth keeps account navigation and confirms external help links", () => {
+  const f = fixture({
+    provider: "messenger",
+    origin: "https://www.facebook.com",
+    documentOrigin: "https://accounts.google.com",
+  });
+  f.anchor.href = "https://support.google.com/accounts/answer/synthetic";
+  assert.equal(f.click().allowed, false);
+  assert.deepEqual(f.messages, [
+    {
+      chatplusExternalLink: 1,
+      href: "https://support.google.com/accounts/answer/synthetic",
+    },
+  ]);
+  f.messages.length = 0;
+  f.anchor.setAttribute("href", "/v3/signin/challenge/pwd");
+  assert.equal(f.click().allowed, true);
+  assert.deepEqual(f.messages, []);
+  assert.equal(f.providerCalls(), 1);
 });
 
 test("lookalike hosts, nonstandard ports and nonattachment CDN paths still require confirmation", () => {

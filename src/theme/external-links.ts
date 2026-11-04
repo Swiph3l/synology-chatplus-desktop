@@ -37,6 +37,8 @@ function externalTarget(
   if (target.origin === policy.origin) return null;
   // Swiph3l: Slack's public workspace navigation spans subdomains. Discord's
   // signed attachment URLs keep their related, authenticated download view.
+  // Messenger's Google account verification must reach the provider handler:
+  // capturing it here would break the related popup and its callback to Facebook.
   if (
     target.protocol === "https:" &&
     !target.port &&
@@ -47,7 +49,9 @@ function externalTarget(
         ["cdn.discordapp.com", "media.discordapp.net"].includes(
           target.hostname,
         ) &&
-        /^\/attachments\/[^/]+\/[^/]+\/[^/]+/.test(target.pathname)))
+        /^\/attachments\/[^/]+\/[^/]+\/[^/]+/.test(target.pathname)) ||
+      (policy.provider === "messenger" &&
+        target.hostname === "accounts.google.com"))
   )
     return null;
   return target.href;

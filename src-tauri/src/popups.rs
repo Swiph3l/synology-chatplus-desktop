@@ -37,6 +37,7 @@ impl Service {
 pub fn allowed(service: &ServiceConfig, target: &url::Url) -> bool {
     target.as_str() == "about:blank"
         || service.provider.allows(&service.url, target)
+        || crate::navigation::authentication_document(service, target)
         || crate::downloads::attachment_popup(service, target)
 }
 
@@ -345,6 +346,35 @@ mod tests {
         ] {
             assert!(!allowed(&service, &target.parse().unwrap()), "{target}");
         }
+    }
+
+    #[test]
+    fn messenger_verification_popup_keeps_google_and_facebook_in_the_related_session() {
+        let mut messenger = service("messenger");
+        messenger.provider = ProviderId::Messenger;
+        messenger.url = "https://www.facebook.com/messages/".into();
+        for target in [
+            "about:blank",
+            "https://accounts.google.com/o/oauth2/v2/auth?state=synthetic",
+            "https://accounts.google.com/v3/signin/challenge/pwd?state=synthetic",
+            "https://www.facebook.com/checkpoint/?state=synthetic",
+        ] {
+            assert!(allowed(&messenger, &target.parse().unwrap()), "{target}");
+        }
+        for target in [
+            "http://accounts.google.com/",
+            "https://accounts.google.com:444/",
+            "https://accounts.google.com.evil.example/",
+            "https://user:secret@accounts.google.com/",
+            "https://www.google.com/",
+            "blob:https://accounts.google.com/opaque",
+        ] {
+            assert!(!allowed(&messenger, &target.parse().unwrap()), "{target}");
+        }
+        assert!(!allowed(
+            &service("other-provider"),
+            &"https://accounts.google.com/".parse().unwrap()
+        ));
     }
 
     #[test]
