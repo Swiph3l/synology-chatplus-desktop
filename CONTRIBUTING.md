@@ -23,8 +23,8 @@ architecture and clearly unofficial branding should remain intact.
   outside the source checkout. `docs` contains reusable developer documentation;
   see its [conventions](docs/README.md#documentation-conventions).
 
-The `1.0.0` candidate adds native CI for Windows x64, Linux x64 and both macOS
-architectures. macOS and Linux remain candidates pending the
+Native CI covers Windows x64, Linux x64 and both macOS architectures.
+macOS and Linux remain candidates pending the
 [platform acceptance checklist](docs/PLATFORMS.md#native-acceptance-checklist).
 The glib source backport requires its source/resolution guard, strict audit and
 Linux debug/optimized iterator regression. Preserve the verified vendor source;
