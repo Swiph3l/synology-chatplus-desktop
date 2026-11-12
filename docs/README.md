@@ -11,6 +11,7 @@ or IPC boundaries. User installation and feature information is in the
 | ------------------------------------------- | -------------------------------------------------------------------- |
 | [Development](DEVELOPMENT.md)               | Prerequisites, local setup, commands and source layout               |
 | [Testing](TESTING.md)                       | Automated checks, regression suites and test fixtures                |
+| [Performance](PERFORMANCE.md)               | Windows process capture, memory definitions and matched comparisons  |
 | [Platforms](PLATFORMS.md)                   | Target status, capability limits, installation and native acceptance |
 | [Windows acceptance](WINDOWS_ACCEPTANCE.md) | Reusable native and authenticated-provider test checklist            |
 | [Contributing](../CONTRIBUTING.md)          | Review, coding and contribution conventions                          |
