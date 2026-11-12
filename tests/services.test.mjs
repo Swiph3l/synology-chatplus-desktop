@@ -542,6 +542,32 @@ test("sidebar follows native multi-service snapshots and cannot resurrect dots f
   assert.equal(f.button("second").classList.contains("has-unread"), false);
 });
 
+test("rejected stale unread snapshots preserve rail nodes and focus until a newer state arrives", async () => {
+  const f = await contextFixture();
+  const emit = (revision, hasUnread) => {
+    f.events.get("service-unread")({
+      payload: {
+        revision,
+        services: { first: { hasUnread } },
+        aggregate: { hasUnread },
+      },
+    });
+  };
+  emit(3, false);
+  const rail = f.document.querySelector(".service-rail");
+  const button = f.button("first");
+  button.focus();
+  for (let index = 0; index < 100; index += 1) emit(2, true);
+  assert.equal(f.document.querySelector(".service-rail"), rail);
+  assert.equal(f.button("first"), button);
+  assert.equal(f.document.activeElement, button);
+  assert.equal(button.classList.contains("has-unread"), false);
+  emit(4, true);
+  assert.notEqual(f.document.querySelector(".service-rail"), rail);
+  assert.equal(f.button("first").classList.contains("has-unread"), true);
+  assert.equal(f.document.activeElement, f.button("first"));
+});
+
 test("the native unread snapshot IPC supplies the same initial per-service sidebar state", async () => {
   const { window, document } = parseHTML(
     '<html><body><main id="app"></main></body></html>',
