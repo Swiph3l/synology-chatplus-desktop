@@ -278,7 +278,9 @@ export async function renderServices() {
   let unreadObserved = false;
   await listen<typeof unread>("service-unread", ({ payload }) => {
     unreadObserved = true;
-    unread = acceptUnreadSnapshot(unread, payload);
+    const nextUnread = acceptUnreadSnapshot(unread, payload);
+    if (nextUnread === unread) return;
+    unread = nextUnread;
     render();
   });
   let updateObserved = false;

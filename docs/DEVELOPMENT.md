@@ -108,6 +108,11 @@ metadata rather than private APIs or message-history scraping.
 
 ## Validation and dependencies
 
+Repository-specific Codex skills live in `.agents/skills/`. Start Codex inside
+the repository so it can discover the WebView lifecycle, provider integration
+and release engineering instructions. These skills reference the maintained
+guides and do not replace the project's validation or native acceptance checks.
+
 Run the checks in [TESTING.md](TESTING.md) before review. Use provider-specific
 fixtures for reproduced bugs and record native acceptance separately. Formatting
 uses Prettier and rustfmt. Explain non-obvious concurrency, identity and privacy

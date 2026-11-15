@@ -114,6 +114,19 @@ impl Startup {
         false
     }
 
+    fn retire(&mut self, id: &str) {
+        self.loads.remove(id);
+        if self
+            .presentation
+            .as_ref()
+            .is_some_and(|identity| identity.id == id)
+        {
+            self.presentation = None;
+        }
+        // Swiph3l: Creation may still be returning from the UI. Its owner must release
+        // the reservation before a replacement can reuse the same native label.
+    }
+
     fn defer_presentation(&mut self, service: &ServiceConfig) -> bool {
         if self.reserved(&service.id) {
             self.presentation = Some(service.into());
@@ -855,6 +868,53 @@ mod removal_tests {
     }
 
     #[test]
+    fn retired_sessions_release_load_records_and_reject_late_callbacks() {
+        let settings = settings();
+        let mut startup = Startup::default();
+        let retained = startup.register(&settings.services[1], Instant::now());
+        for serial in 0..1_000 {
+            let mut service = settings.services[0].clone();
+            service.id = format!("temporary-{serial}");
+            let ticket = startup.register(&service, Instant::now());
+            startup.retire(&service.id);
+            assert!(!startup.loaded(&ticket, true));
+            assert!(!startup.owns(&ticket));
+            assert_eq!(startup.loads.len(), 1);
+        }
+        assert!(startup.current(&retained));
+        assert!(startup.loaded(&retained, true));
+    }
+
+    #[test]
+    fn retiring_an_inflight_session_preserves_its_reservation_until_release() {
+        let settings = settings();
+        let mut startup = Startup::default();
+        let service = &settings.services[0];
+        let old = startup.register(service, Instant::now());
+        startup.creating = Some(old.clone());
+        assert!(startup.defer_presentation(service));
+
+        startup.retire(&service.id);
+        assert!(startup.presentation.is_none());
+        assert!(!startup.current(&old));
+        assert!(startup.reserved(&service.id));
+        assert_eq!(
+            startup.remaining(&old, &settings, Instant::now()),
+            Duration::ZERO
+        );
+        startup.release(&old);
+        assert!(!startup.reserved(&service.id));
+
+        let replacement = startup.register(service, Instant::now());
+        startup.creating = Some(replacement.clone());
+        startup.release(&old);
+        assert!(startup.reserved(&service.id));
+        assert!(!startup.loaded(&old, true));
+        assert!(startup.current(&replacement));
+        assert!(replacement.generation > old.generation);
+    }
+
+    #[test]
     fn activation_during_creation_is_deferred_and_old_completion_cannot_release_or_close_replacement(
     ) {
         let mut settings = settings();
@@ -1143,6 +1203,11 @@ fn reconcile_current(app: &AppHandle, old: &state::Settings) -> Result<(), Strin
                 view.close()
                     .map_err(|_| "Settings saved. Restart to apply service changes.")?;
             }
+            app.state::<Lifecycle>()
+                .1
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .retire(&service.id);
             crate::unread::remove(app, &service.id);
         }
     }

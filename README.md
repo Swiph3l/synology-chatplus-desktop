@@ -69,8 +69,8 @@ client with no Meta affiliation.
   Japanese, Traditional Chinese, Brazilian Portuguese and Italian interface.
 - Native menus, zoom/fullscreen, saved window geometry and optional start at login.
 
-Current development is the **`1.0.0` candidate**. Windows x64 remains the established
-target. Native build and release preparation now covers macOS 14+ on Apple Silicon
+Windows x64 remains the established target. Native build and release preparation
+covers macOS 14+ on Apple Silicon
 and Intel, and Linux x64 with an Ubuntu 24.04 baseline. These new platforms require
 native acceptance before their support is promoted. Linux uses a verified source
 backport of the upstream glib iterator fix; its native debug/optimized regression
