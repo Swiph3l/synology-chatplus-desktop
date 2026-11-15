@@ -110,3 +110,28 @@ Run the synthetic attribution/privacy checks with:
 ```powershell
 powershell.exe -NoProfile -File tests/profile-process-tree.selftest.ps1
 ```
+
+## Windows account isolation and process groups
+
+The service ID selects a persistent `services/<id>` data directory; the migrated
+`chatplus` service retains its original default store. Tauri keys its WebView
+contexts by data directory, and Wry passes that directory as WebView2's user data
+folder. Each folder has its own browser/helper collection under Microsoft's
+[process model](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/process-model).
+Repeated browser, GPU and utility processes can therefore be expected with
+separate accounts; their presence alone does not establish duplicate creation.
+
+WebView2 supports [named profiles in a shared environment](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/multi-profile-support).
+The locked Wry API has `with_profile_name`, but the current Tauri/runtime layers
+do not forward that setting. Changing only `data_directory` would reuse the
+default profile and merge same-origin account state. A shared-environment
+experiment needs explicit profile plumbing and measured evidence before adoption.
+
+Such an experiment must preserve profile isolation on older runtimes, related
+authentication/download popups and existing sign-ins. Wry's legacy controller
+fallback does not apply named profiles; popups must use both the opener's
+environment and profile under Microsoft's [popup contract](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2newwindowrequestedeventargs).
+The documented [user-data-folder move](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/user-data-folder)
+does not establish a safe migration that combines multiple existing default
+profiles. Keep the current directories until migration, rollback, notifications,
+two-account isolation and compatibility have been validated.
