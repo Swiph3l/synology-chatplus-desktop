@@ -35,6 +35,8 @@ their limits; do not add nested group totals or call summed working set unique
 memory. Keep raw measurements and machine/account details outside the checkout.
 Preserve session isolation, TLS and GPU acceleration while investigating changes;
 do not infer that profiles can share browser environments from process names.
+Use `docs/PERFORMANCE.md` and `scripts/profile-process-tree.ps1` for reproducible
+attach-only observations; keep unknown workload declarations unset.
 
 Run focused native regressions with:
 
