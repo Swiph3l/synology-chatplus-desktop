@@ -71,7 +71,6 @@ $known = @{}
 $previousCpu = @{}
 $versions = @{}
 $samples = New-Object Collections.Generic.List[object]
-$rows = New-Object Collections.Generic.List[object]
 $startedUtc = [datetime]::UtcNow
 $clock = [Diagnostics.Stopwatch]::StartNew()
 $nextSample = 0.0
@@ -150,8 +149,9 @@ while ($true) {
         }
         $record = [pscustomobject]$row
         $sampleRows += $record
-        $rows.Add($record)
     }
+    # Flush one bounded sample at a time; extended captures must not retain every process row.
+    $sampleRows | Export-Csv -LiteralPath (Join-Path $OutputDirectory 'processes.csv') -Append -NoTypeInformation -Encoding UTF8
     $rootPresent = @($tree | Where-Object { (Get-ProfileProcessIdentity $_) -eq $rootIdentity }).Count -eq 1
     if (-not $rootPresent) { $complete = $false }
     $roles = [ordered]@{}
@@ -186,7 +186,6 @@ $metadata = [ordered]@{
 }
 Write-ProfileJson $metadata (Join-Path $OutputDirectory 'session.json')
 Write-ProfileJson @($samples.ToArray()) (Join-Path $OutputDirectory 'samples.json')
-$rows.ToArray() | Export-Csv -LiteralPath (Join-Path $OutputDirectory 'processes.csv') -NoTypeInformation -Encoding UTF8
 $summaryRows = foreach ($sample in $samples) {
     foreach ($scope in @('total') + @($sample.roles.Keys)) {
         $value = if ($scope -eq 'total') { $sample.total } else { $sample.roles[$scope] }
