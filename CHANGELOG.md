@@ -10,6 +10,7 @@ All notable changes will be documented here. Versions follow Semantic Versioning
   retaining the current controls and keyboard focus.
 - Clean up retired service startup state after removing, disabling or changing
   a service, while preserving account profiles and background notifications.
+- Update a Linux dependency with an upstream memory-safety fix.
 
 ## 1.0.2 - 2026-11-04
 
