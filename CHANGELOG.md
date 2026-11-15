@@ -2,7 +2,7 @@
 
 All notable changes will be documented here. Versions follow Semantic Versioning.
 
-## 1.0.3 - unreleased
+## 1.0.3 - 2026-11-15
 
 ### Fixed
 
@@ -11,6 +11,11 @@ All notable changes will be documented here. Versions follow Semantic Versioning
 - Clean up retired service startup state after removing, disabling or changing
   a service, while preserving account profiles and background notifications.
 - Update a Linux dependency with an upstream memory-safety fix.
+
+### Changed
+
+- Update desktop integrations for starting another app instance, handling updates
+  and opening external links, along with build and test dependencies.
 
 ## 1.0.2 - 2026-11-04
 
