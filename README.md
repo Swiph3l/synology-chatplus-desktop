@@ -7,11 +7,13 @@ ChatPlus and Synology Chat, with multi-service messaging support. It brings your
 self-hosted chat on a Synology NAS and services such as Discord into one lightweight
 Tauri application.
 
-[![Latest release](https://img.shields.io/github/v/release/Swiph3l/synology-chatplus-desktop?include_prereleases)](https://github.com/Swiph3l/synology-chatplus-desktop/releases)
+[![Latest stable release](https://img.shields.io/github/v/release/Swiph3l/synology-chatplus-desktop)](https://github.com/Swiph3l/synology-chatplus-desktop/releases/latest)
 [![Windows x64](https://img.shields.io/badge/Windows-x64-0078D4)](https://github.com/Swiph3l/synology-chatplus-desktop/releases)
 [![GPLv3](https://img.shields.io/badge/license-GPLv3-blue)](LICENSE)
 [![CI](https://github.com/Swiph3l/synology-chatplus-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/Swiph3l/synology-chatplus-desktop/actions/workflows/ci.yml)
 [![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8DB)](https://v2.tauri.app/)
+
+**Current stable version: [v1.0.3](https://github.com/Swiph3l/synology-chatplus-desktop/releases/tag/v1.0.3).**
 
 ## Why ChatPlus Desktop?
 
@@ -79,11 +81,24 @@ and every target's security gate must pass before distribution. See
 
 ## Download
 
-**[Download published builds from GitHub Releases](https://github.com/Swiph3l/synology-chatplus-desktop/releases).**
+Choose a **v1.0.3** package for your system:
 
-Choose a package explicitly published for your platform. Candidate preparation
-does not imply that macOS or Linux packages have been published. Stable releases are intended for
-regular use; beta and pre-release builds include changes for testing. Enable
+| System                        | Architecture          | Download                                                                                                                                                                                                                                                                            |
+| ----------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Windows                       | x64                   | [Setup (.exe)](https://github.com/Swiph3l/synology-chatplus-desktop/releases/download/v1.0.3/windows-x86_64--ChatPlus-Desktop_1.0.3_x64-setup.exe)                                                                                                                                  |
+| macOS 14+                     | Apple Silicon (arm64) | [Disk image (.dmg)](https://github.com/Swiph3l/synology-chatplus-desktop/releases/download/v1.0.3/darwin-aarch64--ChatPlus-Desktop_1.0.3_aarch64.dmg)                                                                                                                               |
+| macOS 14+                     | Intel (x64)           | [Disk image (.dmg)](https://github.com/Swiph3l/synology-chatplus-desktop/releases/download/v1.0.3/darwin-x86_64--ChatPlus-Desktop_1.0.3_x64.dmg)                                                                                                                                    |
+| Linux (Ubuntu 24.04 baseline) | x64                   | [AppImage](https://github.com/Swiph3l/synology-chatplus-desktop/releases/download/v1.0.3/linux-x86_64--ChatPlus-Desktop_1.0.3_amd64.AppImage) · [DEB](https://github.com/Swiph3l/synology-chatplus-desktop/releases/download/v1.0.3/linux-x86_64--ChatPlus-Desktop_1.0.3_amd64.deb) |
+
+Windows x64 is the established target. macOS and Linux remain candidate platforms;
+read the [platform requirements and limitations](docs/PLATFORMS.md) before installing.
+
+Already installed? Open **Settings > Updates** to check for an update.
+See the [v1.0.3 release notes](https://github.com/Swiph3l/synology-chatplus-desktop/releases/tag/v1.0.3),
+[latest stable release](https://github.com/Swiph3l/synology-chatplus-desktop/releases/latest)
+or [all releases](https://github.com/Swiph3l/synology-chatplus-desktop/releases).
+
+Stable releases are intended for regular use; beta and pre-release builds include changes for testing. Enable
 **Include beta updates** in Settings to consider both stable and beta releases;
 leave it off for stable releases only. Installation/restart requires confirmation.
 Development work described here may be newer than the latest published release.
@@ -93,9 +108,11 @@ Windows builds may display a SmartScreen prompt. See [update details](docs/UPDAT
 
 ## Installation
 
-1. Download the Windows x64 setup from [Releases](https://github.com/Swiph3l/synology-chatplus-desktop/releases).
-   See [platform installation](docs/PLATFORMS.md) for macOS and Linux candidate requirements.
-2. Run the installer; Microsoft WebView2 is required on Windows and can be installed by setup.
+1. Download the package for your system from the table above.
+   See [platform installation](docs/PLATFORMS.md) for runtime requirements.
+2. On Windows, run the setup; it can install the required Microsoft WebView2 runtime.
+   On macOS, open the DMG and drag ChatPlus Desktop into Applications.
+   On Linux, install the DEB or make the AppImage executable and launch it.
 3. Enter your Synology ChatPlus/Synology Chat server URL, for example
    `https://nas.example.com`, and sign in through the provider's own interface.
    A bare NAS address uses Synology's Chat launcher. Existing `/chat/`, `/chatplus/`
