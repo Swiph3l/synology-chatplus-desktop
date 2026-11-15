@@ -49,3 +49,8 @@ release-artifacts/
 *.rpm
 src-tauri/bom.json
 src-tauri/*.cdx.json
+
+# Local browser automation, process captures and credentials are not source.
+/.playwright-mcp/
+/performance-results/
+/secret_key.txt
