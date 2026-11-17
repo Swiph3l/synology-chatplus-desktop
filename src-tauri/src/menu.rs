@@ -513,9 +513,9 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         "File",
         true,
         &[
-            &item(app, Action::Open, "Open ChatPlus", Some("CmdOrCtrl+O"))?,
+            &item(app, Action::Open, "Open Chat+", Some("CmdOrCtrl+O"))?,
             &item(app, Action::Settings, "Settings", Some("CmdOrCtrl+,"))?,
-            &item(app, Action::Reload, "Reload ChatPlus", Some("CmdOrCtrl+R"))?,
+            &item(app, Action::Reload, "Reload Chat+", Some("CmdOrCtrl+R"))?,
             &PredefinedMenuItem::separator(app)?,
             &item(app, Action::Quit, "Quit", Some("CmdOrCtrl+Q"))?,
         ],
@@ -547,7 +547,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         "Help",
         true,
         &[
-            &item(app, Action::About, "About ChatPlus Desktop", None)?,
+            &item(app, Action::About, "About Chat+ Desktop", None)?,
             &item(app, Action::Github, "GitHub Repository", None)?,
             &item(app, Action::Issues, "Report an Issue", None)?,
             &item(app, Action::Star, "Star on GitHub", None)?,
@@ -576,7 +576,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         PROJECT.project_name,
         true,
         &[
-            &item(app, Action::About, "About ChatPlus Desktop", None)?,
+            &item(app, Action::About, "About Chat+ Desktop", None)?,
             &PredefinedMenuItem::services(app, None)?,
             &PredefinedMenuItem::hide(app, None)?,
             &PredefinedMenuItem::hide_others(app, None)?,
@@ -654,7 +654,7 @@ pub fn enqueue(app: &AppHandle, action: Action) {
 }
 fn content(app: &AppHandle) -> Result<tauri::Window, String> {
     app.get_window("main")
-        .ok_or_else(|| "Open ChatPlus first.".into())
+        .ok_or_else(|| "Open Chat+ first.".into())
 }
 pub fn dispatch(app: &AppHandle, action: Action) -> Result<(), String> {
     match action {
@@ -666,7 +666,7 @@ pub fn dispatch(app: &AppHandle, action: Action) -> Result<(), String> {
         Action::Reload => crate::services::active(app)
             .ok_or("Open a service first.")?
             .reload()
-            .map_err(|_| "Could not reload ChatPlus.".into()),
+            .map_err(|_| "Could not reload Chat+.".into()),
         Action::Quit => {
             let _ = app.save_window_state(StateFlags::all());
             app.exit(0);
@@ -710,10 +710,8 @@ pub fn dispatch(app: &AppHandle, action: Action) -> Result<(), String> {
         Action::Minimize | Action::Hide => {
             let window = content(app)?;
             match action {
-                Action::Minimize => window
-                    .minimize()
-                    .map_err(|_| "Could not minimize ChatPlus."),
-                _ => window.hide().map_err(|_| "Could not hide ChatPlus."),
+                Action::Minimize => window.minimize().map_err(|_| "Could not minimize Chat+."),
+                _ => window.hide().map_err(|_| "Could not hide Chat+."),
             }?;
             // Swiph3l: Native events can coalesce during a rapid hide/restore;
             // revoke read gestures immediately rather than relying on a later focus event.

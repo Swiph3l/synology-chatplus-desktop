@@ -142,7 +142,7 @@ test("footer shows installed version, disabled upcoming actions and existing pro
   const f = await fixture();
   assert.equal(
     f.document.querySelector(".footer-version").textContent,
-    "ChatPlus 0.5.0-beta.3",
+    "Chat+ 0.5.0-beta.3",
   );
   for (const key of ["console", "donate"]) {
     assert.equal(f.action(key).disabled, true);

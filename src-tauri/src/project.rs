@@ -14,8 +14,8 @@ pub struct Project {
 }
 const REPOSITORY: &str = "https://github.com/Swiph3l/synology-chatplus-desktop";
 pub const PROJECT: Project = Project {
-    project_name: "ChatPlus Desktop",
-    project_description: "Unofficial community desktop client for Synology ChatPlus.",
+    project_name: "Chat+ Desktop",
+    project_description: "Independent client for Synology Chat and ChatPlus.",
     maintainer: "Swiph3l",
     license: "GNU GPLv3",
     github_repository_url: REPOSITORY,

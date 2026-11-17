@@ -1,6 +1,6 @@
 # Contributing
 
-ChatPlus Desktop is maintained by Swiph3l. Contributions to bugs, provider integration,
+Chat+ Desktop is maintained by Swiph3l. Contributions to bugs, provider integration,
 translations, accessibility, native platform testing and documentation are welcome.
 
 Start with the [documentation index](docs/README.md), [local development](docs/DEVELOPMENT.md)

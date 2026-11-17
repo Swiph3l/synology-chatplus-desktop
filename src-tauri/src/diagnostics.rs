@@ -760,7 +760,7 @@ pub fn format(info: &AboutInfo) -> String {
     let b = &info.build;
     let r = &info.runtime;
     [
-        "ChatPlus Desktop Diagnostics".into(),
+        "Chat+ Desktop Diagnostics".into(),
         format!("Version: {}", safe(&b.display_version)),
         format!("Build date: {}", safe(&b.build_date_utc)),
         format!("Commit: {}", available(b.git_commit_full.as_deref())),

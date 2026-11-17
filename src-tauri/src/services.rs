@@ -579,7 +579,7 @@ pub fn activate_configured(app: &AppHandle, service: &ServiceConfig) -> Result<(
     let window = app
         .get_window("main")
         .ok_or("Desktop window unavailable.")?;
-    crate::window::focus(&window).map_err(|_| "Could not restore ChatPlus.")?;
+    crate::window::focus(&window).map_err(|_| "Could not restore Chat+.")?;
     if settings.active_service.as_deref() != Some(service.id.as_str()) {
         settings.active_service = Some(service.id.clone());
         state::persist(app, settings)?;

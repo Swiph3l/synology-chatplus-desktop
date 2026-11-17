@@ -1,11 +1,11 @@
-# ChatPlus Desktop
+# Chat+ Desktop
 
-<img src="public/chatplus.png" alt="ChatPlus Desktop app icon" width="64" />
+<img src="src-tauri/icons/64x64.png" alt="Chat+ Desktop app icon" width="64" />
 
-ChatPlus Desktop is an unofficial open-source desktop client for Synology
-ChatPlus and Synology Chat, with multi-service messaging support. It brings your
-self-hosted chat on a Synology NAS and services such as Discord into one lightweight
-Tauri application.
+Independent client for Synology Chat and ChatPlus.
+
+Chat+ Desktop brings self-hosted chat on your Synology NAS and services such as
+Discord into one open-source Tauri application.
 
 [![Latest stable release](https://img.shields.io/github/v/release/Swiph3l/synology-chatplus-desktop)](https://github.com/Swiph3l/synology-chatplus-desktop/releases/latest)
 [![Windows x64](https://img.shields.io/badge/Windows-x64-0078D4)](https://github.com/Swiph3l/synology-chatplus-desktop/releases)
@@ -15,7 +15,7 @@ Tauri application.
 
 **Current stable version: [v1.0.3](https://github.com/Swiph3l/synology-chatplus-desktop/releases/tag/v1.0.3).**
 
-## Why ChatPlus Desktop?
+## Why Chat+ Desktop?
 
 - Keep Synology ChatPlus or Synology Chat close at hand with a convenient desktop app.
 - Switch between multiple communication services and separate account profiles.
@@ -42,7 +42,7 @@ desktop-client parity is claimed.
 
 WhatsApp Web integration is experimental. It uses the official Web login and an
 isolated profile for each account. Unread totals and mark-read actions remain
-unavailable. ChatPlus is independent of WhatsApp
+unavailable. Chat+ is independent of WhatsApp
 and Meta; [WhatsApp integration](docs/PROVIDERS.md#whatsapp) describes the current
 capabilities and limitations.
 
@@ -111,7 +111,7 @@ Windows builds may display a SmartScreen prompt. See [update details](docs/UPDAT
 1. Download the package for your system from the table above.
    See [platform installation](docs/PLATFORMS.md) for runtime requirements.
 2. On Windows, run the setup; it can install the required Microsoft WebView2 runtime.
-   On macOS, open the DMG and drag ChatPlus Desktop into Applications.
+   On macOS, open the DMG and drag the app into Applications.
    On Linux, install the DEB or make the AppImage executable and launch it.
 3. Enter your Synology ChatPlus/Synology Chat server URL, for example
    `https://nas.example.com`, and sign in through the provider's own interface.
@@ -126,7 +126,7 @@ managed locally by the platform WebView. Finish drafts/calls before changing a s
 
 ## Privacy
 
-ChatPlus Desktop adds no advertising and does not monetize conversation content.
+Chat+ Desktop adds no advertising and does not monetize conversation content.
 Providers load from their own services; the shell does not collect sign-in passwords.
 The platform WebView handles local cookies/session profiles, with separate stores
 for added services. macOS isolation requires macOS 14 or later. Removing a service
@@ -162,11 +162,11 @@ Do not include private messages, credentials/tokens, server/attachment URLs or p
 ## License
 
 GNU GPLv3 (GPL-3.0-only). See [LICENSE](LICENSE), [NOTICE](NOTICE) and
-[licensing notes](docs/LICENSING.md). Dependencies retain their own licenses.
+[licensing notes](docs/LICENSING.md). See the [branding sources and icon exports](assets/branding/README.md). Dependencies retain their own licenses.
 
 ## Disclaimer
 
-ChatPlus Desktop is an independent community project maintained by **Swiph3l**. It
+Chat+ Desktop is an independent community project maintained by **Swiph3l**. It
 is not affiliated with or endorsed by Synology or other supported providers. Product
 names and trademarks identify compatibility and belong to their respective owners.
 No proprietary Synology server application bundles are redistributed.

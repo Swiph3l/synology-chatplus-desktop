@@ -1,6 +1,6 @@
 # Licensing
 
-ChatPlus Desktop is open source under **GPL-3.0-only**, copyright (c) 2026 Swiph3l.
+Chat+ Desktop is open source under **GPL-3.0-only**, copyright (c) 2026 Swiph3l.
 The root LICENSE and INSTALLER_LICENSE.txt contain the unchanged GNU GPL version 3.
 NOTICE identifies this independent community project without claiming third-party
 ownership. Commercial use is permitted; distribution must meet the GPL, including

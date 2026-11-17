@@ -5,6 +5,10 @@ They were captured on Windows using synthetic service names and public example
 URLs. They exclude the native title/menu frame and do not establish current
 provider, notification or DPI acceptance.
 
+## Chat+ Desktop
+
+[First-run screen on Windows](chat-plus-onboarding.png) shows the application mark and service picker in WebView2 at 720 by 600. The debug build used a separate identifier and a fresh profile.
+
 ## Existing assets
 
 The setup, services and service-rail images were captured on 1 October 2026.

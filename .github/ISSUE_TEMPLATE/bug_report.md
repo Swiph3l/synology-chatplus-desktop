@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a reproducible ChatPlus Desktop problem
+about: Report a reproducible Chat+ Desktop problem
 ---
 
 ## What happened
@@ -15,7 +15,7 @@ Expected behavior and actual behavior:
 
 ## Environment
 
-- ChatPlus version / build commit:
+- Chat+ Desktop version / build commit:
 - Windows version and WebView2 version:
 - Provider and provider/server version (no private URL):
 

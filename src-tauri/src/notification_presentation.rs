@@ -56,7 +56,7 @@ pub fn prepare(
 ) -> Presentation {
     let (title, body) = crate::desktop_notifications::preview(mode, title, body, language);
     let attribution = service.map_or_else(
-        || "ChatPlus Desktop".into(),
+        || "Chat+ Desktop".into(),
         |service| {
             let provider = provider_name(service.provider);
             if matches!(mode, NotificationPreview::Generic) {
@@ -74,7 +74,7 @@ pub fn prepare(
     let body = excerpt(&body, 240);
     Presentation {
         title: if title.is_empty() {
-            "ChatPlus Desktop".into()
+            "Chat+ Desktop".into()
         } else {
             title
         },
@@ -238,7 +238,7 @@ pub fn icon_path(
     std::fs::create_dir_all(&directory).map_err(|_| "Icon cache unavailable")?;
     let path = directory.join(format!(
         // Keep prior cache files intact for notifications already in Action Center.
-        "v3-{provider:?}-{:02x}{:02x}{:02x}.png",
+        "v4-{provider:?}-{:02x}{:02x}{:02x}.png",
         color[0], color[1], color[2]
     ));
     if !path.is_file() {
@@ -346,7 +346,7 @@ mod tests {
             );
             assert!(!view.body.contains("Secret"));
             if matches!(mode, NotificationPreview::Generic) {
-                assert_eq!(view.title, "ChatPlus Desktop");
+                assert_eq!(view.title, "Chat+ Desktop");
                 assert_eq!(view.attribution, "Discord");
             } else {
                 assert_eq!(view.title, "Private sender");
@@ -374,7 +374,7 @@ mod tests {
             "",
             &Language::Pl,
         );
-        assert_eq!(empty.title, "ChatPlus Desktop");
+        assert_eq!(empty.title, "Chat+ Desktop");
         assert_eq!(
             empty.body,
             crate::i18n::text(&Language::Pl, "notification.newMessage")

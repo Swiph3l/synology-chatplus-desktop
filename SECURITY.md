@@ -1,6 +1,6 @@
 # Security
 
-ChatPlus Desktop is an unofficial community client maintained by Swiph3l.
+Chat+ Desktop is an unofficial community client maintained by Swiph3l.
 
 Use HTTPS with a valid certificate. TLS validation is never disabled. HTTP is
 available for local deployments but does not protect traffic in transit.

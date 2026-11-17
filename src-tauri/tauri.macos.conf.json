@@ -3,6 +3,7 @@
   "bundle": {
     "targets": ["app", "dmg"],
     "macOS": {
+      "bundleName": "Chat+ Desktop",
       "minimumSystemVersion": "14.0"
     }
   }

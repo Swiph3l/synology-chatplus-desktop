@@ -41,7 +41,7 @@ export function renderChangelog(container: HTMLElement, source = changelog) {
     const article = document.createElement("article");
     article.className = "changelog-release";
     const title = document.createElement("h2");
-    title.textContent = `ChatPlus ${release.version}`;
+    title.textContent = `Chat+ ${release.version}`;
     article.append(title);
     if (release.detail) {
       const detail = document.createElement("small");

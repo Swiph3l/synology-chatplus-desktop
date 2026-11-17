@@ -136,7 +136,7 @@ acknowledge the DM dot; other service instances remain independent.
 Local all-read records a baseline so unchanged provider markup does not
 immediately restore the same dot. It is available for Synology, WhatsApp, Messenger
 and Mattermost without requiring a provider DOM read adapter. It changes only
-ChatPlus state; provider messages remain unread on the server. New native arrivals
+Chat+ state; provider messages remain unread on the server. New native arrivals
 or changed provider evidence can restore unread. Configuration is revalidated
 before applying the action.
 
@@ -148,7 +148,7 @@ channel. Provider confirmations remain for the user to accept.
 
 The operation runs off the menu thread with a bounded wait and revalidates the
 configured active service. A renamed/replaced/ambiguous control or visible error
-fails closed. ChatPlus acknowledges the captured pre-action arrivals only after
+fails closed. Chat+ acknowledges the captured pre-action arrivals only after
 the same control is disabled and fresh complete provider evidence confirms zero.
 Newer arrivals and changed positive evidence survive. Unknown layouts, unchanged
 controls and timeouts leave local unread intact and show provider instructions.
@@ -248,7 +248,7 @@ DM zero alone cannot confirm that guild messages were read.
 
 Use Discord's own desktop notification preferences, server **Only @mentions**
 setting and channel/category overrides to choose DM/mention delivery. Highlights,
-event alerts, DND and mute can independently affect emission. ChatPlus does not
+event alerts, DND and mute can independently affect emission. Chat+ does not
 change these settings or invent a strict DM/mention filter: message tags identify
 messages, not a universal event category. Unknown events remain eligible rather
 than discarding real DMs based on titles, sidebar badges or selected routes.
@@ -275,7 +275,7 @@ non-messaging notifications; provider-side categories remain authoritative. See
 
 Mattermost uses standard browser notifications through the same origin- and
 profile-scoped native bridge. Its own **Desktop and mobile notifications** setting
-controls which activity produces browser events. Browser permission and ChatPlus
+controls which activity produces browser events. Browser permission and Chat+
 global/per-service delivery settings are separate requirements; enabling support
 does not change a saved mute preference. An existing **Permission required** prompt
 can be repaired with **More > Allow provider notifications** for that instance,
@@ -319,7 +319,7 @@ history; receipts expire and native acceptance stops repeated queries until a ne
 arrival.
 
 **Mark all as read (local)** remains available when verification cannot establish
-zero. It clears only the clicked instance's captured ChatPlus unread; later arrivals
+zero. It clears only the clicked instance's captured Chat+ unread; later arrivals
 restore the dot. Neither this action nor verification marks messages read on the server.
 Toast clicks/dismissal remain unrelated to unread acknowledgement.
 
@@ -333,7 +333,7 @@ unread unchanged.
 On the owning COM apartment, the retained native browser notification receives
 `ReportClicked` before native focus, allowing the provider's own handler to route
 its conversation before focus can close that browser notification.
-ChatPlus never guesses a URL from notification tags or titles. Routing is not read
+Chat+ never guesses a URL from notification tags or titles. Routing is not read
 evidence. Activation history retains 256 contexts; missing, evicted, removed,
 reconfigured or replaced-source contexts are ignored without opening a different
 account. Closed-process activation depends on Windows registration and is separate
@@ -398,7 +398,7 @@ Opening Windows notification settings and refocusing Settings refreshes access.
 
 Debug builds use the registered Windows PowerShell notification sender because
 there is no installer-created application shortcut/AUMID. Installed release builds
-use ChatPlus Desktop's identifier. Permission checks and sending use the same
+use Chat+ Desktop's identifier. Permission checks and sending use the same
 sender within each build mode. A successful submission can appear only in
 Notification Center when Windows suppresses banners.
 

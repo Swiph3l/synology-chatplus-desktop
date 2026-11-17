@@ -63,7 +63,7 @@ pub fn refresh_unread(app: &AppHandle, unread: &crate::unread::Unread) {
         } else {
             text("tray.unreadDisabled")
         };
-        let tooltip = format!("ChatPlus Desktop\n{unread_label}\n{label}");
+        let tooltip = format!("Chat+ Desktop\n{unread_label}\n{label}");
         let mut applied = state.applied.lock().unwrap_or_else(|e| e.into_inner());
         apply_changed(&mut applied.status, label, |value| {
             state.status.set_text(value)
@@ -96,13 +96,13 @@ pub fn refresh_unread(app: &AppHandle, unread: &crate::unread::Unread) {
     }
 }
 pub fn create(app: &AppHandle) -> tauri::Result<()> {
-    let title = MenuItem::new(app, "ChatPlus Desktop", false, None::<&str>)?;
+    let title = MenuItem::new(app, "Chat+ Desktop", false, None::<&str>)?;
     let status = MenuItem::new(app, "", false, None::<&str>)?;
     let unread = MenuItem::new(app, "", false, None::<&str>)?;
     let actions = [
-        (Action::Open, "Open ChatPlus", "menu.openChatPlus"),
+        (Action::Open, "Open Chat+", "menu.openChatPlus"),
         (Action::Settings, "Settings", "common.settings"),
-        (Action::About, "About ChatPlus Desktop", "menu.about"),
+        (Action::About, "About Chat+ Desktop", "menu.about"),
         (Action::Quit, "Quit", "menu.quit"),
     ]
     .into_iter()
@@ -137,8 +137,12 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         actions,
     });
     TrayIconBuilder::with_id("chatplus")
-        .icon(app.default_window_icon().expect("bundled icon").clone())
-        .tooltip("ChatPlus Desktop")
+        .icon(
+            app.state::<crate::desktop_notifications::Icons>()
+                .normal
+                .clone(),
+        )
+        .tooltip("Chat+ Desktop")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_tray_icon_event(|tray, event| {

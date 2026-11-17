@@ -1,0 +1,14 @@
+[Desktop Entry]
+Name=Chat+ Desktop
+Type=Application
+Terminal=false
+Exec={{exec}}
+StartupWMClass={{exec}}
+Icon={{icon}}
+Categories={{categories}}
+{{#if comment}}
+Comment={{comment}}
+{{/if}}
+{{#if mime_type}}
+MimeType={{mime_type}}
+{{/if}}

@@ -1,6 +1,6 @@
 # Developer documentation
 
-Start with [Development](DEVELOPMENT.md) to build and run ChatPlus Desktop.
+Start with [Development](DEVELOPMENT.md) to build and run Chat+ Desktop.
 Read [Architecture](ARCHITECTURE.md) before changing native state, provider sessions
 or IPC boundaries. User installation and feature information is in the
 [project README](../README.md).

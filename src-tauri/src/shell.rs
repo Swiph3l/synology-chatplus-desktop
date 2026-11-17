@@ -76,7 +76,7 @@ pub fn onboarding(app: &AppHandle) -> tauri::Result<()> {
         app,
         "settings",
         "index.html?onboarding=1",
-        "ChatPlus Desktop",
+        "Chat+ Desktop",
         (720., 600.),
         true,
     )
@@ -96,14 +96,7 @@ pub fn settings_section(app: &AppHandle, section: &str) -> tauri::Result<()> {
         "index.html?section={section}{}",
         if add_service { "&action=add" } else { "" }
     );
-    open(
-        app,
-        "settings",
-        &path,
-        "ChatPlus Desktop",
-        (720., 600.),
-        true,
-    )?;
+    open(app, "settings", &path, "Chat+ Desktop", (720., 600.), true)?;
     // Swiph3l: New windows read the route from their URL; existing windows receive it after restore without losing unsaved drafts.
     if existing {
         let _ = app.emit_to("settings", "settings-section-requested", section);
@@ -118,7 +111,7 @@ pub fn about(app: &AppHandle) -> tauri::Result<()> {
         app,
         "about",
         "index.html?page=about",
-        "ChatPlus Desktop",
+        "Chat+ Desktop",
         (500., 400.),
         false,
     )
@@ -128,7 +121,7 @@ pub fn license(app: &AppHandle) -> tauri::Result<()> {
         app,
         "license",
         "index.html?page=license",
-        "ChatPlus Desktop - License",
+        "Chat+ Desktop - License",
         (720., 640.),
         true,
     )
@@ -139,7 +132,7 @@ pub fn fixture(app: &AppHandle) -> tauri::Result<()> {
         app,
         "fixture",
         "index.html?page=fixture",
-        "ChatPlus Desktop - Development Fixture",
+        "Chat+ Desktop - Development Fixture",
         (1000., 740.),
         true,
     )

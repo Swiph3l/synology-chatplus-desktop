@@ -165,7 +165,7 @@ jobs:
           node scripts/release-identity.mjs --verify-remote-tag
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # Swiph3l: A plain SemVer tag is not stable-release approval; every new draft starts as a prerelease for separate review and promotion.
-          $releaseArgs = @('release','create',$env:RELEASE_TAG,'--draft','--prerelease','--verify-tag','--title',"ChatPlus Desktop $env:RELEASE_TAG",'--notes-file','CHANGELOG.md')
+          $releaseArgs = @('release','create',$env:RELEASE_TAG,'--draft','--prerelease','--verify-tag','--title',"Chat+ Desktop $env:RELEASE_TAG",'--notes-file','CHANGELOG.md')
           gh @releaseArgs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $files = @(Get-ChildItem release-artifacts -File | ForEach-Object FullName)

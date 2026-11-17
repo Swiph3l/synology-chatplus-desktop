@@ -203,7 +203,7 @@ pub fn send_test(app: &AppHandle, sound: bool) -> Result<(), String> {
     let presentation = crate::notification_presentation::prepare(
         service,
         &NotificationPreview::Full,
-        "ChatPlus Desktop",
+        "Chat+ Desktop",
         &crate::i18n::t(app, "notification.testBody"),
         &settings.language,
     );
@@ -321,7 +321,7 @@ pub fn preview(
             crate::i18n::text(language, "notification.newMessage"),
         ),
         NotificationPreview::Generic => (
-            "ChatPlus Desktop".into(),
+            "Chat+ Desktop".into(),
             crate::i18n::text(language, "notification.genericBody"),
         ),
     }
@@ -675,9 +675,9 @@ pub struct Icons {
     pub overlay: tauri::image::Image<'static>,
 }
 pub fn icons(app: &AppHandle) {
-    let source = app.default_window_icon().expect("bundled icon");
-    let (width, height) = (source.width(), source.height());
-    let normal = tauri::image::Image::new_owned(source.rgba().to_vec(), width, height);
+    let normal = tauri::image::Image::from_bytes(include_bytes!("../icons/64x64.png"))
+        .expect("bundled tray icon");
+    let (width, height) = (normal.width(), normal.height());
     let mut bytes = normal.rgba().to_vec();
     for y in 0..height {
         for x in 0..width {
@@ -917,7 +917,7 @@ mod tests {
                 "private text",
                 &crate::state::Language::En,
             ),
-            ("ChatPlus Desktop".into(), "You have a new message.".into())
+            ("Chat+ Desktop".into(), "You have a new message.".into())
         );
     }
     #[test]

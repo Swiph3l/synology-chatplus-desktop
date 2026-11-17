@@ -20,7 +20,7 @@ export function createFooter(version: string) {
   element.className = "app-footer";
   const identity = document.createElement("span");
   identity.className = "footer-version";
-  identity.textContent = `ChatPlus ${version}`.trim();
+  identity.textContent = `Chat+ ${version}`.trim();
   const versionGroup = document.createElement("div");
   versionGroup.className = "footer-identity";
   const updateButton = document.createElement("button");

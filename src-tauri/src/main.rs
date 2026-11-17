@@ -174,7 +174,7 @@ fn main() {
             Ok(())
         })
         .build(context)
-        .expect("Could not start ChatPlus Desktop");
+        .expect("Could not start Chat+ Desktop");
     // The plugin IPC window is now registered; later processes can enter the
     // official forwarding/exit path without racing its mutex/window creation.
     #[cfg(windows)]

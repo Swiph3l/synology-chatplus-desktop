@@ -978,9 +978,9 @@ pub fn current(app: &AppHandle) -> Unread {
 }
 pub fn title(value: &Unread, enabled: bool) -> String {
     if enabled && value.has_unread {
-        "ChatPlus Desktop •".into()
+        "Chat+ Desktop •".into()
     } else {
-        "ChatPlus Desktop".into()
+        "Chat+ Desktop".into()
     }
 }
 pub fn publish_for(
@@ -3480,8 +3480,8 @@ mod tests {
         let result = aggregate(values.iter());
         assert!(result.has_unread);
         assert_eq!(result.total_unread_count, None);
-        assert_eq!(title(&result, true), "ChatPlus Desktop •");
-        assert_eq!(title(&result, false), "ChatPlus Desktop");
+        assert_eq!(title(&result, true), "Chat+ Desktop •");
+        assert_eq!(title(&result, false), "Chat+ Desktop");
     }
     #[test]
     fn selected_service_unread_survives_minimize_and_clears_only_on_current_user_acknowledgement() {

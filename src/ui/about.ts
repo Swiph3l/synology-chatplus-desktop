@@ -9,7 +9,7 @@ import { bindShellTheme } from "../theme/theme";
 export async function mountAboutPanel(container: HTMLElement) {
   container.classList.add("about-details");
   container.innerHTML = `
-    <header class="page-header"><img class="brand" src="/chatplus.png" alt="" width="32" height="32"><div><h2 data-about="name">ChatPlus</h2><p data-about="version" class="subtitle"></p></div></header>
+    <header class="page-header"><img class="brand" src="/chatplus.png" alt="" width="32" height="32"><div><h2 data-about="name">Chat+ Desktop</h2><p data-about="version" class="subtitle"></p></div></header>
     <p class="about-description">${t("about.description")}</p>
     <p class="credits">${t("about.maintained")} <strong data-about="maintainer"></strong></p>
     <p class="about-notice subtitle">${t("about.notice")}</p>
@@ -48,7 +48,7 @@ export async function mountAboutPanel(container: HTMLElement) {
     const info = await invoke<AboutInfo>("get_about_info");
     const build = info.build;
     const runtime = info.runtime;
-    text("name", "ChatPlus");
+    text("name", info.project.project_name);
     text("version", t("common.version", { version: build.display_version }));
     text("maintainer", info.project.maintainer);
     text("license", info.project.license);

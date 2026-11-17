@@ -100,8 +100,13 @@ export async function renderServices() {
     const brand = document.createElement("div");
     brand.className = "rail-brand";
     brand.title = t("rail.navigation");
-    brand.setAttribute("aria-label", "ChatPlus Desktop");
-    brand.append(railIcon("desktop"));
+    brand.setAttribute("aria-label", "Chat+ Desktop");
+    const mark = document.createElement("img");
+    mark.src = "/chatplus.png";
+    mark.alt = "";
+    mark.width = 28;
+    mark.height = 28;
+    brand.append(mark);
     rail.append(brand);
     const services = document.createElement("div");
     services.className = "rail-services";
