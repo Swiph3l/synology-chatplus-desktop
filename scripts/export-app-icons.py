@@ -47,7 +47,7 @@ def main():
         # The shell and favicon render at small CSS sizes, including HiDPI displays.
         centered_icon(flat, 128, 0.92).save(ROOT / "public" / "chatplus.png", optimize=True)
     for size, filename in [(32, "32x32"), (64, "64x64"), (128, "128x128"),
-                           (256, "128x128@2x"), (512, "icon")]:
+                           (256, "256x256"), (512, "icon")]:
         frames[size].save(ICONS / f"{filename}.png", optimize=True)
     windows = [frames[size] for size in SIZES if size <= 256]
     windows[-1].save(ICONS / "icon.ico", sizes=[frame.size for frame in windows],
