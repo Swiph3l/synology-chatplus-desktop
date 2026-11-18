@@ -1,13 +1,20 @@
 # Screenshots
 
-These images are visual references for the native Tauri/WebView2 interface.
-They were captured on Windows using synthetic service names and public example
-URLs. They exclude the native title/menu frame and do not establish current
-provider, notification or DPI acceptance.
+The 1.0.4 captures show the running desktop application in English, in isolated
+profiles with synthetic services. Windows uses WebView2. Ubuntu uses WebKitGTK.
 
-## Chat+ Desktop
+## Version 1.0.4
 
-[First-run screen on Windows](chat-plus-onboarding.png) shows the application mark and service picker in WebView2 at 720 by 600. The debug build used a separate identifier and a fresh profile.
+- [Windows workspace](desktop-104-workspace.png) includes the native window and
+  service rail. The conversation is a local HTML fixture with fictional messages.
+- [Windows onboarding](desktop-104-onboarding.png) shows the two supported
+  Synology services and the experimental integrations.
+- Windows Settings in [Light](desktop-104-settings-light.png),
+  [Dark](desktop-104-settings-dark.png) and [Retro](desktop-104-settings-retro.png).
+- [Resource usage](desktop-104-resources.png) and [report preview](desktop-104-report.png)
+  show the native Windows sample and a user-reviewed Markdown draft.
+- [Linux Settings](desktop-104-linux-settings.png) and [resource usage](desktop-104-linux-resources.png)
+  show the Ubuntu 24.04 native build. WebKit process metrics are unavailable there.
 
 ## Existing assets
 

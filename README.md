@@ -11,6 +11,7 @@ Discord into one open-source Tauri application.
 [![Windows x64](https://img.shields.io/badge/Windows-x64-0078D4)](https://github.com/Swiph3l/synology-chatplus-desktop/releases)
 [![GPLv3](https://img.shields.io/badge/license-GPLv3-blue)](LICENSE)
 [![CI](https://github.com/Swiph3l/synology-chatplus-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/Swiph3l/synology-chatplus-desktop/actions/workflows/ci.yml)
+[![Security checks](https://github.com/Swiph3l/synology-chatplus-desktop/actions/workflows/security.yml/badge.svg)](https://github.com/Swiph3l/synology-chatplus-desktop/security)
 [![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8DB)](https://v2.tauri.app/)
 
 **Current stable version: [v1.0.3](https://github.com/Swiph3l/synology-chatplus-desktop/releases/tag/v1.0.3).**
@@ -21,6 +22,22 @@ Discord into one open-source Tauri application.
 - Switch between multiple communication services and separate account profiles.
 - See unread indicators and native notifications while working in other applications.
 - Keep the app in the system tray and choose your theme, language and update preferences.
+
+## A look at Chat+ 1.0.4
+
+![Two services in a Chat+ window on Windows, with an example conversation about the desktop icons](docs/screenshots/desktop-104-workspace.png)
+
+The Windows development build above uses a local conversation fixture with fictional
+messages. The service rail, window and menus come from the running application.
+
+| Choose your first service on Windows                                                                                            | Inspect resource usage on Linux                                                                                                                                     |
+| ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![English first-run service picker](docs/screenshots/desktop-104-onboarding.png)](docs/screenshots/desktop-104-onboarding.png) | [![Native Settings with an expanded resource sample on Ubuntu](docs/screenshots/desktop-104-linux-resources.png)](docs/screenshots/desktop-104-linux-resources.png) |
+
+Settings can display an on-demand resource sample and prepare a local problem
+report. Read the preview before saving the Markdown file. Opening GitHub Issues
+leaves the choice of what to share with you.
+[More screenshots and capture details](docs/screenshots/README.md).
 
 ## Supported services
 
@@ -135,6 +152,9 @@ Optional update checks contact GitHub for release metadata/packages. Notificatio
 previews use the provider's supplied content according to your preference. Diagnostics
 omit message content, credentials, cookies/tokens and private URLs. Your provider's
 own privacy policy still applies. See [security reporting](SECURITY.md).
+
+The project's [GitHub Security page](https://github.com/Swiph3l/synology-chatplus-desktop/security)
+lists its security policy and published advisories.
 
 ## Contributing
 
