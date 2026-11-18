@@ -64,6 +64,14 @@ pub fn set_for(app: &AppHandle, id: &str, value: Connection) {
         refresh(app);
     }
 }
+
+pub(crate) fn forget(app: &AppHandle, id: &str) {
+    app.state::<ConnectionState>()
+        .0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(id);
+}
 pub fn refresh(app: &AppHandle) {
     crate::tray::refresh(app);
     let value = current(app);

@@ -54,10 +54,21 @@ impl From<&ServiceConfig> for SessionIdentity {
 }
 
 #[derive(Clone)]
-struct LoadTicket {
+pub(crate) struct LoadTicket {
     identity: SessionIdentity,
     generation: u64,
     started: Instant,
+}
+
+#[cfg(windows)]
+impl LoadTicket {
+    pub(crate) fn current(&self, app: &AppHandle) -> bool {
+        app.state::<Lifecycle>()
+            .1
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .current(self)
+    }
 }
 
 struct StartupLoad {
@@ -1232,6 +1243,7 @@ fn reconcile_current(app: &AppHandle, old: &state::Settings) -> Result<(), Strin
                 .unwrap_or_else(|error| error.into_inner())
                 .retire(&service.id);
             crate::unread::remove(app, &service.id);
+            crate::connection::forget(app, &service.id);
         }
     }
     reconcile_workspace(
@@ -1311,6 +1323,7 @@ fn create_registered(
         .parse::<url::Url>()
         .map(|url| service.provider.dsm_launch(url))
         .map_err(|_| "Invalid service URL.")?;
+    let entry = url.clone();
     let mut builder = WebviewBuilder::new(&session.webview_label, WebviewUrl::External(url))
         .focused(false)
         .initialization_script(crate::platform::provider_initialization())
@@ -1449,7 +1462,7 @@ fn create_registered(
         }
         crate::native_shortcuts::attach(app, &view)
             .map_err(|_| "Could not register service shortcuts.")?;
-        crate::platform::observe_connection(app, &view, &service.id)
+        crate::platform::observe_connection(app, &view, service, ticket, &entry)
             .map_err(|_| "Could not observe service connection.")?;
         crate::authentication_diagnostics::attach(app, &view, service);
         crate::downloads::attach(app, &view, &service.id)
