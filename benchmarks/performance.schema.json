@@ -1,0 +1,316 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chatplus.bir.gg/data/performance.schema.json",
+  "title": "ChatPlus Windows process-tree benchmark v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "methodologyId",
+    "datasetKind",
+    "status",
+    "measuredAt",
+    "application",
+    "build",
+    "environment",
+    "attribution",
+    "collection",
+    "scenarios"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "methodologyId": { "const": "chatplus-windows-process-tree-v1" },
+    "datasetKind": { "enum": ["production", "fixture"] },
+    "status": { "$ref": "#/$defs/status" },
+    "measuredAt": { "$ref": "#/$defs/nullableTimestamp" },
+    "application": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-zA-Z0-9 ._+-]{1,80}$" },
+        "version": { "$ref": "#/$defs/version" }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "appVersion", "configuration", "executableSha256"],
+      "properties": {
+        "id": {
+          "type": ["string", "null"],
+          "pattern": "^[a-zA-Z0-9.+_-]{1,100}$"
+        },
+        "appVersion": { "$ref": "#/$defs/version" },
+        "configuration": { "const": "release" },
+        "executableSha256": {
+          "type": ["string", "null"],
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "environment": {
+      "anyOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "os",
+            "hardware",
+            "webview2Versions",
+            "collectorPowerShell"
+          ],
+          "properties": {
+            "os": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "version", "build", "architecture"],
+              "properties": {
+                "name": { "type": "string", "maxLength": 100 },
+                "version": { "$ref": "#/$defs/version" },
+                "build": { "$ref": "#/$defs/version" },
+                "architecture": { "type": "string", "maxLength": 30 }
+              }
+            },
+            "hardware": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["cpu", "logicalProcessors", "physicalMemoryBytes"],
+              "properties": {
+                "cpu": { "type": "string", "maxLength": 200 },
+                "logicalProcessors": { "type": "integer", "minimum": 1 },
+                "physicalMemoryBytes": { "type": "number", "minimum": 1 }
+              }
+            },
+            "webview2Versions": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/version" }
+            },
+            "collectorPowerShell": { "$ref": "#/$defs/version" }
+          }
+        }
+      ]
+    },
+    "attribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "description"],
+      "properties": {
+        "method": { "const": "parent_pid_and_creation_time" },
+        "description": { "type": "string", "maxLength": 600 }
+      }
+    },
+    "collection": {
+      "anyOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scriptSha256",
+            "moduleSha256",
+            "durationSeconds",
+            "warmupSeconds",
+            "sampleIntervalMs",
+            "preparedDurationMinutes",
+            "serviceCountMethod",
+            "startupMethod",
+            "repetitionMethod"
+          ],
+          "properties": {
+            "scriptSha256": { "$ref": "#/$defs/hash" },
+            "moduleSha256": { "$ref": "#/$defs/hash" },
+            "durationSeconds": { "type": "integer", "minimum": 5 },
+            "warmupSeconds": { "type": "integer", "minimum": 1 },
+            "sampleIntervalMs": { "type": "integer", "minimum": 100 },
+            "preparedDurationMinutes": { "type": "integer", "minimum": 0 },
+            "serviceCountMethod": { "const": "operator_confirmed" },
+            "startupMethod": {
+              "enum": ["launch_to_operator_ready", "not_observed_attach_mode"]
+            },
+            "repetitionMethod": {
+              "enum": [
+                "separate_manual_launches",
+                "repeated_windows_same_session"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "scenarios": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "items": { "$ref": "#/$defs/scenario" }
+    }
+  },
+  "$defs": {
+    "status": { "enum": ["measured", "unavailable", "invalid", "not_run"] },
+    "version": { "type": "string", "pattern": "^[a-zA-Z0-9.+_-]{1,80}$" },
+    "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "nullableTimestamp": {
+      "anyOf": [{ "type": "null" }, { "type": "string", "format": "date-time" }]
+    },
+    "nullableNumber": { "type": ["number", "null"], "minimum": 0 },
+    "aggregates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mean", "median", "min", "max"],
+      "properties": {
+        "mean": { "type": "number", "minimum": 0 },
+        "median": { "type": "number", "minimum": 0 },
+        "min": { "type": "number", "minimum": 0 },
+        "max": { "type": "number", "minimum": 0 }
+      }
+    },
+    "metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "unit",
+        "scope",
+        "status",
+        "reason",
+        "runCount",
+        "aggregates"
+      ],
+      "properties": {
+        "name": {
+          "enum": [
+            "working_set_bytes",
+            "private_bytes",
+            "private_working_set_bytes",
+            "commit_bytes",
+            "sampled_peak_working_set_bytes",
+            "os_peak_working_set_bytes",
+            "cpu_percent",
+            "process_count",
+            "service_count",
+            "startup_ms"
+          ]
+        },
+        "unit": { "enum": ["bytes", "percent", "count", "ms"] },
+        "scope": { "enum": ["shell", "webview", "total"] },
+        "status": { "$ref": "#/$defs/status" },
+        "reason": { "type": ["string", "null"], "maxLength": 300 },
+        "runCount": { "type": "integer", "minimum": 0 },
+        "aggregates": {
+          "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/aggregates" }]
+        }
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "status",
+        "startedAt",
+        "completedAt",
+        "sampleCount",
+        "metrics",
+        "issues"
+      ],
+      "properties": {
+        "id": { "type": "integer", "minimum": 1 },
+        "status": { "enum": ["measured", "invalid"] },
+        "startedAt": { "type": "string", "format": "date-time" },
+        "completedAt": { "type": "string", "format": "date-time" },
+        "sampleCount": { "type": "integer", "minimum": 0 },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/nullableNumber" }
+        },
+        "issues": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z_]{1,100}$" }
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "kind", "sha256"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_/-]+\\.json$",
+          "maxLength": 200
+        },
+        "kind": { "enum": ["samples", "processes"] },
+        "sha256": { "$ref": "#/$defs/hash" }
+      }
+    },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label",
+        "status",
+        "reason",
+        "serviceCount",
+        "state",
+        "workload",
+        "repetitionsRequired",
+        "repetitionsCompleted",
+        "metrics",
+        "runs",
+        "sources"
+      ],
+      "properties": {
+        "id": { "enum": ["A", "B", "C", "D", "E", "F", "G", "H", "I"] },
+        "label": { "type": "string", "maxLength": 120 },
+        "status": { "$ref": "#/$defs/status" },
+        "reason": { "type": ["string", "null"], "maxLength": 300 },
+        "serviceCount": { "type": ["integer", "null"], "minimum": 0 },
+        "state": { "enum": ["idle", "active", null] },
+        "repetitionsRequired": { "type": "integer", "minimum": 5 },
+        "repetitionsCompleted": { "type": "integer", "minimum": 0 },
+        "workload": {
+          "anyOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "serviceProviders",
+                "accountCount",
+                "switchesPerformed"
+              ],
+              "properties": {
+                "serviceProviders": {
+                  "type": "array",
+                  "items": {
+                    "enum": [
+                      "synology-chatplus",
+                      "synology-chat",
+                      "discord",
+                      "slack",
+                      "mattermost",
+                      "messenger",
+                      "whatsapp",
+                      "other"
+                    ]
+                  }
+                },
+                "accountCount": { "type": "integer", "minimum": 0 },
+                "switchesPerformed": { "type": "integer", "minimum": 0 }
+              }
+            }
+          ]
+        },
+        "metrics": { "type": "array", "items": { "$ref": "#/$defs/metric" } },
+        "runs": { "type": "array", "items": { "$ref": "#/$defs/run" } },
+        "sources": {
+          "type": "array",
+          "maxItems": 2,
+          "items": { "$ref": "#/$defs/source" }
+        }
+      }
+    }
+  }
+}
