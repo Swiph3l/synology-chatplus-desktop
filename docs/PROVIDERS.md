@@ -12,8 +12,8 @@ Web UI and may have account, browser or server-version compatibility limits.
 
 | Provider          | Status       | Unread evidence                          | Native browser notifications | ChatPlus theme |
 | ----------------- | ------------ | ---------------------------------------- | ---------------------------- | -------------- |
-| Synology ChatPlus | Primary      | Aggregate DOM                            | Yes                          | Yes            |
-| Synology Chat     | Experimental | Aggregate DOM                            | Yes                          | No             |
+| Synology ChatPlus | Supported    | Aggregate DOM                            | Yes                          | Yes            |
+| Synology Chat     | Supported    | Aggregate DOM                            | Yes                          | No             |
 | Discord           | Experimental | DM-scoped DOM; exact identity for toasts | Yes                          | No             |
 | WhatsApp          | Experimental | Official notification-attention counter  | Yes                          | No             |
 | Messenger         | Experimental | Browser notification arrivals only       | Yes                          | No             |
@@ -23,6 +23,9 @@ Web UI and may have account, browser or server-version compatibility limits.
 Unread support does not imply read-action support. Current adapters report boolean
 unread or unknown, not an account-wide message total. Read capabilities and native
 delivery policy are documented in [Notifications and unread](NOTIFICATIONS.md).
+
+See the [v1.0.4 compatibility matrix](PROVIDER_COMPATIBILITY.md) for capability-level
+evidence, unverified authenticated flows and a repeatable acceptance checklist.
 
 ## Identity and storage
 
