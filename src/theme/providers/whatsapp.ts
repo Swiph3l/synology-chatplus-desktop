@@ -122,6 +122,8 @@ export function createWhatsAppAdapter(
     observe(changed) {
       const Observer = document.defaultView?.MutationObserver;
       const observer = Observer ? new Observer(() => changed()) : null;
+      // Readiness can advance after the last observed mutation in a hidden tab.
+      document.addEventListener("DOMContentLoaded", changed, { once: true });
       observer?.observe(document, {
         childList: true,
         subtree: true,
@@ -147,6 +149,7 @@ export function createWhatsAppAdapter(
         tag = null;
         cancelProbe();
         observer?.disconnect();
+        document.removeEventListener("DOMContentLoaded", changed);
       };
     },
   };
