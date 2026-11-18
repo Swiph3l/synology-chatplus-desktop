@@ -12,6 +12,7 @@ import { notifications } from "../app/notifications";
 import { mountUpdatePanel } from "../ui/update";
 import { mountAboutPanel } from "../ui/about";
 import { renderChangelog } from "./changelog";
+import { mountSupport } from "./support";
 import {
   languageNames,
   localizeError,
@@ -80,6 +81,7 @@ export async function renderSettings() {
         )}</select></div></div><small id="language-help">${t("settings.languageHelp")}</small><div id="retro-options" hidden><small>${t("settings.retroHelp")}</small><button id="preview-retro-sound" type="button" class="secondary">${t("settings.retroSound")}</button><small id="retro-sound-status" role="status" aria-live="polite"></small></div></fieldset>
       <fieldset><legend>${t("settings.startup")}</legend><label class="toggle"><input id="autostart" type="checkbox">${/Windows/i.test(navigator.userAgent) ? t("settings.startWindows") : t("settings.startLogin")}</label></fieldset>
       <fieldset><legend>${t("settings.window")}</legend><label class="toggle"><input id="minimize" type="checkbox">${t("settings.minimizeTray")}</label><label class="toggle"><input id="close" type="checkbox">${t("settings.closeTray")}</label><label class="toggle"><input id="external" type="checkbox">${t("settings.externalLinks")}</label></fieldset>
+      <div class="settings-support" id="settings-support"></div>
       </div>
       <div data-panel="notifications" hidden>
         <fieldset><legend>${t("common.notifications")}</legend>
@@ -118,6 +120,9 @@ export async function renderSettings() {
       <p id="status" role="status" aria-live="polite"></p>
       <div class="form-footer"><div class="settings-save-state" role="status" aria-live="polite" aria-atomic="true"><span id="draft-status"></span><p id="save-feedback" hidden></p></div><button id="close-settings" type="button" class="secondary">${t("common.close")}</button><button id="save" type="submit">${t("common.save")}</button></div>
     </form>`;
+  const closeResources = mountSupport(
+    document.getElementById("settings-support")!,
+  );
   const input = (id: string) => document.getElementById(id) as HTMLInputElement;
   const theme = document.querySelector<HTMLSelectElement>("#theme");
   const retroOptions = document.getElementById("retro-options")!;
@@ -466,6 +471,7 @@ export async function renderSettings() {
   );
   for (const tab of tabs) {
     tab.addEventListener("click", () => {
+      if (tab.dataset.tab !== "general") closeResources();
       for (const panel of document.querySelectorAll<HTMLElement>(
         "[data-panel]",
       ))

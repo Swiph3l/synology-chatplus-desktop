@@ -15,6 +15,7 @@ mod notification_bridge;
 mod notification_presentation;
 mod platform;
 mod popups;
+mod problem_report;
 mod project;
 mod provider_read;
 mod providers;
@@ -124,6 +125,8 @@ fn main() {
             commands::complete_onboarding,
             commands::get_about_info,
             commands::sample_resources,
+            commands::get_report_environment,
+            commands::export_problem_report,
             commands::copy_diagnostics,
             commands::show_about,
             commands::show_license,

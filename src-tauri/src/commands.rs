@@ -267,6 +267,30 @@ pub async fn sample_resources(
         .map_err(|_| "Could not sample resources.".into())
 }
 #[tauri::command]
+pub fn get_report_environment(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+) -> Result<crate::resource_diagnostics::Environment, String> {
+    local(&window, &["settings"])?;
+    Ok(crate::resource_diagnostics::environment(&app))
+}
+#[tauri::command]
+pub async fn export_problem_report(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    report: String,
+) -> Result<String, String> {
+    local(&window, &["settings"])?;
+    let directory = app
+        .path()
+        .download_dir()
+        .map_err(|_| "Downloads unavailable.")?;
+    tauri::async_runtime::spawn_blocking(move || crate::problem_report::save(&directory, &report))
+        .await
+        .map_err(|_| "Could not export report.")?
+        .map_err(|_| "Could not export report.".into())
+}
+#[tauri::command]
 pub fn get_about_info(
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,
