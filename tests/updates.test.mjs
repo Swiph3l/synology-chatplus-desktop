@@ -520,3 +520,17 @@ test("an already mounted updater panel refreshes when the saved language changes
     "Descargar actualización",
   );
 });
+
+test("download sizes follow the selected language with and without a total", async () => {
+  const f = fixture({
+    state: { phase: "downloading", downloaded: 1_500_000, total: 3_000_000 },
+  });
+  const cleanup = await f.mount();
+  f.ui.setLanguage("pl");
+  f.window.dispatchEvent(new f.window.Event("language-changed"));
+  const size = f.document.getElementById("download-size");
+  assert.match(size.textContent, /1,5\s*MB \/ 3,0\s*MB/);
+  f.emit({ phase: "downloading", downloaded: 2_500_000, total: null });
+  assert.match(size.textContent, /2,5\s*MB/);
+  cleanup();
+});
