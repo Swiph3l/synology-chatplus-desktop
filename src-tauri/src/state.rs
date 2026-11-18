@@ -548,6 +548,48 @@ mod tests {
     use super::*;
 
     #[test]
+    fn stable_1_0_3_profiles_reopen_in_the_same_webview_stores() {
+        // Swiph3l: These keys and partition names are the persisted 1.0.3 format.
+        // Synthetic profiles let us exercise restart without accessing a real account.
+        let mut stored = Some(serde_json::json!({
+            "onboardingCompleted": true, "serviceSchema": 1,
+            "includeBetaUpdates": false, "automaticUpdates": true,
+            "language": "pl", "theme": "retro", "desktopNotifications": true,
+            "notificationPreview": "generic", "activeService": "discord-work",
+            "services": [
+                {"id": "chatplus", "provider": "synology-chatplus", "name": "NAS", "url": "https://nas.example/chat/", "enabled": true, "notifications": true},
+                {"id": "discord-home", "provider": "discord", "name": "Home", "url": "https://discord.com/app", "enabled": true, "notifications": false},
+                {"id": "discord-work", "provider": "discord", "name": "Work", "url": "https://discord.com/app", "enabled": true, "notifications": true}
+            ]
+        }));
+        let root = std::path::Path::new("test-profile");
+        for _ in 0..2 {
+            let (mut settings, preferences_changed) = load_preferences(&mut stored, true).unwrap();
+            assert!(!preferences_changed);
+            assert!(!settings.migrate_services().unwrap());
+            assert!(
+                settings.onboarding_completed
+                    && settings.desktop_notifications
+                    && settings.automatic_updates
+            );
+            assert!(!settings.include_beta_updates);
+            assert_eq!(settings.language, Language::Pl);
+            assert!(settings.theme == Theme::Retro);
+            assert_eq!(settings.active_service.as_deref(), Some("discord-work"));
+            assert_eq!(settings.services.len(), 3);
+            assert_eq!(settings.services[0].profile_directory(root), None);
+            for (index, id) in [(1, "discord-home"), (2, "discord-work")] {
+                assert_eq!(
+                    settings.services[index].profile_directory(root),
+                    Some(root.join("services").join(id))
+                );
+            }
+            assert!(!settings.services[1].notifications && settings.services[2].notifications);
+            stored = Some(serde_json::to_value(&settings).unwrap());
+        }
+    }
+
+    #[test]
     fn retro_is_opt_in_and_round_trips_without_changing_service_profiles() {
         let empty: Settings = serde_json::from_value(serde_json::json!({})).unwrap();
         assert!(empty.theme == Theme::System);
