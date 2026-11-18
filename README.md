@@ -27,15 +27,14 @@ Discord into one open-source Tauri application.
 | Service           | Status                                                                                                                      |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | Synology ChatPlus | Supported / primary; dedicated theme, unread and notification integration                                                   |
-| Synology Chat     | Dedicated unread/notification integration; Experimental service UI                                                          |
+| Synology Chat     | Supported, with dedicated unread and notification integration                                                               |
 | Discord           | Dedicated unread/notification integration; Experimental service UI                                                          |
 | WhatsApp          | Experimental Web integration; positive unread evidence/native notifications; no read actions or unread totals               |
 | Messenger         | Experimental Facebook messages integration; browser-event unread/native notifications; no read actions or DOM unread totals |
 | Mattermost        | Experimental browser notifications; unread from incoming notification events, explicit local acknowledgement only           |
 | Slack             | Experimental web sessions; desktop unread/notifications disabled                                                            |
 
-Synology Chat and Discord still carry Experimental badges in the general service UI.
-Their notification integration has dedicated adapters. Provider login/SSO, calls
+Discord has a dedicated notification adapter and remains experimental. Provider login/SSO, calls
 and other features depend on each web app and its policies.
 [Provider details](docs/PROVIDERS.md) explain capability boundaries; no Slack/Discord
 desktop-client parity is claimed.

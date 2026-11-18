@@ -623,6 +623,12 @@ test("fresh onboarding lists the actual registry with truthful support and no pr
   const f = await fixture({ settings: freshSettings() });
   const cards = [...f.document.querySelectorAll(".onboarding-provider")];
   assert.deepEqual(
+    cards
+      .filter((card) => !f.providers[card.dataset.provider].experimental)
+      .map((card) => card.dataset.provider),
+    ["synology-chatplus", "synology-chat"],
+  );
+  assert.deepEqual(
     cards.map((card) => card.dataset.provider),
     Object.keys(f.providers),
   );
