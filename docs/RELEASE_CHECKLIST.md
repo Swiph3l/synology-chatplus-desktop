@@ -113,3 +113,22 @@ candidate needs code changes, prepare a higher version instead of replacing
 its tag or files. A hyphenated version such as `0.9.0-beta.1` remains a SemVer
 prerelease even if its GitHub flag is cleared; its stable successor needs its
 own plain version and signed artifacts.
+
+## Download statistics
+
+Run `node scripts/release-downloads.mjs` to compare published releases. For the
+per-asset names, architectures, sizes, counts and URLs, add `--csv downloads.csv`
+or `--json downloads.json`. The report reads the GitHub Releases REST API. Public
+data is available anonymously. A read-only `GH_TOKEN` can raise the API quota.
+
+Windows setup and AppImage counts include automatic updates. macOS updates use
+separate archives. The report groups standalone Windows downloads, update archives,
+signatures, metadata and reports separately in its JSON export. GitHub supplies
+no release-asset count for its automatic source archives. Older releases have
+had more time to accumulate downloads. Use this as a maintainer report. Public
+adoption counters would conflate reinstalls, automated downloads and people.
+
+GitHub repository traffic is a separate, access-controlled, rolling 14-day
+dataset of views, clones and popular referrers. It does not identify installer
+languages or download geography. See [GitHub's traffic API](https://docs.github.com/en/rest/metrics/traffic)
+and [release assets API](https://docs.github.com/en/rest/releases/assets).
