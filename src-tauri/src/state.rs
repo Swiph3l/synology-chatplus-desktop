@@ -121,6 +121,12 @@ pub enum Language {
     It,
 }
 
+fn saved_language<'de, D: serde::Deserializer<'de>>(input: D) -> Result<Language, D::Error> {
+    let code = String::deserialize(input)?;
+    let code = serde::de::value::StringDeserializer::<D::Error>::new(code);
+    Ok(Language::deserialize(code).unwrap_or_default())
+}
+
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Theme {
@@ -185,6 +191,7 @@ pub struct Settings {
     pub active_service: Option<String>,
     pub service_schema: u8,
     pub theme: Theme,
+    #[serde(deserialize_with = "saved_language")]
     pub language: Language,
     pub autostart: bool,
     pub minimize_to_tray: bool,
@@ -546,6 +553,29 @@ fn to_utf16le(value: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unknown_saved_language_keeps_accounts_but_invalid_field_types_fail() {
+        let mut stored = Some(serde_json::json!({
+            "language": "uk",
+            "services": [{"id": "existing", "provider": "discord", "name": "Team", "url": "https://discord.com/app", "enabled": true}],
+            "activeService": "existing",
+            "automaticUpdates": true
+        }));
+        let (settings, _) = load_preferences(&mut stored, true).unwrap();
+        assert_eq!(settings.language, Language::En);
+        assert_eq!(settings.services[0].id, "existing");
+        assert_eq!(settings.active_service.as_deref(), Some("existing"));
+        assert!(settings.automatic_updates);
+        for invalid in [
+            serde_json::Value::Null,
+            serde_json::json!(42),
+            serde_json::json!({"uk": null}),
+        ] {
+            let mut malformed = Some(serde_json::json!({"language": invalid}));
+            assert!(load_preferences(&mut malformed, true).is_err());
+        }
+    }
 
     #[test]
     fn stable_1_0_3_profiles_reopen_in_the_same_webview_stores() {
