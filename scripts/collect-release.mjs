@@ -10,7 +10,7 @@ import {
   repositoryIdentity,
   validateSourceCommit,
 } from "./release-identity.mjs";
-import { releaseTargets } from "./release-targets.mjs";
+import { packageNames, releaseTargets } from "./release-targets.mjs";
 const target = process.argv[2];
 if (!Object.hasOwn(releaseTargets, target))
   throw new Error("Unsupported release target");
@@ -54,9 +54,12 @@ if (process.env.GITHUB_REF_TYPE === "tag") {
     throw new Error("Collected artifact version disagrees with release source");
   sourceCommit = source.commit;
 }
-const prefix = `${target}--ChatPlus-Desktop_${version}_${config.architecture}`;
-const file = `${prefix}${target === "windows-x86_64" ? "-setup" : ""}${config.updaterExtension}`;
-if (target === "windows-x86_64") {
+const {
+  updater: file,
+  installer: installerName,
+  standalone,
+} = packageNames(target, version);
+if (standalone) {
   // Swiph3l: Ship the actual application separately; the updater must still install the signed NSIS package.
   const application = path.join(buildRoot, "chatplus-desktop.exe");
   const bytes = await readFile(application);
@@ -65,16 +68,13 @@ if (target === "windows-x86_64") {
       "Standalone application must be nonempty and distinct from the installer",
     );
   // Swiph3l: GitHub rewrites spaces in asset names, so published names must already be URL-safe.
-  await copyFile(application, path.join("release-artifacts", `${prefix}.exe`));
+  await copyFile(application, path.join("release-artifacts", standalone));
 }
 if (config.installerExtension) {
   const installer = unique(config.installerExtension);
   if (!(await readFile(installer)).length)
     throw new Error("Installer package must be nonempty");
-  await copyFile(
-    installer,
-    path.join("release-artifacts", `${prefix}${config.installerExtension}`),
-  );
+  await copyFile(installer, path.join("release-artifacts", installerName));
 }
 await copyFile(updater, path.join("release-artifacts", file));
 await copyFile(updater + ".sig", path.join("release-artifacts", file + ".sig"));

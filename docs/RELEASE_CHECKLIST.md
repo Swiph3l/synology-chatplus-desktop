@@ -96,9 +96,14 @@ must use an artifact intended for public distribution.
 
 ## Publication
 
-- [ ] Review the generated draft assets, channel manifest, signatures, checksums,
-      SBOMs, attestation and release notes. The updater targets the NSIS setup,
-      native AppImage or macOS app archive appropriate to the platform.
+- [ ] Review the generated Download section and the draft verification step. It
+      matches uploaded files, URLs, sizes and GitHub SHA-256 digests to the staged
+      installers, updater payloads, sidecar signatures, channel manifest and checksums.
+- [ ] Save the four `evidence-<tag>-<target>` artifacts in the release record
+      before Actions retention expires (90 days or the repository limit). Each
+      contains the npm and native Rust SBOMs, inventory notes and the exact build
+      commit. Use them to review distribution notices and corresponding source.
+      The public draft carries attestations for the distribution files.
 - [ ] Capture current, sanitized [screenshots](screenshots/README.md) if needed.
 - [ ] Approve initial publication as a prerelease with the unchanged reviewed
       artifacts. Confirm discovery with **Include beta updates** on, exclusion

@@ -32,6 +32,20 @@ export const releaseTargets = {
   },
 };
 
+export function packageNames(target, version) {
+  // Swiph3l: Installed 1.0.3 clients check the legacy file prefix and architecture suffix exactly.
+  const config = releaseTargets[target];
+  const prefix = `${target}--ChatPlus-Desktop_${version}_${config.architecture}`;
+  const windows = target === "windows-x86_64";
+  return {
+    updater: prefix + (windows ? "-setup" : "") + config.updaterExtension,
+    installer: config.installerExtension
+      ? prefix + config.installerExtension
+      : undefined,
+    standalone: windows ? prefix + ".exe" : undefined,
+  };
+}
+
 if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href

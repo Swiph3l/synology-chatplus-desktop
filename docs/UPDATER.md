@@ -130,6 +130,16 @@ a separately downloadable `.dmg`. Linux uses
 `linux-x86_64--ChatPlus-Desktop_<version>_amd64.AppImage` with a `.sig`, plus `.deb`.
 The disk image and Debian package are manual downloads, not updater payloads.
 
+The release notes link directly to Windows Setup, both macOS disk images, Linux
+DEB and AppImage. The separate Windows application remains available in Assets.
+Each platform's npm/Rust inventories, inventory notes and build provenance are
+archived with the release workflow. The signed transfer artifacts still supply
+the provenance required to generate the four-target manifest. The draft upload
+uses a dedicated directory containing only the distribution files, signatures,
+channel manifest and their checksums. The workflow compares GitHub's uploaded
+asset names, download URLs, sizes and digests against those files before review.
+GitHub continues to provide both source archives.
+
 The aggregate manifest requires all four targets and their exact source provenance.
 Strict target dependency checks run before release packaging. Linux additionally
 requires verification of the checked glib source backport, actual Cargo resolution,
