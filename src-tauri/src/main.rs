@@ -18,6 +18,7 @@ mod popups;
 mod project;
 mod provider_read;
 mod providers;
+mod resource_diagnostics;
 mod services;
 mod shell;
 mod single_instance;
@@ -54,6 +55,7 @@ fn start_notification_capture(app: &tauri::AppHandle) -> Result<(), &'static str
 }
 
 fn main() {
+    let resource_clock = resource_diagnostics::StartupClock::new();
     let context = tauri::generate_context!();
     #[cfg(windows)]
     let startup_guard = match startup_guard::acquire(&context.config().identifier) {
@@ -66,6 +68,7 @@ fn main() {
     // Swiph3l: Reqwest with rustls-no-provider needs one global crypto backend before any client is built.
     let _ = rustls::crypto::ring::default_provider().install_default();
     let builder = tauri::Builder::default()
+        .manage(resource_clock)
         .manage(single_instance::Activation::default())
         .manage(popups::Service::default())
         // Swiph3l: ChatPlus Desktop must run as a single instance.
@@ -120,6 +123,7 @@ fn main() {
             commands::save_settings,
             commands::complete_onboarding,
             commands::get_about_info,
+            commands::sample_resources,
             commands::copy_diagnostics,
             commands::show_about,
             commands::show_license,

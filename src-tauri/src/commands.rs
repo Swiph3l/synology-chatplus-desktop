@@ -257,6 +257,16 @@ pub async fn complete_onboarding(
     Ok(state::current(&app))
 }
 #[tauri::command]
+pub async fn sample_resources(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+) -> Result<crate::resource_diagnostics::Snapshot, String> {
+    local(&window, &["settings"])?;
+    tauri::async_runtime::spawn_blocking(move || crate::resource_diagnostics::sample(&app))
+        .await
+        .map_err(|_| "Could not sample resources.".into())
+}
+#[tauri::command]
 pub fn get_about_info(
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,
