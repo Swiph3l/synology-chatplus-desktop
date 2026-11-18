@@ -52,16 +52,21 @@ function fixture(provider, frame = false, title) {
   });
   Object.defineProperty(document, "visibilityState", { value: "visible" });
   Object.defineProperty(document, "defaultView", { value: host });
-  runInNewContext(built.outputFiles[0].text, {
-    window: host,
-    document,
-    Event: dom.Event,
-    KeyboardEvent: class {},
-    crypto: { randomUUID },
-    queueMicrotask: (callback) => tasks.push(callback),
-  });
-  while (tasks.length) tasks.shift()();
-  return { messages, diagnostics, host, document };
+  const boot = () =>
+    runInNewContext(built.outputFiles[0].text, {
+      window: host,
+      document,
+      Event: dom.Event,
+      KeyboardEvent: class {},
+      crypto: { randomUUID },
+      queueMicrotask: (callback) => tasks.push(callback),
+    });
+  const flush = () => {
+    while (tasks.length) tasks.shift()();
+  };
+  boot();
+  flush();
+  return { messages, diagnostics, host, document, boot, flush, listeners };
 }
 
 for (const [provider, source] of [
@@ -98,6 +103,20 @@ test("WhatsApp bootstrap cannot replace an unavailable official counter with a v
   const f = fixture("whatsapp", false, "Unavailable publisher title");
   assert.equal(f.messages[0].hasUnread, null);
   assert.equal(f.messages[0].unreadScope, "notification-attention");
+});
+
+test("reinjection and page-cache transitions retain one observer owner and dispose it on document exit", () => {
+  const f = fixture("whatsapp");
+  const original = f.host.__chatplusSetForeground;
+  f.boot();
+  f.flush();
+  assert.equal(f.host.__chatplusSetForeground, original);
+  assert.equal(f.messages.length, 1);
+  f.listeners.get("pagehide")({ isTrusted: true, persisted: true });
+  assert.equal(f.host.__chatplusSetForeground, original);
+  f.listeners.get("pagehide")({ isTrusted: true, persisted: false });
+  assert.equal(f.host.__chatplusSetForeground, undefined);
+  assert.equal(f.listeners.has("pagehide"), false);
 });
 
 test("unsupported providers and frames cannot install a different provider's unread adapter", () => {
