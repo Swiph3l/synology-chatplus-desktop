@@ -535,15 +535,26 @@ pub fn show(app: &AppHandle) -> Result<(), String> {
         .set_focus()
         .map_err(|_| "Could not focus service.".into())
 }
+fn select_service(settings: &mut state::Settings, id: &str) -> Result<bool, String> {
+    if !settings.services.iter().any(|s| s.id == id && s.enabled) {
+        return Err("Choose an enabled configured service.".into());
+    }
+    if settings.active_service.as_deref() == Some(id) {
+        return Ok(false);
+    }
+    settings.active_service = Some(id.into());
+    Ok(true)
+}
+
 pub fn activate(app: &AppHandle, id: &str) -> Result<(), String> {
     let lifecycle = app.state::<Lifecycle>();
     let _transition = lifecycle.0.lock().unwrap_or_else(|e| e.into_inner());
     let mut settings = state::current(app);
-    if !settings.services.iter().any(|s| s.id == id && s.enabled) {
-        return Err("Choose an enabled configured service.".into());
+    // Swiph3l: A second click still restores focus and can recreate a missing view.
+    // The atomic settings file and autostart entry need no write for that click.
+    if select_service(&mut settings, id)? {
+        state::persist(app, settings)?;
     }
-    settings.active_service = Some(id.into());
-    state::persist(app, settings)?;
     show(app)
 }
 
@@ -709,6 +720,18 @@ fn remove_configuration(settings: &mut state::Settings, id: &str) -> Result<(), 
 mod removal_tests {
     use super::*;
     use crate::providers::ProviderId;
+
+    #[test]
+    fn only_a_changed_enabled_selection_needs_persistence() {
+        let mut settings = settings();
+        assert!(!select_service(&mut settings, "first").unwrap());
+        assert!(select_service(&mut settings, "second").unwrap());
+        assert!(!select_service(&mut settings, "second").unwrap());
+        settings.services[0].enabled = false;
+        assert!(select_service(&mut settings, "first").is_err());
+        assert!(select_service(&mut settings, "unknown").is_err());
+        assert_eq!(settings.active_service.as_deref(), Some("second"));
+    }
     fn settings() -> state::Settings {
         let mut settings = state::Settings {
             service_schema: 1,
