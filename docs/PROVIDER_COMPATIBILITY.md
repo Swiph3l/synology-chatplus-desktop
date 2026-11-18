@@ -10,6 +10,23 @@ a second sender and, for self-hosted services, a disposable server.
 - **Shared** refers to the applicable shell or engine behavior in the third table. Testing a synthetic page exercises that behavior without certifying a live service.
 - **Unavailable** means Chat+ has no integration for the specified function.
 
+### Native fixture results
+
+A Windows run used two configured services on one synthetic origin with separate
+persistent profile cookies. Both v1.0.3 and v1.0.4 reopened the profiles on five
+launches, preserved separate cookies and passed five minimize-to-tray and
+second-instance restores each. Thirty clicks on the already selected service
+wrote settings thirty times on v1.0.3 and zero times on v1.0.4. On Ubuntu,
+an installed DEB upgrade from v1.0.3 to v1.0.4 preserved a synthetic cookie
+and local storage. None of these scenarios required a production account.
+
+In the native Windows failure fixture, WebView2 retried a 503 entry after
+1,211 ms and loaded the succeeding 200 response. A continuously unavailable
+entry received five GETs including the initial one, with intervals of 1,527,
+2,436, 4,486 and 8,455 ms. A 404 entry received one GET. Removing an unavailable
+service during its first backoff also left its server at one GET. Actual system
+sleep, renderer termination and signed-in site reconnection remain unverified.
+
 ## Login, messages and accounts
 
 | Service           | Entry and authentication                                                                                                                                                 | Persist and switch accounts                                                                                       | Send and receive messages                                      | Session expiry                                                                            |
@@ -89,6 +106,8 @@ Run the following from the repository root with the locked dependencies installe
 
 ```sh
 node --test tests/whatsapp-attention.test.mjs tests/whatsapp-unread.test.mjs tests/provider-bootstrap.test.mjs
+node scripts/benchmark-provider-adapters.mjs /path/to/v1.0.3-checkout
+node scripts/benchmark-provider-adapters.mjs .
 cargo test --locked --manifest-path src-tauri/Cargo.toml --bin chatplus-desktop platform::recovery::
 cargo test --locked --manifest-path src-tauri/Cargo.toml --bin chatplus-desktop toast_route_keeps_the_originating_account
 ```
@@ -104,3 +123,26 @@ published only unknown when readiness advanced without another DOM mutation.
 The readiness listener now publishes 4 without focus or a rail click. Reinjecting
 the provider bundle previously replaced its callbacks and attached a second set
 of observers. It now retains one owner until a non-cached document exit.
+
+The adapter benchmark built both the stable v1.0.3 tag (`a526463`) and candidate
+sources with the same tooling. It instantiated all seven synthetic documents,
+then delivered twenty unchanged background foreground-state projections per
+document. Geometry counts include the first snapshot, with 128 mounted chat rows
+and a positive WhatsApp attention title. Other adapters received minimal
+provider-specific fixture markup. Selector counts are calls to `querySelector`
+and `querySelectorAll` on the fixture document/elements.
+
+| Provider          | Selector calls on both builds | Geometry calls v1.0.3 | Geometry calls v1.0.4 | Unread packets on both builds |
+| ----------------- | ----------------------------: | --------------------: | --------------------: | ----------------------------: |
+| Synology ChatPlus |                           147 |                     0 |                     0 |                             1 |
+| Synology Chat     |                           210 |                     0 |                     0 |                             1 |
+| Discord           |                            64 |                     0 |                     0 |                             1 |
+| WhatsApp          |                            63 |                 2,730 |                    63 |                             1 |
+| Messenger         |                             0 |                     0 |                     0 |                             1 |
+| Mattermost        |                             0 |                     0 |                     0 |                             1 |
+| Slack             |                             0 |                     0 |                     0 |                             0 |
+| All seven         |                           484 |                 2,730 |                    63 |                             6 |
+
+No provider websites or signed-in chats are loaded by this benchmark. The
+Mattermost authenticated verification path requires active engagement and did
+not run. The one Messenger packet reports unknown, and Slack has no adapter.
