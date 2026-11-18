@@ -47,7 +47,21 @@
       },
       "nsis": {
         "installerIcon": "icons/icon.ico",
-        "uninstallerIcon": "icons/icon.ico"
+        "uninstallerIcon": "icons/icon.ico",
+        "languages": [
+          "English",
+          "Polish",
+          "Spanish",
+          "German",
+          "French",
+          "Japanese",
+          "TradChinese",
+          "PortugueseBR",
+          "Italian"
+        ],
+        "customLanguageFiles": {
+          "Polish": "nsis/Polish.nsh"
+        }
       }
     },
     "macOS": {
