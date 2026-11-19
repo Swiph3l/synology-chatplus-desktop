@@ -15,7 +15,7 @@ Discord into one open-source Tauri application.
 [![Security checks](https://github.com/Swiph3l/synology-chatplus-desktop/actions/workflows/security.yml/badge.svg)](https://github.com/Swiph3l/synology-chatplus-desktop/security)
 [![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8DB)](https://v2.tauri.app/)
 
-**Current stable version: [v1.0.4](https://github.com/Swiph3l/synology-chatplus-desktop/releases/tag/v1.0.4).**
+**[Download the latest stable release](https://github.com/Swiph3l/synology-chatplus-desktop/releases/latest).**
 
 ## Why Chat+ Desktop?
 
@@ -107,14 +107,15 @@ and every target's security gate must pass before distribution. See
 
 ## Download
 
-Choose a **v1.0.4** package for your system:
+The [latest stable release](https://github.com/Swiph3l/synology-chatplus-desktop/releases/latest)
+lists direct installer downloads for each system.
 
-| System                        | Architecture          | Download                                                                                                                                                                                                                                                                            |
-| ----------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Windows                       | x64                   | [Setup (.exe)](https://github.com/Swiph3l/synology-chatplus-desktop/releases/download/v1.0.4/windows-x86_64--ChatPlus-Desktop_1.0.4_x64-setup.exe)                                                                                                                                  |
-| macOS 14+                     | Apple Silicon (arm64) | [Disk image (.dmg)](https://github.com/Swiph3l/synology-chatplus-desktop/releases/download/v1.0.4/darwin-aarch64--ChatPlus-Desktop_1.0.4_aarch64.dmg)                                                                                                                               |
-| macOS 14+                     | Intel (x64)           | [Disk image (.dmg)](https://github.com/Swiph3l/synology-chatplus-desktop/releases/download/v1.0.4/darwin-x86_64--ChatPlus-Desktop_1.0.4_x64.dmg)                                                                                                                                    |
-| Linux (Ubuntu 24.04 baseline) | x64                   | [AppImage](https://github.com/Swiph3l/synology-chatplus-desktop/releases/download/v1.0.4/linux-x86_64--ChatPlus-Desktop_1.0.4_amd64.AppImage) · [DEB](https://github.com/Swiph3l/synology-chatplus-desktop/releases/download/v1.0.4/linux-x86_64--ChatPlus-Desktop_1.0.4_amd64.deb) |
+| System                        | Architecture          | Installer                 |
+| ----------------------------- | --------------------- | ------------------------- |
+| Windows                       | x64                   | Setup (.exe)              |
+| macOS 14+                     | Apple Silicon (arm64) | Disk image (.dmg)         |
+| macOS 14+                     | Intel (x64)           | Disk image (.dmg)         |
+| Linux (Ubuntu 24.04 baseline) | x64                   | AppImage or Debian (.deb) |
 
 Windows x64 is the established target. macOS and Linux remain candidate platforms;
 read the [platform requirements and limitations](docs/PLATFORMS.md) before installing.
@@ -124,9 +125,7 @@ app also failed strict bundle-signature verification. Both builds opened and
 retained settings in the installer tests. See the [macOS test results](https://github.com/Swiph3l/synology-chatplus-desktop/actions/runs/44574489339).
 
 Already installed? Open **Settings > Updates** to check for an update.
-See the [v1.0.4 release notes](https://github.com/Swiph3l/synology-chatplus-desktop/releases/tag/v1.0.4),
-[latest stable release](https://github.com/Swiph3l/synology-chatplus-desktop/releases/latest)
-or [all releases](https://github.com/Swiph3l/synology-chatplus-desktop/releases).
+For older installers and release notes, see [all releases](https://github.com/Swiph3l/synology-chatplus-desktop/releases).
 
 Stable releases are intended for regular use; beta and pre-release builds include changes for testing. Enable
 **Include beta updates** in Settings to consider both stable and beta releases;
