@@ -119,6 +119,10 @@ Choose a **v1.0.4** package for your system:
 Windows x64 is the established target. macOS and Linux remain candidate platforms;
 read the [platform requirements and limitations](docs/PLATFORMS.md) before installing.
 
+On macOS 15.8.2, Gatekeeper rejected both 1.0.4 downloads. The Apple Silicon
+app also failed strict bundle-signature verification. Both builds opened and
+retained settings in the installer tests. See the [macOS test results](https://github.com/Swiph3l/synology-chatplus-desktop/actions/runs/44574489339).
+
 Already installed? Open **Settings > Updates** to check for an update.
 See the [v1.0.4 release notes](https://github.com/Swiph3l/synology-chatplus-desktop/releases/tag/v1.0.4),
 [latest stable release](https://github.com/Swiph3l/synology-chatplus-desktop/releases/latest)
