@@ -2,6 +2,32 @@
 
 All notable changes will be documented here. Versions follow Semantic Versioning.
 
+## 1.0.4 - Unreleased
+
+### Added
+
+- View memory, CPU use, open service views, uptime and runtime versions on demand
+  in Settings. Windows also reports WebView2 process counts and combined memory.
+- Preview a local problem report, optionally include app and runtime information,
+  and export Markdown or open the project's GitHub Issues page.
+
+### Changed
+
+- Use the approved Chat+ icon in the app, tray, launchers and installers. Both
+  Synology Chat and Synology ChatPlus now appear as supported services.
+- Offer clearly labeled downloads for each platform in release notes. Windows
+  setup and removal follow the system language when it is supported.
+
+### Fixed
+
+- Re-selecting an active service restores its view without rewriting settings.
+- On Windows, retry transient failures at the configured service entry with a
+  bounded delay. A manual navigation or a replaced session cancels pending retries.
+- Refresh WhatsApp's notification-attention indicator when the document becomes
+  ready in the background. Dispose provider observers when their document exits.
+- Use English when a profile contains an unrecognized interface language and
+  format download progress using the selected language.
+
 ## 1.0.3 - 2026-11-15
 
 ### Fixed
