@@ -10,6 +10,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { changesForVersion } from "./release-changelog.mjs";
 import { packageNames, releaseTargets } from "./release-targets.mjs";
 import { manifestName } from "./updater-metadata.mjs";
 
@@ -29,14 +30,7 @@ export function publicNames(version) {
 }
 
 export function releaseNotes(project, version, changelog) {
-  const section = changelog
-    .replaceAll("\r\n", "\n")
-    .split(/^## /m)
-    .slice(1)
-    .find((text) => text.split(/\s/, 1)[0] === version);
-  assert.ok(section, `Missing changelog entry for ${version}`);
-  const changes = section.split("\n").slice(1).join("\n").trim();
-  assert.ok(changes, "Release notes must describe this version");
+  const changes = changesForVersion(changelog, version);
   const link = (label, name) =>
     `[${label}](${assetUrl(project, version, name)})`;
   const windows = packageNames("windows-x86_64", version);
