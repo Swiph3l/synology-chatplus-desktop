@@ -4,27 +4,34 @@ All notable changes will be documented here. Versions follow Semantic Versioning
 
 ## 1.0.4 - Unreleased
 
+Chat+ has a new icon and two new tools in Settings. You can check resource use
+while a service is open and prepare a problem report to share with the project.
+
 ### Added
 
-- View memory, CPU use, open service views, uptime and runtime versions on demand
-  in Settings. Windows also reports WebView2 process counts and combined memory.
-- Preview a local problem report, optionally include app and runtime information,
-  and export Markdown or open the project's GitHub Issues page.
+- Check the main app's memory, average CPU use since launch, uptime, open service
+  views and runtime versions on demand. On Windows, Settings also shows the
+  WebView2 process count and combined memory, which can include shared pages.
+- Use **Report a problem** to describe an issue and its reproduction steps.
+  You can include basic diagnostics, preview the Markdown, then copy or save it.
+  Opening GitHub Issues leaves the report on your device until you share it.
 
 ### Changed
 
-- Use the approved Chat+ icon in the app, tray, launchers and installers. Both
-  Synology Chat and Synology ChatPlus now appear as supported services.
-- Offer clearly labeled downloads for each platform in release notes. Windows
-  setup and removal follow the system language when it is supported.
+- The new Chat+ icon appears in the app, tray, launchers and installers.
+  Synology Chat joins Synology ChatPlus as a supported service.
+- Release notes now link directly to Windows Setup, the Apple Silicon and Intel
+  disk images, and the Linux DEB and AppImage. On Windows, setup and removal
+  use the system language when it is supported.
 
 ### Fixed
 
-- Re-selecting an active service restores its view without rewriting settings.
-- On Windows, retry transient failures at the configured service entry with a
-  bounded delay. A manual navigation or a replaced session cancels pending retries.
-- Refresh WhatsApp's notification-attention indicator when the document becomes
-  ready in the background. Dispose provider observers when their document exits.
+- Selecting the current service again restores focus without writing settings
+  to disk on each click.
+- On Windows, Chat+ retries temporary failures when opening a service's configured
+  address. Navigating away or replacing the session cancels the remaining attempts.
+- WhatsApp refreshes its notification count when a background page finishes loading.
+  Services also clean up their page observers when you leave a document.
 - Use English when a profile contains an unrecognized interface language and
   format download progress using the selected language.
 
