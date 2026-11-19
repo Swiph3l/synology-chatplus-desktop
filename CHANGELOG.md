@@ -9,7 +9,7 @@ while a service is open and prepare a problem report to share with the project.
 
 ### Added
 
-- Choose **Measure performance** in Settings or About to take a single reading
+- Choose **Measure resource usage** in Settings or About to take a single reading
   of the main app's memory, average CPU use since launch, uptime, open service
   views and runtime versions. On Windows, the reading also shows the
   WebView2 process count and combined memory, which can include shared pages.
