@@ -30,6 +30,15 @@ Discord into one open-source Tauri application.
 The Windows development build above uses a local conversation fixture with fictional
 messages. The service rail, window and menus come from the running application.
 
+### Light, Dark and Retro
+
+| Light                                                                                                                                                                           | Dark                                                                                                                                                               | Retro (Windows 95/98)                                                                                                                                                        |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![Light conversation list with pale blue unread rows and short blue underlines](docs/screenshots/desktop-104-unread-light.png)](docs/screenshots/desktop-104-unread-light.png) | [![Dark conversation list with slate unread rows and pale underlines](docs/screenshots/desktop-104-unread-dark.png)](docs/screenshots/desktop-104-unread-dark.png) | [![Retro conversation list with brass unread underlines and a navy selection](docs/screenshots/desktop-104-unread-retro.png)](docs/screenshots/desktop-104-unread-retro.png) |
+
+Choose a theme in **Settings → General → Appearance**. In these Windows views of
+Synology ChatPlus, a short underline marks unread conversations and channels.
+
 | Choose your first service on Windows                                                                                            | Inspect resource usage on Linux                                                                                                                                     |
 | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [![English first-run service picker](docs/screenshots/desktop-104-onboarding.png)](docs/screenshots/desktop-104-onboarding.png) | [![Native Settings with an expanded resource sample on Ubuntu](docs/screenshots/desktop-104-linux-resources.png)](docs/screenshots/desktop-104-linux-resources.png) |
@@ -83,7 +92,7 @@ client with no Meta affiliation.
   with an explicit Save As dialog, visible destination and safe duplicate filenames.
 - External web links show their destination in a confirmation before opening the
   default browser.
-- Light, Dark and System themes; English, Polish, Spanish, German, French,
+- Light, Dark, Retro and System themes; English, Polish, Spanish, German, French,
   Japanese, Traditional Chinese, Brazilian Portuguese and Italian interface.
 - Native menus, zoom/fullscreen, saved window geometry and optional start at login.
 
