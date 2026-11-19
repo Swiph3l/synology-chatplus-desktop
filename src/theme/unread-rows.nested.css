@@ -1,0 +1,121 @@
+/* ChatListItem and ChannelListItem in ChatPlus 1.0.0-00783 both mark the
+   immediate name child weight-prominent for unread posts or comments.
+   The numeric badge can combine mentions and ordinary replies. */
+:root[data-chatplus-theme="light"]
+  body.eos-scope
+  [data-testid="sidebar-layout-content"] {
+  --chatplus-row-accent: #24548b;
+  --chatplus-row-muted: #68727b;
+  --chatplus-row-idle-tint: 10%;
+}
+
+:root[data-chatplus-theme="dark"]
+  body.eos-scope
+  [data-testid="sidebar-layout-content"] {
+  --chatplus-row-accent: #78bfda;
+  --chatplus-row-muted: #8595a0;
+  --chatplus-row-underline: #e0e8ee;
+  --chatplus-row-idle-tint: 14%;
+}
+
+:root[data-chatplus-theme="retro"]
+  body.eos-scope
+  [data-testid="sidebar-layout-content"] {
+  --chatplus-row-accent: #73551a;
+  --chatplus-row-muted: #655e50;
+  --chatplus-row-idle-tint: 12%;
+  --chatplus-row-radius: 0px;
+  --chatplus-row-focus: 1px dotted;
+}
+
+:root[data-chatplus-theme]
+  body.eos-scope
+  [data-testid="sidebar-layout-content"]
+  :is(
+    .chat-list-scrollbar [id^="chat-channel-"],
+    .channel-list-scrollbar [id^="channel-"]
+  )
+  > .module-item-option-wrapper
+  > li.module-item-option[role="menuitem"] {
+  /* The native title consumes its own EOS token inside the navy Retro selection. */
+  :root[data-chatplus-theme="retro"] &:is(:hover, .activated) {
+    --chatplus-row-accent: #ffe1a0;
+    --chatplus-row-muted: #d8cbb2;
+    --eos-fg-primary: #fff;
+    --eos-fg-tertiary: #dfdfdf;
+
+    &:focus-visible {
+      outline: 1px dotted var(--eos-fg-primary) !important;
+      outline-offset: -2px;
+    }
+  }
+
+  &:has(> .body-m.truncate > .weight-prominent) {
+    --chatplus-row-ink: var(--chatplus-row-accent);
+    --chatplus-row-tint: var(--chatplus-row-idle-tint);
+    background-image: linear-gradient(
+      color-mix(
+          in srgb,
+          var(--chatplus-row-ink) var(--chatplus-row-tint),
+          transparent
+        )
+        0 0
+    );
+
+    &:where(
+      :has(
+        > .action-wrapper .hide-on-hover-action .icn_channeltype_bell_slash_fill
+      )
+    ) {
+      --chatplus-row-ink: var(--chatplus-row-muted);
+      --chatplus-row-underline: var(--chatplus-row-muted);
+      --chatplus-row-tint: 5%;
+      --chatplus-row-hover-tint: 6%;
+      --chatplus-row-selected-tint: 9%;
+    }
+
+    &:hover {
+      --chatplus-row-tint: var(--chatplus-row-hover-tint, 12%);
+    }
+
+    &.activated {
+      --chatplus-row-tint: var(--chatplus-row-selected-tint, 20%);
+    }
+
+    &:focus-visible {
+      /* The upstream global :focus reset is important. */
+      outline: var(--chatplus-row-focus, 2px solid) var(--chatplus-row-accent) !important;
+      outline-offset: -2px;
+    }
+
+    & > .body-m.truncate {
+      position: relative;
+      min-inline-size: 0;
+      overflow: visible;
+    }
+
+    & > .body-m.truncate > .weight-prominent {
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    & > .body-m.truncate::after {
+      content: "";
+      position: absolute;
+      pointer-events: none;
+      inset-inline-start: 0;
+      inset-block-end: -2px;
+      inline-size: min(20px, 100%);
+      block-size: 2px;
+      border-radius: var(--chatplus-row-radius, 2px);
+      background-color: var(--chatplus-row-underline, var(--chatplus-row-ink));
+    }
+
+    @media (forced-colors: active) {
+      & > .body-m.truncate::after {
+        background-color: CanvasText;
+        forced-color-adjust: none;
+      }
+    }
+  }
+}
