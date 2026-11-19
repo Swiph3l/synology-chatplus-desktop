@@ -6,8 +6,9 @@ function resourceRows(sample: ResourceSnapshot): [TranslationKey, string][] {
   const number = new Intl.NumberFormat(currentLanguage(), {
     maximumFractionDigits: 1,
   });
-  const value = (n: number | null, scale = 1, suffix = "") =>
-    n === null ? t("common.unavailable") : number.format(n / scale) + suffix;
+  const value = (n: number | null | undefined, scale = 1, suffix = "") =>
+    n == null ? t("common.unavailable") : number.format(n / scale) + suffix;
+  const memory = (bytes: number | null) => value(bytes, 1024 ** 2, " MiB");
   const duration = (value: number, unit: string) =>
     new Intl.NumberFormat(currentLanguage(), {
       style: "unit",
@@ -22,11 +23,34 @@ function resourceRows(sample: ResourceSnapshot): [TranslationKey, string][] {
       : []),
     duration(seconds % 60, "second"),
   ].join(" ");
+  const memoryRows: [TranslationKey, string][] =
+    sample.os === "windows"
+      ? [
+          [
+            "resources.mainPrivateMemory",
+            memory(sample.mainPrivateResidentBytes),
+          ],
+          [
+            "resources.interfacePrivateMemory",
+            memory(sample.appWebviewPrivateResidentBytes),
+          ],
+          [
+            "resources.servicePrivateMemory",
+            memory(sample.serviceWebviewPrivateResidentBytes),
+          ],
+        ]
+      : [["resources.mainMemory", memory(sample.mainResidentBytes)]];
+  if (
+    sample.os === "windows" &&
+    sample.sharedWebviewPrivateResidentBytes != null
+  ) {
+    memoryRows.push([
+      "resources.sharedPrivateMemory",
+      memory(sample.sharedWebviewPrivateResidentBytes),
+    ]);
+  }
   return [
-    [
-      "resources.mainMemory",
-      value(sample.mainResidentBytes, 1024 ** 2, " MiB"),
-    ],
+    ...memoryRows,
     [
       "resources.mainCpu",
       sample.mainCpuPercent === null
@@ -38,10 +62,6 @@ function resourceRows(sample: ResourceSnapshot): [TranslationKey, string][] {
     ],
     ["resources.services", value(sample.activeServices)],
     ["resources.processes", value(sample.webviewProcesses)],
-    [
-      "resources.webviewMemory",
-      value(sample.webviewResidentBytes, 1024 ** 2, " MiB"),
-    ],
     ["resources.uptime", uptime],
     ["resources.version", sample.version],
     ["about.webview", sample.webviewVersion || t("common.unavailable")],
@@ -59,6 +79,7 @@ export function mountResourceUsage(root: HTMLElement) {
   const details = root.querySelector("details")!;
   const refresh = root.querySelector<HTMLButtonElement>("[data-refresh]")!;
   const values = root.querySelector("dl")!;
+  const scope = root.querySelector<HTMLElement>(".support-help")!;
   const status = root.querySelector<HTMLElement>("[data-resource-status]")!;
   let revision = 0;
 
@@ -76,6 +97,14 @@ export function mountResourceUsage(root: HTMLElement) {
     try {
       const sample = await invoke<ResourceSnapshot>("sample_resources");
       if (requested !== revision || !visible()) return;
+      scope.textContent = [
+        t(
+          sample.os === "windows"
+            ? "resources.windowsMemoryScope"
+            : "resources.residentMemoryScope",
+        ),
+        t("resources.scope"),
+      ].join(" ");
       values.replaceChildren();
       for (const [key, value] of resourceRows(sample)) {
         const term = document.createElement("dt");
@@ -87,6 +116,7 @@ export function mountResourceUsage(root: HTMLElement) {
     } catch {
       if (requested === revision && visible()) {
         values.replaceChildren();
+        scope.textContent = t("resources.scope");
         status.textContent = t("about.infoError");
       }
     } finally {
@@ -103,6 +133,7 @@ export function mountResourceUsage(root: HTMLElement) {
     refresh.disabled = false;
     values.removeAttribute("aria-busy");
     values.replaceChildren();
+    scope.textContent = t("resources.scope");
     status.textContent = "";
   };
   details.addEventListener("toggle", () => {

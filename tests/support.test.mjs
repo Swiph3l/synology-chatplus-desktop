@@ -36,12 +36,15 @@ const sample = {
   architecture: "x86_64",
   webviewVersion: "142.0.3595.65",
   uptimeSeconds: 72,
-  mainResidentBytes: 16777216,
+  mainResidentBytes: null,
+  mainPrivateResidentBytes: 16777216,
+  appWebviewPrivateResidentBytes: 8388608,
+  serviceWebviewPrivateResidentBytes: null,
+  sharedWebviewPrivateResidentBytes: null,
   mainCpuPercent: 11.4,
   activeServices: 2,
   enabledTypes: ["discord", "unknown", "discord", "mattermost"],
   webviewProcesses: null,
-  webviewResidentBytes: null,
   username: "private-user",
   url: "https://private.invalid/?token=secret",
   logs: ["private conversation"],
@@ -142,6 +145,65 @@ test("single resource snapshots run only on demand and ignore late results after
   await turn();
   assert.equal(f.calls.length, 2);
   assert.equal(f.get("dl").textContent, "");
+});
+
+async function measureMemory(overrides) {
+  const f = fixture(() => ({ ...sample, ...overrides }));
+  f.openResources(true);
+  f.get("[data-refresh]").click();
+  await turn();
+  return {
+    rows: Object.fromEntries(
+      [...f.get("dl").querySelectorAll("dt")].map((term) => [
+        term.textContent,
+        term.nextElementSibling.textContent,
+      ]),
+    ),
+    scope: f.get(".support-help").textContent,
+  };
+}
+
+test("Windows reports dedicated and shared WebViews separately and never substitutes host working set", async () => {
+  const { rows, scope } = await measureMemory({
+    mainResidentBytes: 99 * 1024 ** 2,
+    mainPrivateResidentBytes: null,
+    appWebviewPrivateResidentBytes: null,
+    serviceWebviewPrivateResidentBytes: 12 * 1024 ** 2,
+    sharedWebviewPrivateResidentBytes: 7 * 1024 ** 2,
+  });
+  assert.equal(rows["Main process private RAM"], "Unavailable");
+  assert.equal(rows["Dedicated interface WebView RAM"], "Unavailable");
+  assert.equal(rows["Dedicated service WebView RAM"], "12 MiB");
+  assert.equal(rows["Shared WebView profile RAM"], "7 MiB");
+  assert.equal(
+    Object.values(rows).filter((value) => value === "7 MiB").length,
+    1,
+  );
+  assert.ok(!Object.values(rows).includes("99 MiB"));
+  assert.match(scope, /same WebView profile.*counts all its processes once/);
+  const withoutShared = await measureMemory({
+    serviceWebviewPrivateResidentBytes: 0,
+    sharedWebviewPrivateResidentBytes: null,
+  });
+  assert.equal(withoutShared.rows["Dedicated service WebView RAM"], "0 MiB");
+  assert.equal(withoutShared.rows["Shared WebView profile RAM"], undefined);
+  const sharedZero = await measureMemory({
+    sharedWebviewPrivateResidentBytes: 0,
+  });
+  assert.equal(sharedZero.rows["Shared WebView profile RAM"], "0 MiB");
+});
+
+test("macOS and Linux preserve the host resident measurement and its scope", async () => {
+  for (const os of ["macos", "linux"]) {
+    const { rows, scope } = await measureMemory({
+      os,
+      mainResidentBytes: 40 * 1024 ** 2,
+    });
+    assert.equal(rows["Main process memory"], "40 MiB");
+    assert.equal(rows["Main process private RAM"], undefined);
+    assert.equal(rows["Dedicated service WebView RAM"], undefined);
+    assert.match(scope, /Resident memory includes shared pages/);
+  }
 });
 
 test("a hidden document neither starts a sample nor receives the result of an earlier one", async () => {
