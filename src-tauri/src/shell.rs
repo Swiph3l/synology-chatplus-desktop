@@ -87,7 +87,7 @@ pub fn settings_section(app: &AppHandle, section: &str) -> tauri::Result<()> {
     }
     let add_service = section == "services-add";
     let section = match section {
-        "notifications" | "updates" | "services" | "changelog" | "about" => section,
+        "notifications" | "updates" | "services" | "changelog" | "about" | "report" => section,
         "services-add" => "services",
         _ => "general",
     };

@@ -677,7 +677,8 @@ pub struct Icons {
 fn paint_unread_dot(rgba: &mut [u8], width: u32, center: (f32, f32), radius: f32, rim: f32) {
     const RED: [u8; 3] = [230, 53, 68];
     const KEYLINE: [u8; 3] = [255, 248, 248];
-    for (i, pixel) in rgba.chunks_exact_mut(4).enumerate() {
+    let (pixels, _) = rgba.as_chunks_mut::<4>();
+    for (i, pixel) in pixels.iter_mut().enumerate() {
         let x = (i as u32 % width) as f32 + 0.5 - center.0;
         let y = (i as u32 / width) as f32 + 0.5 - center.1;
         let distance = x.hypot(y);

@@ -127,6 +127,7 @@ fn main() {
             commands::sample_resources,
             commands::get_report_environment,
             commands::export_problem_report,
+            commands::copy_problem_report,
             commands::copy_diagnostics,
             commands::show_about,
             commands::show_license,

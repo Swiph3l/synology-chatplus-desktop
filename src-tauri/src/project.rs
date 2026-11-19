@@ -29,6 +29,8 @@ pub enum Link {
     Github,
     Contributors,
     Issues,
+    #[serde(rename = "bug-report")]
+    BugReport,
     Star,
     Support,
 }
@@ -40,6 +42,7 @@ impl Project {
                 Some("https://github.com/Swiph3l/synology-chatplus-desktop/graphs/contributors")
             }
             Link::Issues => Some(self.github_issues_url),
+            Link::BugReport => Some("https://github.com/Swiph3l/synology-chatplus-desktop/issues/new?template=bug_report.md"),
             Link::Star => Some(self.github_star_url),
             Link::Support => self.support_url.filter(|s| !s.trim().is_empty()),
         }
@@ -64,6 +67,15 @@ mod tests {
     fn community_links_are_explicit_and_support_is_optional() {
         assert_eq!(PROJECT.link(Link::Star), PROJECT.link(Link::Github));
         assert!(PROJECT.link(Link::Issues).unwrap().ends_with("/issues"));
+        let bug: Link = serde_json::from_str("\"bug-report\"").unwrap();
+        let url = url::Url::parse(PROJECT.link(bug).unwrap()).unwrap();
+        assert_eq!(url.origin().ascii_serialization(), "https://github.com");
+        assert_eq!(url.path(), "/Swiph3l/synology-chatplus-desktop/issues/new");
+        assert_eq!(url.query(), Some("template=bug_report.md"));
+        assert!(url.fragment().is_none());
+        assert!(
+            include_str!("../../.github/ISSUE_TEMPLATE/bug_report.md").contains("name: Bug report")
+        );
         assert_eq!(
             PROJECT.link(Link::Contributors),
             Some("https://github.com/Swiph3l/synology-chatplus-desktop/graphs/contributors")

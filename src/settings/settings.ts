@@ -120,9 +120,7 @@ export async function renderSettings() {
       <p id="status" role="status" aria-live="polite"></p>
       <div class="form-footer"><div class="settings-save-state" role="status" aria-live="polite" aria-atomic="true"><span id="draft-status"></span><p id="save-feedback" hidden></p></div><button id="close-settings" type="button" class="secondary">${t("common.close")}</button><button id="save" type="submit">${t("common.save")}</button></div>
     </form>`;
-  const closeResources = mountSupport(
-    document.getElementById("settings-support")!,
-  );
+  mountSupport(document.getElementById("settings-support")!);
   const input = (id: string) => document.getElementById(id) as HTMLInputElement;
   const theme = document.querySelector<HTMLSelectElement>("#theme");
   const retroOptions = document.getElementById("retro-options")!;
@@ -445,9 +443,18 @@ export async function renderSettings() {
   };
   const showSection = (section: string) => {
     cancelUpdateFocus();
-    const tab = tabs.find((tab) => tab.dataset.tab === section);
+    const reporting = section === "report";
+    if (reporting && document.querySelector("dialog[open]")) return;
+    const tab = tabs.find(
+      (tab) => tab.dataset.tab === (reporting ? "general" : section),
+    );
     if (!tab) return;
     tab.click();
+    if (reporting) {
+      document
+        .querySelector<HTMLButtonElement>("#settings-support [data-report]")
+        ?.click();
+    }
     if (section === "updates") {
       updateFocusPending = true;
       focusUpdateSection();
@@ -471,11 +478,14 @@ export async function renderSettings() {
   );
   for (const tab of tabs) {
     tab.addEventListener("click", () => {
-      if (tab.dataset.tab !== "general") closeResources();
       for (const panel of document.querySelectorAll<HTMLElement>(
         "[data-panel]",
-      ))
-        panel.hidden = panel.dataset.panel !== tab.dataset.tab;
+      )) {
+        const hide = panel.dataset.panel !== tab.dataset.tab;
+        if (hide && !panel.hidden)
+          panel.dispatchEvent(new window.Event("settings-panel-hidden"));
+        panel.hidden = hide;
+      }
       for (const button of document.querySelectorAll<HTMLElement>(
         "[data-tab]",
       )) {

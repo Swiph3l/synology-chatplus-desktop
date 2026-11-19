@@ -114,6 +114,8 @@ test("single resource snapshots run only on demand and ignore late results after
   );
   assert.equal(f.calls.length, 0);
   f.openResources(true);
+  assert.equal(f.calls.length, 0, "expanding the disclosure does not sample");
+  f.get("[data-refresh]").click();
   assert.equal(f.calls.length, 1);
   f.get("[data-refresh]").click();
   assert.equal(f.calls.length, 1);
@@ -124,6 +126,8 @@ test("single resource snapshots run only on demand and ignore late results after
   f.get("[data-refresh]").click();
   assert.equal(f.calls.length, 1);
   f.openResources(true);
+  assert.equal(f.calls.length, 1);
+  f.get("[data-refresh]").click();
   finish(sample);
   await turn();
   assert.equal(f.calls.length, 2);
@@ -137,6 +141,32 @@ test("single resource snapshots run only on demand and ignore late results after
   f.window.dispatchEvent(new f.window.Event("pagehide"));
   await turn();
   assert.equal(f.calls.length, 2);
+  assert.equal(f.get("dl").textContent, "");
+});
+
+test("a hidden document neither starts a sample nor receives the result of an earlier one", async () => {
+  let finish;
+  const f = fixture(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  let hidden = false;
+  Object.defineProperty(f.document, "hidden", { get: () => hidden });
+  f.openResources(true);
+  f.get("[data-refresh]").click();
+  hidden = true;
+  f.document.dispatchEvent(new f.window.Event("visibilitychange"));
+  assert.equal(f.get("details").open, false);
+  f.openResources(true);
+  f.get("[data-refresh]").click();
+  assert.equal(f.calls.length, 1);
+  hidden = false;
+  f.document.dispatchEvent(new f.window.Event("visibilitychange"));
+  finish(sample);
+  await turn();
+  assert.equal(f.calls.length, 1);
   assert.equal(f.get("dl").textContent, "");
 });
 
@@ -186,7 +216,7 @@ test("Markdown projects explicit environment fields and redacts sensitive narrat
   );
 });
 
-test("review precedes local export; Issues gets only the fixed destination", async () => {
+test("export and clipboard use the reviewed Markdown; the bug form receives only its fixed destination", async () => {
   const f = fixture((cmd) =>
     cmd === "export_problem_report" ? "ChatPlus-report.md" : sample,
   );
@@ -194,16 +224,18 @@ test("review precedes local export; Issues gets only the fixed destination", asy
   assert.equal(f.get("[data-review]").disabled, true);
   assert.equal(f.get("[data-export]").hidden, true);
   f.get("[data-export]").click();
+  f.get("[data-copy]").click();
   f.get("[data-issues]").click();
   assert.equal(f.calls.length, 0);
   const description = f.get("#problem-description");
-  description.value = "Window closes";
+  description.value = "Window closes\nCookie: secret-cookie";
   f.input(description);
   f.get("[data-review]").click();
   await turn();
   const preview = f.get("#problem-preview");
   assert.equal(f.calls.length, 0);
   assert.match(preview.value, /Window closes/);
+  assert.doesNotMatch(preview.value, /secret-cookie/);
   assert.equal(preview.selectionStart, 0);
   assert.equal(f.get("[data-export]").hidden, false);
   f.get("[data-edit]").click();
@@ -214,16 +246,100 @@ test("review precedes local export; Issues gets only the fixed destination", asy
   assert.match(preview.value, /## Environment/);
   f.get("[data-export]").click();
   await turn();
+  assert.match(f.get("[data-status]").textContent, /Downloads/);
+  f.get("[data-copy]").click();
+  await turn();
+  assert.match(f.get("[data-status]").textContent, /Report copied/);
   f.get("[data-issues]").click();
   await turn();
+  f.get("[data-issues]").click();
   assert.deepEqual(f.calls, [
     ["get_report_environment", undefined],
     ["export_problem_report", { report: preview.value }],
-    ["open_project_link", { link: "issues" }],
+    ["copy_problem_report", { report: preview.value }],
+    ["copy_problem_report", { report: preview.value }],
+    ["open_project_link", { link: "bug-report" }],
   ]);
-  assert.match(f.get("[data-status]").textContent, /Downloads/);
+  assert.match(f.get("[data-status]").textContent, /Paste the report/);
   f.get("[data-close]").click();
   assert.equal(f.get("dialog"), null);
+});
+
+async function reviewedReport(onInvoke) {
+  const f = fixture(onInvoke);
+  f.get("[data-report]").click();
+  const description = f.get("#problem-description");
+  description.value =
+    "The dialog closes unexpectedly.\nhttps://private.invalid/?token=secret-value";
+  f.input(description);
+  f.get("[data-review]").click();
+  await turn();
+  return f;
+}
+
+test("unavailable clipboard selects the preview and leaves opening the issue form to a second explicit click", async () => {
+  const f = await reviewedReport((cmd) => {
+    if (cmd === "copy_problem_report") throw Error("Clipboard unavailable");
+  });
+  const primary = f.get("[data-issues]");
+  primary.click();
+  await turn();
+  const preview = f.get("#problem-preview");
+  assert.equal(preview.selectionStart, 0);
+  assert.equal(preview.selectionEnd, preview.value.length);
+  assert.match(f.get("[data-status]").textContent, /selected report manually/);
+  assert.equal(primary.textContent, "Open issue form");
+  assert.deepEqual(f.calls, [
+    ["copy_problem_report", { report: preview.value }],
+  ]);
+  primary.click();
+  await turn();
+  assert.deepEqual(f.calls[1], ["open_project_link", { link: "bug-report" }]);
+  assert.equal(primary.disabled, true);
+});
+
+test("a failed browser launch preserves the successful copy and retries opening without copying again", async () => {
+  let attempts = 0;
+  const f = await reviewedReport((cmd) => {
+    if (cmd === "open_project_link" && ++attempts === 1)
+      throw Error("No browser");
+  });
+  const primary = f.get("[data-issues]");
+  primary.click();
+  primary.click();
+  await turn();
+  assert.match(f.get("[data-status]").textContent, /Report copied\..*browser/i);
+  assert.equal(primary.textContent, "Open issue form");
+  primary.click();
+  await turn();
+  assert.equal(attempts, 2);
+  assert.equal(
+    f.calls.filter(([command]) => command === "copy_problem_report").length,
+    1,
+  );
+  assert.equal(primary.disabled, true);
+});
+
+test("closing or editing during clipboard access prevents a late browser launch for the obsolete preview", async () => {
+  for (const action of ["[data-edit]", "[data-close]"]) {
+    let finish;
+    const f = await reviewedReport(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    f.get("[data-issues]").click();
+    f.get("[data-issues]").click();
+    f.get("[data-copy]").click();
+    f.get(action).click();
+    finish();
+    await turn();
+    assert.deepEqual(
+      f.calls.map(([cmd]) => cmd),
+      ["copy_problem_report"],
+    );
+  }
 });
 
 test("changing the draft or closing during a requested report snapshot invalidates its preview", async () => {
