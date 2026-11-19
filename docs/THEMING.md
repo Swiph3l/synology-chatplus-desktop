@@ -1,8 +1,9 @@
 # Theming
 
 The local shell follows the saved Dark, Light, System or Retro preference. Provider theme
-injection is an explicit registry capability: only Synology ChatPlus receives
-ChatPlus's Dark or Retro stylesheet. Synology Chat, Discord, WhatsApp, Messenger, Slack and
+injection is an explicit registry capability. Synology ChatPlus receives the
+Dark and Retro palettes and unread-row styling in all three themes.
+Synology Chat, Discord, WhatsApp, Messenger, Slack and
 Mattermost retain their own appearance. Their unread adapters are separate bundles.
 
 ## Local shell palette
@@ -29,8 +30,15 @@ The layout, controls and provider icons retain their existing behavior.
 `src/ui/retro.css` styles the local shell. `src/theme/retro.css` separately scopes
 the opted-in Synology ChatPlus treatment to the Retro root and EOS containers.
 Other providers retain their own interface. The existing singleton stylesheet
-contains both scoped palettes; switching to Light restores the provider palette
-without adding observers or replacing the style node.
+contains the scoped palettes and unread-row rules. Switching to Light restores
+the provider's base palette and applies the light unread accents in its sidebar.
+
+Unread styling follows the provider's channel and conversation rows. Selecting
+or hovering over an unread row keeps its marker visible while the provider
+reports it as unread. A channel badge can include replies as well as mentions,
+so the badge alone does not change the row's priority. In the local service
+rail, the selected edge and keyboard focus are independent of the unread marker.
+Turning off notifications for a service gives its unread dot a hollow center.
 
 Retro includes an original synthesized chime, generated reproducibly by
 `node scripts/generate-retro-sound.mjs`. It contains no Windows audio samples.

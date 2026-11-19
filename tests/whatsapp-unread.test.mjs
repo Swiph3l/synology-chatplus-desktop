@@ -29,6 +29,24 @@ function fixture(content = "", listAttributes = "", title = "") {
   return { window, document, adapter: createWhatsAppAdapter(document) };
 }
 
+test("a background WhatsApp document publishes attention on becoming ready without a DOM mutation or focus", () => {
+  const { document, adapter, window } = fixture(
+    '<div role="row"></div>',
+    "",
+    "(4) WhatsApp",
+  );
+  let ready = "loading";
+  Object.defineProperty(document, "readyState", { get: () => ready });
+  Object.defineProperty(document, "visibilityState", { value: "hidden" });
+  const counts = [adapter.snapshot().count];
+  const stop = adapter.observe(() => counts.push(adapter.snapshot().count));
+  ready = "interactive";
+  document.dispatchEvent(new window.Event("DOMContentLoaded"));
+  stop();
+  document.dispatchEvent(new window.Event("DOMContentLoaded"));
+  assert.deepEqual(counts, [null, 4]);
+});
+
 // Swiph3l: This is an explicit product-scope change. Dedicated badges remain real
 // per-row evidence, but must no longer latch the notification-attention counter.
 // The canonical publisher count now owns the dot and its scoped count value.

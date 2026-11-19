@@ -121,6 +121,12 @@ pub enum Language {
     It,
 }
 
+fn saved_language<'de, D: serde::Deserializer<'de>>(input: D) -> Result<Language, D::Error> {
+    let code = String::deserialize(input)?;
+    let code = serde::de::value::StringDeserializer::<D::Error>::new(code);
+    Ok(Language::deserialize(code).unwrap_or_default())
+}
+
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Theme {
@@ -185,6 +191,7 @@ pub struct Settings {
     pub active_service: Option<String>,
     pub service_schema: u8,
     pub theme: Theme,
+    #[serde(deserialize_with = "saved_language")]
     pub language: Language,
     pub autostart: bool,
     pub minimize_to_tray: bool,
@@ -546,6 +553,71 @@ fn to_utf16le(value: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unknown_saved_language_keeps_accounts_but_invalid_field_types_fail() {
+        let mut stored = Some(serde_json::json!({
+            "language": "uk",
+            "services": [{"id": "existing", "provider": "discord", "name": "Team", "url": "https://discord.com/app", "enabled": true}],
+            "activeService": "existing",
+            "automaticUpdates": true
+        }));
+        let (settings, _) = load_preferences(&mut stored, true).unwrap();
+        assert_eq!(settings.language, Language::En);
+        assert_eq!(settings.services[0].id, "existing");
+        assert_eq!(settings.active_service.as_deref(), Some("existing"));
+        assert!(settings.automatic_updates);
+        for invalid in [
+            serde_json::Value::Null,
+            serde_json::json!(42),
+            serde_json::json!({"uk": null}),
+        ] {
+            let mut malformed = Some(serde_json::json!({"language": invalid}));
+            assert!(load_preferences(&mut malformed, true).is_err());
+        }
+    }
+
+    #[test]
+    fn stable_1_0_3_profiles_reopen_in_the_same_webview_stores() {
+        // Swiph3l: These keys and partition names are the persisted 1.0.3 format.
+        // Synthetic profiles let us exercise restart without accessing a real account.
+        let mut stored = Some(serde_json::json!({
+            "onboardingCompleted": true, "serviceSchema": 1,
+            "includeBetaUpdates": false, "automaticUpdates": true,
+            "language": "pl", "theme": "retro", "desktopNotifications": true,
+            "notificationPreview": "generic", "activeService": "discord-work",
+            "services": [
+                {"id": "chatplus", "provider": "synology-chatplus", "name": "NAS", "url": "https://nas.example/chat/", "enabled": true, "notifications": true},
+                {"id": "discord-home", "provider": "discord", "name": "Home", "url": "https://discord.com/app", "enabled": true, "notifications": false},
+                {"id": "discord-work", "provider": "discord", "name": "Work", "url": "https://discord.com/app", "enabled": true, "notifications": true}
+            ]
+        }));
+        let root = std::path::Path::new("test-profile");
+        for _ in 0..2 {
+            let (mut settings, preferences_changed) = load_preferences(&mut stored, true).unwrap();
+            assert!(!preferences_changed);
+            assert!(!settings.migrate_services().unwrap());
+            assert!(
+                settings.onboarding_completed
+                    && settings.desktop_notifications
+                    && settings.automatic_updates
+            );
+            assert!(!settings.include_beta_updates);
+            assert_eq!(settings.language, Language::Pl);
+            assert!(settings.theme == Theme::Retro);
+            assert_eq!(settings.active_service.as_deref(), Some("discord-work"));
+            assert_eq!(settings.services.len(), 3);
+            assert_eq!(settings.services[0].profile_directory(root), None);
+            for (index, id) in [(1, "discord-home"), (2, "discord-work")] {
+                assert_eq!(
+                    settings.services[index].profile_directory(root),
+                    Some(root.join("services").join(id))
+                );
+            }
+            assert!(!settings.services[1].notifications && settings.services[2].notifications);
+            stored = Some(serde_json::to_value(&settings).unwrap());
+        }
+    }
 
     #[test]
     fn retro_is_opt_in_and_round_trips_without_changing_service_profiles() {

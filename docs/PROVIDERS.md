@@ -12,8 +12,8 @@ Web UI and may have account, browser or server-version compatibility limits.
 
 | Provider          | Status       | Unread evidence                          | Native browser notifications | ChatPlus theme |
 | ----------------- | ------------ | ---------------------------------------- | ---------------------------- | -------------- |
-| Synology ChatPlus | Primary      | Aggregate DOM                            | Yes                          | Yes            |
-| Synology Chat     | Experimental | Aggregate DOM                            | Yes                          | No             |
+| Synology ChatPlus | Supported    | Aggregate DOM                            | Yes                          | Yes            |
+| Synology Chat     | Supported    | Aggregate DOM                            | Yes                          | No             |
 | Discord           | Experimental | DM-scoped DOM; exact identity for toasts | Yes                          | No             |
 | WhatsApp          | Experimental | Official notification-attention counter  | Yes                          | No             |
 | Messenger         | Experimental | Browser notification arrivals only       | Yes                          | No             |
@@ -23,6 +23,9 @@ Web UI and may have account, browser or server-version compatibility limits.
 Unread support does not imply read-action support. Current adapters report boolean
 unread or unknown, not an account-wide message total. Read capabilities and native
 delivery policy are documented in [Notifications and unread](NOTIFICATIONS.md).
+
+See the [v1.0.4 compatibility matrix](PROVIDER_COMPATIBILITY.md) for capability-level
+evidence, unverified authenticated flows and a repeatable acceptance checklist.
 
 ## Identity and storage
 
@@ -36,7 +39,7 @@ The stable service ID also identifies its isolated WebView profile at
 order do not determine storage identity. Renaming or reordering preserves the
 profile; removing a service closes its view and retains its profile on disk. The
 migrated `chatplus` ID is the sole exception and retains the original default
-profile. ChatPlus does not copy cookies, tokens or profile contents between services.
+profile. Chat+ does not copy cookies, tokens or profile contents between services.
 
 At most 12 services are allowed. IDs contain only ASCII letters, numbers and
 hyphens, are limited to 64 characters and must be unique regardless of letter case.
@@ -81,7 +84,7 @@ external-browser preference and an explicit destination confirmation. External
 identity-provider cookie handoff is not implemented, which limits some SSO flows.
 
 Related popups share the originating profile and remain subject to navigation
-guards. Downloads use that profile's authenticated WebView2 pipeline; ChatPlus
+guards. Downloads use that profile's authenticated WebView2 pipeline; Chat+
 does not export cookies or auto-execute attachments. See
 [Links and downloads](LINKS_AND_DOWNLOADS.md).
 
@@ -155,14 +158,14 @@ loading older history does not appear to be a new incoming message. See
 Provider `Notification.close()` withdraws only its corresponding native toast.
 This prevents replaced Discord notifications from leaving dead Action Center
 entries. The public click handler runs before host focus; a click alone never
-acknowledges a DM and ChatPlus does not infer channel URLs from message tags.
+acknowledges a DM and Chat+ does not infer channel URLs from message tags.
 
 ### WhatsApp
 
 The entry URL is `https://web.whatsapp.com/`. QR and phone-number pairing use
 WhatsApp's official UI when offered. The normal Chromium/WebView2 identity is
 retained; no user-agent spoof, pairing/session interception or custom credential
-storage is implemented. Each instance has its own linked-device profile. ChatPlus
+storage is implemented. Each instance has its own linked-device profile. Chat+
 does not control the browser name shown by WhatsApp on a phone.
 
 The indicator follows WhatsApp's own notification-attention counter in its
@@ -178,7 +181,7 @@ identities.
 
 There is no reliable privacy-safe current-chat/message mapping. Current read,
 provider-wide read-all and exact foreground suppression are unavailable. **Mark all
-as read (local)** explicitly clears only that instance's ChatPlus unread state;
+as read (local)** explicitly clears only that instance's Chat+ unread state;
 it does not read WhatsApp messages on the server. Later arrivals or changed
 provider attention evidence can restore the indicator. Native browser events
 provide notification content and rearm local acknowledgement on new events, but
@@ -186,7 +189,7 @@ do not independently own this indicator. DOM observations do not scrape messages
 or fabricate toasts. Activation
 selects the correct instance and may invoke the provider's own retained click
 handler without guessing a conversation URL or acknowledging unread.
-The integration remains Experimental. ChatPlus Desktop is independent of WhatsApp
+The integration remains Experimental. Chat+ Desktop is independent of WhatsApp
 and Meta.
 
 Opt-in notification diagnostics can observe fixed structural flags and compare
@@ -210,7 +213,7 @@ Permitting the verification navigation does not bypass that restriction or prove
 account verification succeeds for every account. If offered, use Facebook's own
 alternative verification method. Encrypted-history PIN restoration requires a
 separate authenticated acceptance check; ordinary login and messaging do not prove
-that restoration completed. ChatPlus does not read, store or submit the PIN.
+that restoration completed. Chat+ does not read, store or submit the PIN.
 
 On Windows, local About/settings diagnostics and **Copy diagnostics** include up
 to 64 recent Messenger authentication events retained in memory. Events use fixed Google/Facebook stage,
@@ -232,14 +235,14 @@ The dedicated DOM adapter reports unknown. Browser notification arrivals supply
 unread and native delivery; Facebook navigation badges, contact labels, title
 counts and missing/filtered lists are not message evidence. Counts, conversation
 correlation and provider read actions are unavailable. **Mark all as read (local)**
-clears only that instance's ChatPlus unread state; it does not read messages on
+clears only that instance's Chat+ unread state; it does not read messages on
 the server. Later native arrivals restore unread.
 
 This is a whole-origin Facebook session: navigation and browser notifications can
-include non-Messenger Facebook content. ChatPlus cannot reliably classify every
+include non-Messenger Facebook content. Chat+ cannot reliably classify every
 event as a Messenger message. Provider-side notification categories remain under
 the user's control. No contacts, history, profile data or hidden API is scraped.
-The integration remains Experimental. ChatPlus Desktop is independent of Messenger
+The integration remains Experimental. Chat+ Desktop is independent of Messenger
 and Meta.
 
 ### Mattermost
@@ -265,7 +268,7 @@ an instance-scoped fallback. Later arrivals restore unread. See
 [Notifications and unread](NOTIFICATIONS.md#mattermost). ChatPlus theme CSS is not
 injected.
 
-Browser permission, ChatPlus global delivery, the instance's notification toggle
+Browser permission, Chat+ global delivery, the instance's notification toggle
 and Mattermost's own **Desktop and mobile notifications** preference must allow
 delivery. Existing saved mute preferences remain unchanged. Use the rail menu's
 **More > Allow provider notifications** for the exact instance, then reload if

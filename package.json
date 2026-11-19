@@ -1,6 +1,6 @@
 {
   "name": "synology-chatplus-desktop",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "type": "module",
   "license": "GPL-3.0-only",
@@ -29,7 +29,7 @@
     "typescript": "~7.0.2",
     "vite": "8.3.8"
   },
-  "description": "Unofficial community desktop client for Synology ChatPlus.",
+  "description": "Independent client for Synology Chat and ChatPlus.",
   "author": "Swiph3l",
   "repository": {
     "type": "git",

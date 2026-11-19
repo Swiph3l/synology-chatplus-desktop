@@ -129,6 +129,174 @@ const settle = () => new Promise(setImmediate);
 const themeStyle = (document) =>
   document.querySelector("style#chatplus-desktop-theme");
 
+test("bundled unread cues match only ChatPlus row titles and follow recycled row state", () => {
+  const { document, window } = fixture("light");
+  const row = (id, titleClass, action = "") =>
+    `<div id="${id}"><div class="module-item-option-wrapper">
+      <li class="module-item-option" role="menuitem" tabindex="-1">
+        <div class="avatar weight-prominent">A</div>
+        <div class="body-m truncate"><div class="${titleClass}">Name</div></div>
+        <div class="action-wrapper"><div class="hide-on-hover-action">${action}</div></div>
+      </li></div></div>`;
+  document.body.innerHTML = `<aside data-testid="sidebar-layout-content">
+    <div class="chat-list-scrollbar">
+      ${row("chat-channel-1", "weight-prominent opacity-100")}
+      ${row("chat-channel-2", "", '<b class="bg-bg-fill-error-thick">2</b>')}
+      ${row("sidebar-tab-item-all", "weight-prominent")}
+    </div>
+    <div class="channel-list-scrollbar">
+      ${row("channel-starred-3", "weight-prominent", '<i class="v-icon icn_channeltype_bell_slash_fill"></i>')}
+      ${row("team-starred-4", "weight-prominent")}
+    </div></aside>
+    <main class="chat-list-scrollbar">${row("chat-channel-5", "weight-prominent")}</main>`;
+  const rules = Array.from(themeStyle(document).sheet.cssRules);
+  assert.ok(
+    !rules.some(
+      (rule) =>
+        rule.selectorText?.includes(".weight-prominent") &&
+        rule.selectorText.includes("::before"),
+    ),
+    "the provider owns the row's leading decoration",
+  );
+  const underline = rules.find(
+    (rule) =>
+      rule.selectorText?.endsWith(".truncate::after") &&
+      rule.style?.getPropertyValue("block-size") === "2px",
+  );
+  const muted = rules.find((rule) =>
+    rule.selectorText?.includes(".icn_channeltype_bell_slash_fill"),
+  );
+  assert.equal(
+    underline.style.getPropertyValue("inline-size"),
+    "min(20px, 100%)",
+  );
+  const matched = (selector) =>
+    Array.from(
+      document.querySelectorAll(selector),
+      (element) => element.closest("[id]").id,
+    );
+  for (const theme of ["light", "dark", "retro"]) {
+    window.__chatplusSetTheme(theme);
+    assert.deepEqual(matched(underline.selectorText.replace(/::after$/, "")), [
+      "chat-channel-1",
+      "channel-starred-3",
+    ]);
+    assert.deepEqual(matched(muted.selectorText), ["channel-starred-3"]);
+  }
+  const label = document.querySelector("#chat-channel-1 .body-m > div");
+  label.classList.remove("weight-prominent");
+  assert.deepEqual(matched(underline.selectorText.replace(/::after$/, "")), [
+    "channel-starred-3",
+  ]);
+  label.classList.add("weight-prominent");
+  document.body.classList.remove("eos-scope");
+  assert.deepEqual(matched(underline.selectorText.replace(/::after$/, "")), []);
+});
+
+test("dark ChatPlus pairs a pale unread underline with a cyan tint and preserves keyboard focus", () => {
+  const { document } = fixture("dark");
+  const sidebar = document.createElement("aside");
+  sidebar.dataset.testid = "sidebar-layout-content";
+  document.body.append(sidebar);
+  const rules = Array.from(themeStyle(document).sheet.cssRules);
+  const palette = rules.find(
+    (rule) =>
+      rule.style?.getPropertyValue("--chatplus-row-accent") &&
+      sidebar.matches(rule.selectorText),
+  );
+  assert.equal(
+    palette.style.getPropertyValue("--chatplus-row-accent"),
+    "#78bfda",
+  );
+  assert.equal(
+    palette.style.getPropertyValue("--chatplus-row-underline"),
+    "#e0e8ee",
+  );
+  assert.equal(
+    palette.style.getPropertyValue("--chatplus-row-idle-tint"),
+    "14%",
+  );
+  const mute = rules.find((rule) =>
+    rule.selectorText?.includes(".icn_channeltype_bell_slash_fill"),
+  );
+  assert.equal(
+    mute.style.getPropertyValue("--chatplus-row-underline"),
+    "var(--chatplus-row-muted)",
+  );
+  assert.equal(mute.style.getPropertyValue("--chatplus-row-hover-tint"), "6%");
+  assert.equal(
+    mute.style.getPropertyValue("--chatplus-row-selected-tint"),
+    "9%",
+  );
+  const focus = rules.find(
+    (rule) =>
+      rule.selectorText?.includes(".weight-prominent") &&
+      rule.selectorText.endsWith(":focus-visible"),
+  );
+  assert.equal(
+    focus.style.getPropertyPriority("outline"),
+    "important",
+    "takes precedence over the upstream :focus reset",
+  );
+  const highContrast = rules.find(
+    (rule) =>
+      rule.media?.mediaText === "(forced-colors: active)" &&
+      rule.cssRules[0]?.selectorText.includes(".weight-prominent"),
+  );
+  assert.equal(
+    highContrast.cssRules[0].style.getPropertyValue("background-color"),
+    "CanvasText",
+  );
+});
+
+test("Retro read titles and keyboard focus contrast with the navy active or hovered row", () => {
+  const { document, window } = fixture("retro");
+  document.body.innerHTML = `<aside data-testid="sidebar-layout-content">
+    <div class="chat-list-scrollbar"><div id="chat-channel-1"><div class="module-item-option-wrapper">
+      <li role="menuitem" class="module-item-option activated"><div class="body-m truncate text-fg-primary"><div>Read</div></div></li>
+    </div></div></div></aside>`;
+  const rules = Array.from(themeStyle(document).sheet.cssRules);
+  const read = document.querySelector("li");
+  const interaction = rules.find(
+    (rule) =>
+      rule.style?.getPropertyValue("--eos-fg-primary") === "#fff" &&
+      rule.selectorText?.includes(".activated"),
+  );
+  const focus = rules.find(
+    (rule) =>
+      rule.selectorText?.includes(".activated") &&
+      rule.selectorText.endsWith(":focus-visible"),
+  );
+  const background = rules.find(
+    (rule) =>
+      rule.selectorText?.includes(".module-item-option.activated") &&
+      rule.style?.getPropertyValue("background-color") &&
+      read.matches(rule.selectorText),
+  );
+  assert.equal(
+    background.style.getPropertyValue("background-color"),
+    "#000080",
+  );
+  assert.ok(read.matches(interaction.selectorText));
+  read.classList.remove("activated");
+  assert.ok(!read.matches(interaction.selectorText));
+  // linkedom has no pointer or keyboard input. Apply the two pseudo-states to
+  // this row explicitly while exercising the rest of the shipped selectors.
+  read.classList.add("hovered", "keyboard");
+  const withInput = (selector) =>
+    selector
+      .replaceAll(":hover", ".hovered")
+      .replaceAll(":focus-visible", ".keyboard");
+  assert.ok(read.matches(withInput(interaction.selectorText)));
+  assert.ok(read.matches(withInput(focus.selectorText)));
+  assert.equal(
+    focus.style.getPropertyValue("outline"),
+    "1px dotted var(--eos-fg-primary)",
+  );
+  window.__chatplusSetTheme("light");
+  assert.ok(!read.matches(withInput(interaction.selectorText)));
+});
+
 test("explicit Retro survives dark-system changes and reuses the existing provider style", () => {
   const { window, document, media } = fixture("retro", true);
   const style = themeStyle(document);

@@ -68,6 +68,19 @@ function visibleNodes(
     : [...found].filter((element) => visible(document, element));
 }
 
+function anyVisible(
+  document: Document,
+  root: Element,
+  selector: string,
+  matches: (node: Element) => boolean = () => true,
+): boolean {
+  const nodes = root.querySelectorAll(selector);
+  if (nodes.length > MAX_NODES) return false;
+  for (const node of nodes)
+    if (matches(node) && visible(document, node)) return true;
+  return false;
+}
+
 function readyList(document: Document): boolean {
   if (document.readyState === "loading") return false;
   const panes = visibleNodes(document, document, "#pane-side");
@@ -79,8 +92,7 @@ function readyList(document: Document): boolean {
   );
   return (
     lists.length === 1 &&
-    visibleNodes(document, lists[0], '[role="row"], [role="listitem"]').length >
-      0
+    anyVisible(document, lists[0], '[role="row"], [role="listitem"]')
   );
 }
 
@@ -90,18 +102,19 @@ function readyConversation(document: Document): boolean {
   // Swiph3l: The public MessageWrapper renderer emits a bare MsgKey.id and the
   // matching conv-msg- test ID. Inspect only that technical pair, never message
   // text, accessibility labels, contacts, profile images or provider stores.
-  return visibleNodes(
+  return anyVisible(
     document,
     mains[0],
     '[data-id][data-testid^="conv-msg-"]',
-  ).some((element) => {
-    const id = element.getAttribute("data-id");
-    return (
-      id !== null &&
-      /^[A-Za-z0-9_-]{1,128}$/.test(id) &&
-      element.getAttribute("data-testid") === `conv-msg-${id}`
-    );
-  });
+    (element) => {
+      const id = element.getAttribute("data-id");
+      return (
+        id !== null &&
+        /^[A-Za-z0-9_-]{1,128}$/.test(id) &&
+        element.getAttribute("data-testid") === `conv-msg-${id}`
+      );
+    },
+  );
 }
 
 export function readWhatsAppAttention(

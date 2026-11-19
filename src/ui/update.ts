@@ -7,7 +7,7 @@ import {
   isPrereleaseVersion,
   type UpdateSnapshot,
 } from "../app/updates";
-import { localizeError, t } from "../i18n";
+import { currentLanguage, localizeError, t } from "../i18n";
 import { initializeLanguage } from "../i18n/runtime";
 import { bindShellTheme } from "../theme/theme";
 
@@ -207,10 +207,19 @@ export async function mountUpdatePanel(
     if (state?.total && state.total > 0)
       progress.value = Math.min(100, (100 * state.downloaded) / state.total);
     else progress.removeAttribute("value");
-    const mb = (bytes: number) => (bytes / 1024 / 1024).toFixed(1) + " MB";
-    el("download-size").textContent = state?.total
-      ? `${mb(state.downloaded)} / ${mb(state.total)}`
-      : t("updates.downloaded", { size: mb(state?.downloaded || 0) });
+    if (state?.phase === "downloading") {
+      // Swiph3l: Use decimal megabytes for the localized MB unit shown by the system.
+      const megabytes = new Intl.NumberFormat(currentLanguage(), {
+        style: "unit",
+        unit: "megabyte",
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1,
+      });
+      const downloaded = megabytes.format(state.downloaded / 1_000_000);
+      el("download-size").textContent = state.total
+        ? `${downloaded} / ${megabytes.format(state.total / 1_000_000)}`
+        : t("updates.downloaded", { size: downloaded });
+    }
     el("check-updates").textContent = t("updates.check");
     el("release-page").textContent = t("updates.releasePage");
     el("download-update").textContent = t("updates.download");

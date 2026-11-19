@@ -229,6 +229,23 @@ test("WhatsApp bounded readiness cannot become zero by silently dropping excessi
   assert.equal(f.read().hasUnread, null);
 });
 
+test("a ready WhatsApp list and conversation stop probing geometry after the first visible match", () => {
+  const f = fixture();
+  f.document.querySelector('[role="grid"]').innerHTML =
+    '<div role="row"></div>'.repeat(128);
+  f.document.getElementById("main").innerHTML =
+    '<div data-id="A" data-testid="conv-msg-A"></div>'.repeat(128);
+  let probes = 0;
+  for (const node of f.document.querySelectorAll('[role="row"], [data-id]')) {
+    node.getBoundingClientRect = () => {
+      probes++;
+      return { width: 300, height: 100 };
+    };
+  }
+  assert.equal(f.read().hasUnread, false);
+  assert.equal(probes, 2);
+});
+
 test("WhatsApp attention ignores row badges, contact text and private attributes entirely", () => {
   const f = fixture();
   f.document

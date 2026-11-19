@@ -12,9 +12,12 @@ import type { ProviderId } from "../app/providers";
 
 (() => {
   if (window.top !== window) return;
+  const installed = Symbol.for("chatplus.unread.installed");
   const host = window as unknown as ProviderHostWindow & {
     __chatplusProvider?: ProviderId;
+    [installed]?: boolean;
   };
+  if (host[installed]) return;
   // Swiph3l: Provider markup and read rules are different; sharing the host lifecycle must never make Synology Chat or Discord use ChatPlus selectors.
   const adapters = {
     "synology-chatplus": createChatplusAdapter,
@@ -28,5 +31,14 @@ import type { ProviderId } from "../app/providers";
   const adapter = Object.hasOwn(adapters, provider)
     ? adapters[provider as keyof typeof adapters]
     : undefined;
-  if (adapter) installUnreadAdapter(adapter(document), document, host);
+  if (!adapter) return;
+  const dispose = installUnreadAdapter(adapter(document), document, host);
+  host[installed] = true;
+  const leave = (event: PageTransitionEvent) => {
+    if (!event.isTrusted || event.persisted) return;
+    window.removeEventListener("pagehide", leave);
+    dispose();
+    delete host[installed];
+  };
+  window.addEventListener("pagehide", leave);
 })();

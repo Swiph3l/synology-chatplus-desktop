@@ -1,5 +1,13 @@
 # Performance measurements
 
+The website's offline measurement tool invokes `scripts/benchmark-memory.ps1`
+for each prepared Windows workload. The collector records samples, and
+`scripts/validate-performance.mjs` checks process identity, sample counts and
+the evidence behind each summary. `scripts/export-performance.mjs` accepts a
+verified measurement and writes files to the specified local output directory.
+The unmeasured example lives in the test fixtures. The desktop installer ships
+no benchmark dataset.
+
 Use the attach-only Windows collector to observe a running release build without
 changing its services, authentication, notifications or memory policy. Task
 Manager group headings are useful clues, but they cannot establish a unique

@@ -1,7 +1,10 @@
 ---
 name: Bug report
-about: Report a reproducible ChatPlus Desktop problem
+about: Report a reproducible Chat+ Desktop problem
 ---
+
+<!-- If you used “Copy and open issue” in Chat+, replace this template with the
+reviewed report from your clipboard. Add a short title before submitting. -->
 
 ## What happened
 
@@ -15,8 +18,8 @@ Expected behavior and actual behavior:
 
 ## Environment
 
-- ChatPlus version / build commit:
-- Windows version and WebView2 version:
+- Chat+ Desktop version / build commit:
+- Operating system, architecture and WebView runtime (if available):
 - Provider and provider/server version (no private URL):
 
 ## Notifications or downloads (if relevant)
@@ -28,6 +31,6 @@ Expected behavior and actual behavior:
 - Global/provider/service mute and Windows Do Not Disturb:
 - Download type, safe filename example, cancellation/failure result:
 
-Paste About > Copy diagnostics if useful. Remove anything private first. Do not
-include message contents, credentials/tokens, private server/attachment URLs,
-WebView profiles or test-account data. See [Windows acceptance](../../docs/WINDOWS_ACCEPTANCE.md).
+You can prepare and review this report in Chat+ under **Settings → Report a
+problem**. Leave out message contents, credentials, private links, personal file
+paths and account identifiers.

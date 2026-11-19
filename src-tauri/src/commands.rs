@@ -257,6 +257,52 @@ pub async fn complete_onboarding(
     Ok(state::current(&app))
 }
 #[tauri::command]
+pub async fn sample_resources(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+) -> Result<crate::resource_diagnostics::Snapshot, String> {
+    local(&window, &["settings", "about"])?;
+    tauri::async_runtime::spawn_blocking(move || crate::resource_diagnostics::sample(&app))
+        .await
+        .map_err(|_| "Could not sample resources.".into())
+}
+#[tauri::command]
+pub fn get_report_environment(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+) -> Result<crate::resource_diagnostics::Environment, String> {
+    local(&window, &["settings", "about"])?;
+    Ok(crate::resource_diagnostics::environment(&app))
+}
+#[tauri::command]
+pub async fn export_problem_report(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    report: String,
+) -> Result<String, String> {
+    local(&window, &["settings", "about"])?;
+    let directory = app
+        .path()
+        .download_dir()
+        .map_err(|_| "Downloads unavailable.")?;
+    tauri::async_runtime::spawn_blocking(move || crate::problem_report::save(&directory, &report))
+        .await
+        .map_err(|_| "Could not export report.")?
+        .map_err(|_| "Could not export report.".into())
+}
+#[tauri::command]
+pub fn copy_problem_report(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    report: String,
+) -> Result<(), String> {
+    local(&window, &["settings", "about"])?;
+    crate::problem_report::validate(&report).map_err(|_| "Invalid report.")?;
+    app.clipboard()
+        .write_text(report)
+        .map_err(|_| "Could not copy the report.".into())
+}
+#[tauri::command]
 pub fn get_about_info(
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,

@@ -59,6 +59,7 @@ async function fixture(t) {
     "updater-metadata.mjs",
     "release-targets.mjs",
     "release-metadata.mjs",
+    "release-changelog.mjs",
     "checksums.mjs",
   ]) {
     await copyFile(
@@ -360,7 +361,20 @@ test("Release metadata requires all four signed targets from the exact source co
       repository: "synology-chatplus-desktop",
     }),
   );
-  await writeFile(path.join(root, "CHANGELOG.md"), "Fixture release notes");
+  const expectedNotes = "### Fixed\n\n- Restore the active service.";
+  const changelog = path.join(root, "CHANGELOG.md");
+  await writeFile(
+    changelog,
+    [
+      "# Changelog",
+      "## 0.5.0 - Later release",
+      "Later changes.",
+      `## ${version} - Current release`,
+      expectedNotes,
+      "## 0.5.0-beta.5 - Earlier release",
+      "Earlier changes.",
+    ].join("\r\n"),
+  );
   const encodedSignature = Buffer.from(
     "untrusted comment: fixture\nfixture\ntrusted comment: fixture\nfixture",
   ).toString("base64");
@@ -394,6 +408,7 @@ test("Release metadata requires all four signed targets from the exact source co
   const metadata = JSON.parse(
     await readFile(path.join(output, "latest-prerelease.json"), "utf8"),
   );
+  assert.equal(metadata.notes, expectedNotes);
   assert.deepEqual(
     Object.keys(metadata.platforms).sort(),
     Object.keys(releaseTargets).sort(),

@@ -14,6 +14,13 @@ const context = {};
 runInNewContext(result.outputFiles[0].text, context);
 const { resources, languageNames, setLanguage, t, localizeError } =
   context.translations;
+test("unsupported saved language values fall back to English", () => {
+  for (const language of [undefined, "xx", "constructor", "__proto__"]) {
+    setLanguage(language);
+    assert.equal(t("common.settings"), "Settings");
+  }
+});
+
 test("all nine languages have identical nonempty keys and interpolation placeholders", () => {
   const keys = Object.keys(resources.en).sort();
   assert.deepEqual(Object.keys(resources), [

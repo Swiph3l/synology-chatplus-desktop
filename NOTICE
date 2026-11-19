@@ -1,4 +1,4 @@
-ChatPlus Desktop
+Chat+ Desktop
 Copyright (c) 2026 Swiph3l
 Copyright (c) 2026 turbogizzmo (adapted fork contributions)
 
@@ -12,8 +12,9 @@ https://github.com/turbogizzmo/synology-chatplus-desktop-OSX
 These adaptations retain the original project identity and use a shared,
 origin-checked WebKit transport for macOS and Linux.
 
-ChatPlus Desktop is an independent, unofficial community desktop client for
-Synology ChatPlus. It is not affiliated with, endorsed by, sponsored by,
+Chat+ Desktop uses the project-supplied Chat+ mark for its application icon.
+Independent client for Synology Chat and ChatPlus. The project is not
+affiliated with, endorsed by, sponsored by,
 maintained by, or supported by Synology Inc.
 Synology and related product names and trademarks belong to their respective
 owners. Third-party dependencies retain their own copyrights and licenses.

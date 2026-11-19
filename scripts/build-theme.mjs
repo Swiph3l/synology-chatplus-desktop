@@ -1,4 +1,4 @@
-import { build } from "esbuild";
+import { build, transform } from "esbuild";
 import { readFile } from "node:fs/promises";
 for (const name of ["webkit-bridge", "webkit-notifications", "arrow-keys"])
   await build({
@@ -18,6 +18,16 @@ await build({
     {
       name: "inline-css",
       setup(build) {
+        // Keep component selectors scoped in the source and ship flat CSS to older WebKit.
+        build.onLoad({ filter: /\.nested\.css$/ }, async ({ path }) => ({
+          contents: (
+            await transform(await readFile(path, "utf8"), {
+              loader: "css",
+              supported: { nesting: false },
+            })
+          ).code,
+          loader: "text",
+        }));
         build.onLoad({ filter: /\.css$/ }, async (args) => ({
           contents: await readFile(args.path.replace("?inline", ""), "utf8"),
           loader: "text",

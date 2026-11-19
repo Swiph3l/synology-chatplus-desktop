@@ -1123,6 +1123,15 @@ fn queue_activation_fence(app: &tauri::AppHandle, token: u64) {
     }
 }
 
+#[cfg(any(windows, test))]
+fn activation_selection_current(
+    at_click: Option<&str>,
+    current: Option<&str>,
+    target: &str,
+) -> bool {
+    current == at_click || current == Some(target)
+}
+
 #[cfg(windows)]
 fn finish_activation_focus(app: &tauri::AppHandle, token: u64) {
     let context = ACTIVATION_FOCUS.with(|values| values.borrow_mut().take(token));
@@ -1133,8 +1142,11 @@ fn finish_activation_focus(app: &tauri::AppHandle, token: u64) {
         notification, NotificationEvent as Event, NotificationReason as Reason,
     };
     let selected = crate::state::current(app).active_service;
-    let selection_valid = selected == context.selected_at_click
-        || selected.as_deref() == Some(context.service.id.as_str());
+    let selection_valid = activation_selection_current(
+        context.selected_at_click.as_deref(),
+        selected.as_deref(),
+        &context.service.id,
+    );
     if !selection_valid
         || !crate::services::configured(app, &context.service)
         || !current_bridge(app, &context.service.id, context.bridge_id)
@@ -2426,6 +2438,30 @@ mod tests {
             "old callback and timeout cannot undo a newer click"
         );
         assert_eq!(pending.take(new), None);
+    }
+
+    #[test]
+    fn toast_route_keeps_the_originating_account_but_a_later_manual_selection_wins() {
+        let mut restores = PendingQueries::default();
+        let target = "discord-work";
+        let at_click = Some("discord-personal");
+        for (current, allowed) in [
+            (at_click, true),
+            (Some(target), true),
+            (Some("messenger-work"), false),
+            (None, false),
+        ] {
+            let token = restores.replace((at_click, target));
+            let (original, destination) = restores.take(token).unwrap();
+            assert_eq!(
+                activation_selection_current(original, current, destination),
+                allowed
+            );
+            assert!(
+                restores.take(token).is_none(),
+                "a late timeout cannot reroute the click"
+            );
+        }
     }
 
     #[test]

@@ -203,7 +203,7 @@ pub fn send_test(app: &AppHandle, sound: bool) -> Result<(), String> {
     let presentation = crate::notification_presentation::prepare(
         service,
         &NotificationPreview::Full,
-        "ChatPlus Desktop",
+        "Chat+ Desktop",
         &crate::i18n::t(app, "notification.testBody"),
         &settings.language,
     );
@@ -321,7 +321,7 @@ pub fn preview(
             crate::i18n::text(language, "notification.newMessage"),
         ),
         NotificationPreview::Generic => (
-            "ChatPlus Desktop".into(),
+            "Chat+ Desktop".into(),
             crate::i18n::text(language, "notification.genericBody"),
         ),
     }
@@ -674,46 +674,51 @@ pub struct Icons {
     pub unread: tauri::image::Image<'static>,
     pub overlay: tauri::image::Image<'static>,
 }
-pub fn icons(app: &AppHandle) {
-    let source = app.default_window_icon().expect("bundled icon");
-    let (width, height) = (source.width(), source.height());
-    let normal = tauri::image::Image::new_owned(source.rgba().to_vec(), width, height);
+fn paint_unread_dot(rgba: &mut [u8], width: u32, center: (f32, f32), radius: f32, rim: f32) {
+    const RED: [u8; 3] = [230, 53, 68];
+    const KEYLINE: [u8; 3] = [255, 248, 248];
+    let (pixels, _) = rgba.as_chunks_mut::<4>();
+    for (i, pixel) in pixels.iter_mut().enumerate() {
+        let x = (i as u32 % width) as f32 + 0.5 - center.0;
+        let y = (i as u32 / width) as f32 + 0.5 - center.1;
+        let distance = x.hypot(y);
+        let outer = (radius + 0.5 - distance).clamp(0.0, 1.0);
+        if outer == 0.0 {
+            continue;
+        }
+        let fill = (radius - rim + 0.5 - distance).clamp(0.0, 1.0);
+        // Swiph3l: Tauri takes straight RGBA. Weight the original artwork by
+        // its alpha so Explorer can resize the thin edge over either theme.
+        let background = (1.0 - outer) * f32::from(pixel[3]) / 255.0;
+        let alpha = outer + background;
+        for channel in 0..3 {
+            let color = fill * f32::from(RED[channel])
+                + (outer - fill) * f32::from(KEYLINE[channel])
+                + background * f32::from(pixel[channel]);
+            pixel[channel] = (color / alpha).round() as u8;
+        }
+        pixel[3] = (alpha * 255.0).round() as u8;
+    }
+}
+
+fn native_icons() -> Icons {
+    let normal = tauri::image::Image::from_bytes(include_bytes!("../icons/64x64.png"))
+        .expect("bundled tray icon");
+    let (width, height) = (normal.width(), normal.height());
     let mut bytes = normal.rgba().to_vec();
-    for y in 0..height {
-        for x in 0..width {
-            let distance = ((x as f32 - width as f32 * 0.79).powi(2)
-                + (y as f32 - height as f32 * 0.79).powi(2))
-            .sqrt();
-            if distance < width as f32 * 0.19 {
-                let color = if distance > width as f32 * 0.15 {
-                    [255, 255, 255, 255]
-                } else {
-                    [235, 55, 68, 255]
-                };
-                bytes[((y * width + x) * 4) as usize..((y * width + x) * 4 + 4) as usize]
-                    .copy_from_slice(&color);
-            }
-        }
-    }
+    // The tray mark has a 5.25 px diameter on a 16 px icon, clear of the ellipsis.
+    paint_unread_dot(&mut bytes, width, (50.0, 50.0), 10.5, 2.25);
     let mut overlay = vec![0; 32 * 32 * 4];
-    for y in 0..32 {
-        for x in 0..32 {
-            let d = ((x as f32 - 16.).powi(2) + (y as f32 - 16.).powi(2)).sqrt();
-            if d < 13. {
-                let color = if d > 10. {
-                    [255, 255, 255, 255]
-                } else {
-                    [235, 55, 68, 255]
-                };
-                overlay[(y * 32 + x) * 4..(y * 32 + x) * 4 + 4].copy_from_slice(&color);
-            }
-        }
-    }
-    app.manage(Icons {
+    // Explorer positions the entire overlay canvas; preserve transparent margins.
+    paint_unread_dot(&mut overlay, 32, (16.0, 16.0), 8.5, 1.5);
+    Icons {
         normal,
         unread: tauri::image::Image::new_owned(bytes, width, height),
         overlay: tauri::image::Image::new_owned(overlay, 32, 32),
-    });
+    }
+}
+pub fn icons(app: &AppHandle) {
+    app.manage(native_icons());
 }
 pub fn taskbar(window: &tauri::Window, unread: &crate::unread::Unread) {
     #[cfg(windows)]
@@ -737,6 +742,49 @@ pub fn taskbar(window: &tauri::Window, unread: &crate::unread::Unread) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unread_tray_keeps_the_approved_mark_and_padding() {
+        let icons = native_icons();
+        let base = icons.normal.rgba();
+        let marked = icons.unread.rgba();
+        assert_eq!((icons.normal.width(), icons.normal.height()), (64, 64));
+        let mut colored_pixels = 0;
+        for (i, (original, unread)) in base.chunks_exact(4).zip(marked.chunks_exact(4)).enumerate()
+        {
+            let (x, y) = (i % 64, i / 64);
+            if !(39..61).contains(&x)
+                || !(39..61).contains(&y)
+                || original[..3].iter().all(|v| *v > 230)
+            {
+                assert_eq!(original, unread, "changed artwork at {x},{y}");
+            }
+            if unread == [230, 53, 68, 255] {
+                colored_pixels += 1;
+            }
+        }
+        assert!((160..230).contains(&colored_pixels));
+    }
+
+    #[test]
+    fn taskbar_unread_dot_is_centered_with_a_soft_edge_and_clear_margin() {
+        let icons = native_icons();
+        let pixels = icons.overlay.rgba();
+        assert_eq!((icons.overlay.width(), icons.overlay.height()), (32, 32));
+        let mut antialiased = false;
+        for (i, pixel) in pixels.chunks_exact(4).enumerate() {
+            let (x, y) = (i % 32, i / 32);
+            let opposite = ((31 - y) * 32 + (31 - x)) * 4;
+            assert_eq!(pixel, &pixels[opposite..opposite + 4]);
+            if !(7..25).contains(&x) || !(7..25).contains(&y) {
+                assert_eq!(pixel[3], 0);
+            }
+            antialiased |= (1..255).contains(&pixel[3]);
+        }
+        assert!(antialiased);
+        let middle = (16 * 32 + 16) * 4;
+        assert_eq!(&pixels[middle..middle + 4], [230, 53, 68, 255]);
+    }
 
     #[test]
     fn presentation_observations_have_distinct_fixed_diagnostic_codes() {
@@ -917,7 +965,7 @@ mod tests {
                 "private text",
                 &crate::state::Language::En,
             ),
-            ("ChatPlus Desktop".into(), "You have a new message.".into())
+            ("Chat+ Desktop".into(), "You have a new message.".into())
         );
     }
     #[test]

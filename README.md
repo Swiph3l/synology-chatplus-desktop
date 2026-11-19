@@ -1,48 +1,73 @@
-# ChatPlus Desktop
+# Chat+ Desktop
 
-<img src="public/chatplus.png" alt="ChatPlus Desktop app icon" width="64" />
+<img src="src-tauri/icons/64x64.png" alt="Chat+ Desktop app icon" width="64" />
 
-ChatPlus Desktop is an unofficial open-source desktop client for Synology
-ChatPlus and Synology Chat, with multi-service messaging support. It brings your
-self-hosted chat on a Synology NAS and services such as Discord into one lightweight
-Tauri application.
+Independent client for Synology Chat and ChatPlus.
+
+Chat+ Desktop brings self-hosted chat on your Synology NAS and services such as
+Discord into one open-source Tauri application.
 
 [![Latest stable release](https://img.shields.io/github/v/release/Swiph3l/synology-chatplus-desktop)](https://github.com/Swiph3l/synology-chatplus-desktop/releases/latest)
 [![Windows x64](https://img.shields.io/badge/Windows-x64-0078D4)](https://github.com/Swiph3l/synology-chatplus-desktop/releases)
 [![GPLv3](https://img.shields.io/badge/license-GPLv3-blue)](LICENSE)
 [![CI](https://github.com/Swiph3l/synology-chatplus-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/Swiph3l/synology-chatplus-desktop/actions/workflows/ci.yml)
+[![Security checks](https://github.com/Swiph3l/synology-chatplus-desktop/actions/workflows/security.yml/badge.svg)](https://github.com/Swiph3l/synology-chatplus-desktop/security)
 [![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8DB)](https://v2.tauri.app/)
 
 **Current stable version: [v1.0.3](https://github.com/Swiph3l/synology-chatplus-desktop/releases/tag/v1.0.3).**
 
-## Why ChatPlus Desktop?
+## Why Chat+ Desktop?
 
 - Keep Synology ChatPlus or Synology Chat close at hand with a convenient desktop app.
 - Switch between multiple communication services and separate account profiles.
 - See unread indicators and native notifications while working in other applications.
 - Keep the app in the system tray and choose your theme, language and update preferences.
 
+## A look at Chat+ 1.0.4
+
+![Two services in a Chat+ window on Windows, with an example conversation about the desktop icons](docs/screenshots/desktop-104-workspace.png)
+
+The Windows development build above uses a local conversation fixture with fictional
+messages. The service rail, window and menus come from the running application.
+
+### Light, Dark and Retro
+
+| Light                                                                                                                                                                           | Dark                                                                                                                                                               | Retro (Windows 95/98)                                                                                                                                                        |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![Light conversation list with pale blue unread rows and short blue underlines](docs/screenshots/desktop-104-unread-light.png)](docs/screenshots/desktop-104-unread-light.png) | [![Dark conversation list with slate unread rows and pale underlines](docs/screenshots/desktop-104-unread-dark.png)](docs/screenshots/desktop-104-unread-dark.png) | [![Retro conversation list with brass unread underlines and a navy selection](docs/screenshots/desktop-104-unread-retro.png)](docs/screenshots/desktop-104-unread-retro.png) |
+
+Choose a theme in **Settings → General → Appearance**. In these Windows views of
+Synology ChatPlus, a short underline marks unread conversations and channels.
+
+| Choose your first service on Windows                                                                                            | Inspect resource usage on Linux                                                                                                                                     |
+| ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [![English first-run service picker](docs/screenshots/desktop-104-onboarding.png)](docs/screenshots/desktop-104-onboarding.png) | [![Native Settings with an expanded resource sample on Ubuntu](docs/screenshots/desktop-104-linux-resources.png)](docs/screenshots/desktop-104-linux-resources.png) |
+
+Settings can display an on-demand resource sample and prepare a local problem
+report. Read the preview before saving the Markdown file. Opening GitHub Issues
+leaves the choice of what to share with you.
+[More screenshots and capture details](docs/screenshots/README.md).
+
 ## Supported services
 
 | Service           | Status                                                                                                                      |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | Synology ChatPlus | Supported / primary; dedicated theme, unread and notification integration                                                   |
-| Synology Chat     | Dedicated unread/notification integration; Experimental service UI                                                          |
+| Synology Chat     | Supported, with dedicated unread and notification integration                                                               |
 | Discord           | Dedicated unread/notification integration; Experimental service UI                                                          |
 | WhatsApp          | Experimental Web integration; positive unread evidence/native notifications; no read actions or unread totals               |
 | Messenger         | Experimental Facebook messages integration; browser-event unread/native notifications; no read actions or DOM unread totals |
 | Mattermost        | Experimental browser notifications; unread from incoming notification events, explicit local acknowledgement only           |
 | Slack             | Experimental web sessions; desktop unread/notifications disabled                                                            |
 
-Synology Chat and Discord still carry Experimental badges in the general service UI.
-Their notification integration has dedicated adapters. Provider login/SSO, calls
+Discord has a dedicated notification adapter and remains experimental. Provider login/SSO, calls
 and other features depend on each web app and its policies.
 [Provider details](docs/PROVIDERS.md) explain capability boundaries; no Slack/Discord
 desktop-client parity is claimed.
 
 WhatsApp Web integration is experimental. It uses the official Web login and an
 isolated profile for each account. Unread totals and mark-read actions remain
-unavailable. ChatPlus is independent of WhatsApp
+unavailable. Chat+ is independent of WhatsApp
 and Meta; [WhatsApp integration](docs/PROVIDERS.md#whatsapp) describes the current
 capabilities and limitations.
 
@@ -67,7 +92,7 @@ client with no Meta affiliation.
   with an explicit Save As dialog, visible destination and safe duplicate filenames.
 - External web links show their destination in a confirmation before opening the
   default browser.
-- Light, Dark and System themes; English, Polish, Spanish, German, French,
+- Light, Dark, Retro and System themes; English, Polish, Spanish, German, French,
   Japanese, Traditional Chinese, Brazilian Portuguese and Italian interface.
 - Native menus, zoom/fullscreen, saved window geometry and optional start at login.
 
@@ -111,7 +136,7 @@ Windows builds may display a SmartScreen prompt. See [update details](docs/UPDAT
 1. Download the package for your system from the table above.
    See [platform installation](docs/PLATFORMS.md) for runtime requirements.
 2. On Windows, run the setup; it can install the required Microsoft WebView2 runtime.
-   On macOS, open the DMG and drag ChatPlus Desktop into Applications.
+   On macOS, open the DMG and drag the app into Applications.
    On Linux, install the DEB or make the AppImage executable and launch it.
 3. Enter your Synology ChatPlus/Synology Chat server URL, for example
    `https://nas.example.com`, and sign in through the provider's own interface.
@@ -126,7 +151,7 @@ managed locally by the platform WebView. Finish drafts/calls before changing a s
 
 ## Privacy
 
-ChatPlus Desktop adds no advertising and does not monetize conversation content.
+Chat+ Desktop adds no advertising and does not monetize conversation content.
 Providers load from their own services; the shell does not collect sign-in passwords.
 The platform WebView handles local cookies/session profiles, with separate stores
 for added services. macOS isolation requires macOS 14 or later. Removing a service
@@ -136,6 +161,9 @@ Optional update checks contact GitHub for release metadata/packages. Notificatio
 previews use the provider's supplied content according to your preference. Diagnostics
 omit message content, credentials, cookies/tokens and private URLs. Your provider's
 own privacy policy still applies. See [security reporting](SECURITY.md).
+
+The project's [GitHub Security page](https://github.com/Swiph3l/synology-chatplus-desktop/security)
+lists its security policy and published advisories.
 
 ## Contributing
 
@@ -162,11 +190,11 @@ Do not include private messages, credentials/tokens, server/attachment URLs or p
 ## License
 
 GNU GPLv3 (GPL-3.0-only). See [LICENSE](LICENSE), [NOTICE](NOTICE) and
-[licensing notes](docs/LICENSING.md). Dependencies retain their own licenses.
+[licensing notes](docs/LICENSING.md). See the [branding sources and icon exports](assets/branding/README.md). Dependencies retain their own licenses.
 
 ## Disclaimer
 
-ChatPlus Desktop is an independent community project maintained by **Swiph3l**. It
+Chat+ Desktop is an independent community project maintained by **Swiph3l**. It
 is not affiliated with or endorsed by Synology or other supported providers. Product
 names and trademarks identify compatibility and belong to their respective owners.
 No proprietary Synology server application bundles are redistributed.

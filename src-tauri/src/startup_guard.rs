@@ -13,8 +13,8 @@ use windows::{
 };
 
 const STARTUP_TIMEOUT_MS: u32 = 10_000;
-const COORDINATION_ERROR: &str = "Could not coordinate ChatPlus startup.";
-const STARTUP_TIMEOUT_ERROR: &str = "Another ChatPlus launch is still starting. Try again.";
+const COORDINATION_ERROR: &str = "Could not coordinate Chat+ startup.";
+const STARTUP_TIMEOUT_ERROR: &str = "Another Chat+ launch is still starting. Try again.";
 
 pub struct StartupGuard {
     handle: HANDLE,

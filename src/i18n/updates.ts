@@ -3,7 +3,7 @@ export const en = {
   "updates.availableHeading": "Update available",
   "updates.readyHeading": "Update ready",
   "updates.installed": "Installed version: {version}",
-  "updates.latest": "ChatPlus {version} is available.",
+  "updates.latest": "Chat+ {version} is available.",
   "updates.lastCheck": "Last successful check: {time}",
   "updates.neverChecked": "No successful update check yet.",
   "updates.check": "Check for Updates",
@@ -16,7 +16,7 @@ export const en = {
   "updates.later": "Later",
   "updates.confirmTitle": "Restart and install update?",
   "updates.confirmDescription":
-    "ChatPlus will close to install the verified update. Continue when you are ready to restart.",
+    "Chat+ will close to install the verified update. Continue when you are ready to restart.",
   "updates.confirm": "Restart and install",
   "updates.cancel": "Cancel",
   "updates.failure": "The update operation failed. Try again.",
@@ -65,7 +65,7 @@ export const en = {
   "updates.unsavedSettings":
     "Save or discard your Settings changes before restarting to install an update.",
   "updates.confirmVersionDescription":
-    "ChatPlus will close to install the verified update {version}. Continue when you are ready to restart.",
+    "Chat+ will close to install the verified update {version}. Continue when you are ready to restart.",
   "updates.confirmSettingsHelp":
     "Saved services and profiles are retained. Save any unfinished Settings changes before restarting.",
   "updates.confirmChanged":
@@ -103,7 +103,7 @@ export const pl: typeof en = {
   "updates.availableHeading": "Dostępna aktualizacja",
   "updates.readyHeading": "Aktualizacja gotowa",
   "updates.installed": "Zainstalowana wersja: {version}",
-  "updates.latest": "Dostępna jest wersja ChatPlus {version}.",
+  "updates.latest": "Dostępna jest wersja Chat+ {version}.",
   "updates.lastCheck": "Ostatnie udane sprawdzenie: {time}",
   "updates.neverChecked": "Nie sprawdzono jeszcze aktualizacji.",
   "updates.check": "Sprawdź aktualizacje",
@@ -116,7 +116,7 @@ export const pl: typeof en = {
   "updates.later": "Później",
   "updates.confirmTitle": "Uruchomić ponownie i zainstalować aktualizację?",
   "updates.confirmDescription":
-    "ChatPlus zostanie zamknięty, aby zainstalować zweryfikowaną aktualizację. Kontynuuj, gdy możesz uruchomić aplikację ponownie.",
+    "Chat+ zostanie zamknięty, aby zainstalować zweryfikowaną aktualizację. Kontynuuj, gdy możesz uruchomić aplikację ponownie.",
   "updates.confirm": "Uruchom ponownie i zainstaluj",
   "updates.cancel": "Anuluj",
   "updates.failure":
@@ -166,7 +166,7 @@ export const pl: typeof en = {
   "updates.unsavedSettings":
     "Zapisz lub odrzuć zmiany w Ustawieniach przed restartem i instalacją aktualizacji.",
   "updates.confirmVersionDescription":
-    "ChatPlus zostanie zamknięty, aby zainstalować zweryfikowaną aktualizację {version}. Kontynuuj, gdy możesz uruchomić aplikację ponownie.",
+    "Chat+ zostanie zamknięty, aby zainstalować zweryfikowaną aktualizację {version}. Kontynuuj, gdy możesz uruchomić aplikację ponownie.",
   "updates.confirmSettingsHelp":
     "Zapisane usługi i profile zostaną zachowane. Zapisz rozpoczęte zmiany w Ustawieniach przed restartem.",
   "updates.confirmChanged":
@@ -204,7 +204,7 @@ export const es: typeof en = {
   "updates.availableHeading": "Actualización disponible",
   "updates.readyHeading": "Actualización lista",
   "updates.installed": "Versión instalada: {version}",
-  "updates.latest": "ChatPlus {version} está disponible.",
+  "updates.latest": "Chat+ {version} está disponible.",
   "updates.lastCheck": "Última comprobación correcta: {time}",
   "updates.neverChecked": "Aún no se han comprobado las actualizaciones.",
   "updates.check": "Buscar actualizaciones",
@@ -217,7 +217,7 @@ export const es: typeof en = {
   "updates.later": "Más tarde",
   "updates.confirmTitle": "¿Reiniciar e instalar la actualización?",
   "updates.confirmDescription":
-    "ChatPlus se cerrará para instalar la actualización verificada. Continúa cuando puedas reiniciar la aplicación.",
+    "Chat+ se cerrará para instalar la actualización verificada. Continúa cuando puedas reiniciar la aplicación.",
   "updates.confirm": "Reiniciar e instalar",
   "updates.cancel": "Cancelar",
   "updates.failure": "La operación de actualización falló. Inténtalo de nuevo.",
@@ -266,7 +266,7 @@ export const es: typeof en = {
   "updates.unsavedSettings":
     "Guarda o descarta los cambios de Configuración antes de reiniciar e instalar una actualización.",
   "updates.confirmVersionDescription":
-    "ChatPlus se cerrará para instalar la actualización verificada {version}. Continúa cuando puedas reiniciar la aplicación.",
+    "Chat+ se cerrará para instalar la actualización verificada {version}. Continúa cuando puedas reiniciar la aplicación.",
   "updates.confirmSettingsHelp":
     "Se conservarán los servicios y perfiles guardados. Guarda los cambios pendientes de Configuración antes de reiniciar.",
   "updates.confirmChanged":

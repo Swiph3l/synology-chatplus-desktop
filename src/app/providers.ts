@@ -50,7 +50,7 @@ export const providers = {
   "synology-chat": {
     name: "Synology Chat",
     icon: "SC",
-    experimental: true,
+    experimental: false,
     notifications: true,
     urlMode: "server",
     urlLabel: "Server URL",

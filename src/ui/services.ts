@@ -7,13 +7,52 @@ import { providerIcon, railIcon } from "./rail-icons";
 import { setLanguage, t } from "../i18n";
 import { updates, type UpdateSnapshot } from "../app/updates";
 import { createFooter } from "./footer";
-import { acceptUnreadSnapshot, type UnreadSnapshot } from "../app/unread";
+import {
+  acceptUnreadSnapshot,
+  type ServiceUnreadState,
+  type UnreadSnapshot,
+} from "../app/unread";
 import { applyNotificationColor } from "../app/notification-colors";
 import {
   attachmentDownloadStatus,
   type AttachmentDownload,
 } from "../app/downloads";
 import { bindRailReorder } from "./rail-reorder";
+
+function showServiceUnread(
+  button: HTMLButtonElement,
+  state: ServiceUnreadState | undefined,
+) {
+  const unread = state?.hasUnread === true;
+  const count = state?.totalUnreadCount;
+  const hasCount =
+    unread &&
+    typeof count === "number" &&
+    Number.isSafeInteger(count) &&
+    count > 0;
+  button.classList.toggle("has-unread", unread);
+  const label = unread
+    ? `${button.title}, ${t("rail.unread")}${hasCount ? `: ${count}` : ""}`
+    : button.title;
+  if (button.getAttribute("aria-label") !== label)
+    button.setAttribute("aria-label", label);
+
+  let marker = button.querySelector<HTMLSpanElement>(".rail-unread-marker");
+  if (!unread) {
+    marker?.remove();
+    return;
+  }
+  if (!marker) {
+    marker = document.createElement("span");
+    marker.className = "rail-unread-marker";
+    marker.setAttribute("aria-hidden", "true");
+    button.append(marker);
+  }
+  marker.classList.toggle("rail-unread-count", hasCount);
+  const displayed = hasCount ? String(count > 99 ? "99+" : count) : "";
+  if (marker.textContent !== displayed) marker.textContent = displayed;
+}
+
 export async function renderServices() {
   document.body.classList.add("services-page");
   const app = document.getElementById("app")!;
@@ -100,8 +139,13 @@ export async function renderServices() {
     const brand = document.createElement("div");
     brand.className = "rail-brand";
     brand.title = t("rail.navigation");
-    brand.setAttribute("aria-label", "ChatPlus Desktop");
-    brand.append(railIcon("desktop"));
+    brand.setAttribute("aria-label", "Chat+ Desktop");
+    const mark = document.createElement("img");
+    mark.src = "/chatplus.png";
+    mark.alt = "";
+    mark.width = 28;
+    mark.height = 28;
+    brand.append(mark);
     rail.append(brand);
     const services = document.createElement("div");
     services.className = "rail-services";
@@ -114,38 +158,16 @@ export async function renderServices() {
       const provider = providers[service.provider];
       button.append(providerIcon(service.provider));
       button.title = `${service.name} · ${provider.name}${provider.experimental ? ` (${t("rail.experimental")})` : ""}`;
-      const serviceUnread = unread.services[service.id];
+      const muted = provider.notifications && service.notifications === false;
+      button.classList.toggle("notifications-muted", muted);
+      if (muted) button.title += ` · ${t("services.notificationsOff")}`;
       button.title += `\n${t("rail.reorderHint")}`;
       button.setAttribute("aria-keyshortcuts", "Alt+ArrowUp Alt+ArrowDown");
-      const hasUnread = serviceUnread?.hasUnread ?? false;
-      const count = serviceUnread?.totalUnreadCount;
-      const unreadCount =
-        hasUnread &&
-        typeof count === "number" &&
-        Number.isSafeInteger(count) &&
-        count > 0
-          ? count
-          : null;
-      const unreadLabel =
-        unreadCount === null
-          ? t("rail.unread")
-          : `${t("rail.unread")}: ${unreadCount}`;
-      button.setAttribute(
-        "aria-label",
-        `${button.title}${hasUnread ? `, ${unreadLabel}` : ""}`,
-      );
+      showServiceUnread(button, unread.services[service.id]);
       button.setAttribute(
         "aria-pressed",
         String(service.id === settings.activeService),
       );
-      button.classList.toggle("has-unread", hasUnread && unreadCount === null);
-      if (unreadCount !== null) {
-        const badge = document.createElement("span");
-        badge.className = "notification-badge rail-unread-count";
-        badge.textContent = unreadCount > 99 ? "99+" : String(unreadCount);
-        badge.setAttribute("aria-hidden", "true");
-        button.append(badge);
-      }
       button.addEventListener("click", (event) => {
         if (railReorder.consumeClick(service.id, event)) return;
         void invoke("activate_service", { id: service.id }).catch(() => {
@@ -257,6 +279,14 @@ export async function renderServices() {
       });
     }
   };
+  const refreshUnread = () => {
+    // Swiph3l: An arrival should not replace the hovered or keyboard-focused button.
+    for (const button of app.querySelectorAll<HTMLButtonElement>(
+      ".rail-services button",
+    )) {
+      showServiceUnread(button, unread.services[button.dataset.railKey!]);
+    }
+  };
   await listen<Settings>("services-changed", ({ payload }) => {
     settingsObserved = true;
     settingsRevision++;
@@ -281,7 +311,7 @@ export async function renderServices() {
     const nextUnread = acceptUnreadSnapshot(unread, payload);
     if (nextUnread === unread) return;
     unread = nextUnread;
-    render();
+    refreshUnread();
   });
   let updateObserved = false;
   let connectionObserved = false;
@@ -341,6 +371,6 @@ export async function renderServices() {
     initialUnread.value
   ) {
     unread = acceptUnreadSnapshot(unread, initialUnread.value);
-    render();
+    refreshUnread();
   }
 }

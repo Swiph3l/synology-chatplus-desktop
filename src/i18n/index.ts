@@ -36,7 +36,7 @@ export const resources = {
 } satisfies Record<Language, Record<TranslationKey, string>>;
 let language: Language = "en";
 export function setLanguage(value: Language | undefined) {
-  language = value && value in resources ? value : "en";
+  language = value && Object.hasOwn(resources, value) ? value : "en";
   if (typeof document !== "undefined") document.documentElement.lang = language;
 }
 export const currentLanguage = () => language;

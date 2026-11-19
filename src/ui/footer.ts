@@ -20,7 +20,7 @@ export function createFooter(version: string) {
   element.className = "app-footer";
   const identity = document.createElement("span");
   identity.className = "footer-version";
-  identity.textContent = `ChatPlus ${version}`.trim();
+  identity.textContent = `Chat+ ${version}`.trim();
   const versionGroup = document.createElement("div");
   versionGroup.className = "footer-identity";
   const updateButton = document.createElement("button");
@@ -140,15 +140,9 @@ export function createFooter(version: string) {
     button.dataset.railKey = `footer:${entry.key}`;
     button.append(icon(entry.path), document.createElement("span"));
     if (entry.enabled) {
-      button.addEventListener("click", () => {
-        if (entry.key === "about") openSection("about");
-        else {
-          void invoke("open_project_link", { link: "issues" }).catch(() => {
-            issue = t("footer.linkError");
-            refreshStatus();
-          });
-        }
-      });
+      button.addEventListener("click", () =>
+        openSection(entry.key === "about" ? "about" : "report"),
+      );
     }
     wrapper.append(button);
     actions.append(wrapper);

@@ -88,13 +88,13 @@ pub fn show_main_window(app: &AppHandle) -> Result<bool, String> {
         if !state::current(app).onboarding_completed {
             if let Some(settings) = app.get_webview_window("settings") {
                 focus(&settings.as_ref().window())
-                    .map_err(|_| "Could not focus ChatPlus.".to_string())?;
+                    .map_err(|_| "Could not focus Chat+.".to_string())?;
                 return Ok(true);
             }
         }
         return Ok(false);
     };
-    focus(&window).map_err(|_| "Could not focus ChatPlus.".to_string())?;
+    focus(&window).map_err(|_| "Could not focus Chat+.".to_string())?;
     if !frame_has_focus(&window) {
         // Windows can refuse foreground activation after later user input.
         let _ = window.request_user_attention(Some(tauri::UserAttentionType::Informational));
@@ -124,9 +124,9 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
     )
     .visible(false)
     .title(if cfg!(feature = "notification-diagnostics") {
-        "ChatPlus Desktop — Notification QA"
+        "Chat+ Desktop — Notification QA"
     } else {
-        "ChatPlus Desktop"
+        "Chat+ Desktop"
     })
     // Swiph3l: Leave room for the native title/menu frame on 1366x768 laptops; saved window geometry still restores normally.
     .inner_size(1280., 680.)
@@ -141,7 +141,7 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
     apply_theme(app)?;
     show_main_window(app)?
         .then_some(())
-        .ok_or("Could not show ChatPlus.")?;
+        .ok_or("Could not show Chat+.")?;
     let handle = app.clone();
     let event_window = window.clone();
     window.on_window_event(move |event| match event {

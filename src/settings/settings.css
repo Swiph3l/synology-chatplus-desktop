@@ -946,3 +946,65 @@
     padding: 10px 14px;
   }
 }
+.settings-support {
+  border-top: 1px solid var(--border);
+  padding: 12px 0 4px;
+}
+.resource-details summary {
+  font-weight: 600;
+  cursor: pointer;
+  padding: 5px 0;
+}
+.resource-details summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+.support-help {
+  color: var(--muted);
+  margin: 6px 0 12px;
+}
+.resource-values {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 5px 12px;
+}
+.resource-values dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+.report-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+.report-dialog textarea {
+  display: block;
+  width: 100%;
+  min-height: 3em;
+  margin-bottom: 12px;
+  resize: vertical;
+  font: inherit;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 7px 9px;
+}
+.report-dialog textarea:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -1px;
+}
+.report-preview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.report-dialog .service-dialog-footer .actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  margin-inline-start: auto;
+}

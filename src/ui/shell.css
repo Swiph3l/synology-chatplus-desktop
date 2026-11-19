@@ -14,6 +14,8 @@
   --hover: #e9edf2;
   --selection: #e6edf7;
   --focus: #2563b4;
+  --rail-marker: #23629b;
+  --rail-marker-ink: #fff;
   --accent-foreground: #fff;
   --danger: #b42332;
 }
@@ -31,6 +33,8 @@
   --hover: #29313b;
   --selection: #243750;
   --focus: #86b7f4;
+  --rail-marker: #82c9ef;
+  --rail-marker-ink: #152530;
   --accent-foreground: #fff;
   --danger: #ff8992;
 }
@@ -49,6 +53,8 @@
     --hover: #29313b;
     --selection: #243750;
     --focus: #86b7f4;
+    --rail-marker: #82c9ef;
+    --rail-marker-ink: #152530;
     --accent-foreground: #fff;
     --danger: #ff8992;
   }
@@ -137,6 +143,8 @@ body.services-page {
   scrollbar-width: thin;
 }
 .rail-services button {
+  --accent: var(--rail-marker);
+  --accent-foreground: var(--rail-marker-ink);
   touch-action: none;
   user-select: none;
 }
@@ -236,16 +244,23 @@ body.services-page {
   width: 22px;
   height: 22px;
 }
-.service-rail .has-unread::after {
-  content: "";
+.rail-unread-marker {
   position: absolute;
-  right: 3px;
-  top: 3px;
-  width: 8px;
-  height: 8px;
+  right: 2px;
+  top: 2px;
+  box-sizing: border-box;
+  width: 9px;
+  height: 9px;
   background: var(--notification-color, var(--accent));
-  border: 1px solid #111;
-  border-radius: 50%;
+  color: var(--notification-foreground, var(--accent-foreground));
+  border: 1px solid var(--muted);
+  border-radius: var(--rail-marker-radius, 50%);
+  box-shadow: 0 0 0 1px var(--surface-subtle);
+  pointer-events: none;
+}
+.notifications-muted .rail-unread-marker:empty {
+  background: var(--surface-subtle);
+  border: 2px solid var(--muted);
 }
 .notification-badge {
   display: inline-flex;
@@ -264,15 +279,35 @@ body.services-page {
   white-space: nowrap;
 }
 .rail-unread-count {
-  position: absolute;
+  display: grid;
+  place-items: center;
   right: 0;
   top: 0;
+  width: auto;
+  height: auto;
   min-width: 16px;
   min-height: 16px;
   padding: 0 3px;
-  border: 1px solid #111;
-  border-radius: 9px;
-  font-size: 9px;
+  border-radius: var(--rail-marker-radius, 9px);
+  font-size: 10px;
+  line-height: 1.2;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.notifications-muted .rail-unread-count {
+  background: var(--surface-subtle);
+  color: var(--muted);
+}
+@media (forced-colors: active) {
+  .rail-unread-marker:empty {
+    forced-color-adjust: none;
+    border-color: ButtonText;
+    background: ButtonText;
+    box-shadow: 0 0 0 1px ButtonFace;
+  }
+  .notifications-muted .rail-unread-marker:empty {
+    background: ButtonFace;
+  }
 }
 .app-footer {
   grid-column: 1 / -1;

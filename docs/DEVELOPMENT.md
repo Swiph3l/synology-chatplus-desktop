@@ -1,6 +1,6 @@
 # Development
 
-ChatPlus Desktop uses Tauri 2, Rust and vanilla TypeScript. The native process owns
+Chat+ Desktop uses Tauri 2, Rust and vanilla TypeScript. The native process owns
 service sessions, unread state, native notifications and desktop integration. Local pages
 provide Settings and the service rail; remote provider pages have separate
 WebView profiles and no native IPC capabilities.

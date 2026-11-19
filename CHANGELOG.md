@@ -2,6 +2,44 @@
 
 All notable changes will be documented here. Versions follow Semantic Versioning.
 
+## 1.0.4 - 2026-11-19
+
+Chat+ has a new icon and two new tools in Settings. You can check resource use
+while a service is open and prepare a problem report to share with the project.
+
+### Added
+
+- Choose **Measure resource usage** in Settings or About to take a single reading
+  of the main app's memory, average CPU use since launch, uptime, open service
+  views and runtime versions. On Windows, the reading also shows the
+  WebView2 process count and combined memory, which can include shared pages.
+- Use **Report a problem** to describe an issue and its reproduction steps.
+  Preview the Markdown with optional diagnostics. Copy it and open the GitHub bug
+  report form in one step, then paste the report and submit it when ready. You
+  can also copy the report on its own or save it to Downloads.
+
+### Changed
+
+- The new Chat+ icon appears in the app, tray, launchers and installers.
+  Synology Chat joins Synology ChatPlus as a supported service.
+- Unread conversations and channels in Synology ChatPlus have a subtle background
+  and a short underline in Light, Dark and Retro. A quieter marker identifies muted
+  services in the rail. Windows uses a smaller dot on the taskbar and tray icons.
+- Release notes now link directly to Windows Setup, the Apple Silicon and Intel
+  disk images, and the Linux DEB and AppImage. On Windows, setup and removal
+  use the system language when it is supported.
+
+### Fixed
+
+- Selecting the current service again restores focus without writing settings
+  to disk on each click.
+- On Windows, Chat+ retries temporary failures when opening a service's configured
+  address. Navigating away or replacing the session cancels the remaining attempts.
+- WhatsApp refreshes its notification count when a background page finishes loading.
+  Services also clean up their page observers when you leave a document.
+- Use English when a profile contains an unrecognized interface language and
+  format download progress using the selected language.
+
 ## 1.0.3 - 2026-11-15
 
 ### Fixed

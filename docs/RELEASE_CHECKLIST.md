@@ -96,9 +96,14 @@ must use an artifact intended for public distribution.
 
 ## Publication
 
-- [ ] Review the generated draft assets, channel manifest, signatures, checksums,
-      SBOMs, attestation and release notes. The updater targets the NSIS setup,
-      native AppImage or macOS app archive appropriate to the platform.
+- [ ] Review the generated Download section and the draft verification step. It
+      matches uploaded files, URLs, sizes and GitHub SHA-256 digests to the staged
+      installers, updater payloads, sidecar signatures, channel manifest and checksums.
+- [ ] Save the four `evidence-<tag>-<target>` artifacts in the release record
+      before Actions retention expires (90 days or the repository limit). Each
+      contains the npm and native Rust SBOMs, inventory notes and the exact build
+      commit. Use them to review distribution notices and corresponding source.
+      The public draft carries attestations for the distribution files.
 - [ ] Capture current, sanitized [screenshots](screenshots/README.md) if needed.
 - [ ] Approve initial publication as a prerelease with the unchanged reviewed
       artifacts. Confirm discovery with **Include beta updates** on, exclusion
@@ -113,3 +118,22 @@ candidate needs code changes, prepare a higher version instead of replacing
 its tag or files. A hyphenated version such as `0.9.0-beta.1` remains a SemVer
 prerelease even if its GitHub flag is cleared; its stable successor needs its
 own plain version and signed artifacts.
+
+## Download statistics
+
+Run `node scripts/release-downloads.mjs` to compare published releases. For the
+per-asset names, architectures, sizes, counts and URLs, add `--csv downloads.csv`
+or `--json downloads.json`. The report reads the GitHub Releases REST API. Public
+data is available anonymously. A read-only `GH_TOKEN` can raise the API quota.
+
+Windows setup and AppImage counts include automatic updates. macOS updates use
+separate archives. The report groups standalone Windows downloads, update archives,
+signatures, metadata and reports separately in its JSON export. GitHub supplies
+no release-asset count for its automatic source archives. Older releases have
+had more time to accumulate downloads. Use this as a maintainer report. Public
+adoption counters would conflate reinstalls, automated downloads and people.
+
+GitHub repository traffic is a separate, access-controlled, rolling 14-day
+dataset of views, clones and popular referrers. It does not identify installer
+languages or download geography. See [GitHub's traffic API](https://docs.github.com/en/rest/metrics/traffic)
+and [release assets API](https://docs.github.com/en/rest/releases/assets).

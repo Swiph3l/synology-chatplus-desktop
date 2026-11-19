@@ -1,4 +1,5 @@
 import { readdir, readFile, writeFile } from "node:fs/promises";
+import { changesForVersion } from "./release-changelog.mjs";
 import { generate, manifestName } from "./updater-metadata.mjs";
 import {
   repositoryIdentity,
@@ -31,7 +32,7 @@ for (const target of Object.keys(releaseTargets))
 const metadata = await generate(
   root,
   version,
-  await readFile("CHANGELOG.md", "utf8"),
+  changesForVersion(await readFile("CHANGELOG.md", "utf8"), version),
   targets,
   project,
 );

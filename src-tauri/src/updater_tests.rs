@@ -207,6 +207,28 @@ fn app_version(version: &str) -> tauri::App<tauri::test::MockRuntime> {
         .unwrap()
 }
 #[tokio::test]
+async fn stable_1_0_3_accepts_and_verifies_the_1_0_4_update() {
+    let app = app_version("1.0.3");
+    let fixture = Fixture::with_trusted_comment(
+        "1.0.4",
+        false,
+        false,
+        false,
+        "timestamp:1\tfile:ChatPlus-Desktop_1.0.4_x64-setup.exe\tversion:1.0.4",
+    );
+    let update = fixture
+        .updater(app.handle(), false)
+        .check()
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(update.version, "1.0.4");
+    let bytes = update.download(|_, _| {}, || {}).await.unwrap();
+    update.verify(&bytes).unwrap();
+    assert!(bytes.starts_with(b"Signed updater test payload"));
+}
+
+#[tokio::test]
 async fn beta_one_downloads_and_verifies_beta_two_only_with_beta_opt_in() {
     let app = app_version("0.5.0-beta.1");
     let fixture = Fixture::new("0.5.0-beta.2", false, false, false);
@@ -330,16 +352,24 @@ async fn selected_windows_update_accepts_raw_nsis_and_rejects_archive_manifests(
     }
 }
 #[tokio::test]
-async fn selected_update_requires_the_exact_package_and_signature_for_each_platform() {
-    let app = app();
-    let fixture = Fixture::new("0.2.0", false, false, false);
+async fn stable_1_0_3_reads_signed_1_0_4_and_requires_the_published_package_for_each_target() {
+    let app = app_version("1.0.3");
+    let fixture = Fixture::with_trusted_comment(
+        "1.0.4",
+        false,
+        false,
+        false,
+        "timestamp:1\tfile:fixture.exe\tversion:1.0.4",
+    );
     let update = fixture
         .updater(app.handle(), false)
         .check()
         .await
         .unwrap()
         .unwrap();
-    let base = "https://github.com/Swiph3l/synology-chatplus-desktop/releases/download/v0.2.0";
+    assert_eq!(update.version, "1.0.4");
+    assert!(!update.download(|_, _| {}, || {}).await.unwrap().is_empty());
+    let base = "https://github.com/Swiph3l/synology-chatplus-desktop/releases/download/v1.0.4";
     let formats = [
         ("windows-x86_64", "x64-setup.exe"),
         ("linux-x86_64", "amd64.AppImage"),
@@ -347,7 +377,7 @@ async fn selected_update_requires_the_exact_package_and_signature_for_each_platf
         ("darwin-x86_64", "x64.app.tar.gz"),
     ];
     for (target, suffix) in formats {
-        let name = format!("{target}--ChatPlus-Desktop_0.2.0_{suffix}");
+        let name = format!("{target}--ChatPlus-Desktop_1.0.4_{suffix}");
         let package_url: url::Url = format!("{base}/{name}").parse().unwrap();
         let mut candidate = update.clone();
         candidate.download_url = package_url.clone();
@@ -356,9 +386,9 @@ async fn selected_update_requires_the_exact_package_and_signature_for_each_platf
         });
         let mut selected = super::SelectedRelease {
             manifest: format!("{base}/latest.json").parse().unwrap(),
-            version: Version::parse("0.2.0").unwrap(),
+            version: Version::parse("1.0.4").unwrap(),
             release: super::Release {
-                tag_name: "v0.2.0".into(),
+                tag_name: "v1.0.4".into(),
                 draft: false,
                 assets: vec![
                     super::Asset {

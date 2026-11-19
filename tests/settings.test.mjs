@@ -14,7 +14,7 @@ import {
 const result = await build({
   stdin: {
     contents:
-      'export { renderSettings } from "./src/settings/settings.ts"; export { languageNames, resources } from "./src/i18n/index.ts"; export { providers } from "./src/app/providers.ts";',
+      'export { renderSettings } from "./src/settings/settings.ts"; export { renderAbout } from "./src/ui/about.ts"; export { languageNames, resources } from "./src/i18n/index.ts"; export { providers } from "./src/app/providers.ts";',
     resolveDir: process.cwd(),
   },
   bundle: true,
@@ -175,6 +175,19 @@ async function fixture(options = {}) {
       args = structuredClone(args);
       calls.push({ command, args });
       if (command === "get_settings") return structuredClone(settings);
+      if (command === "sample_resources") {
+        await deferred.get(command)?.promise;
+        return {
+          version: "1.0.4",
+          uptimeSeconds: 1,
+          mainResidentBytes: 1048576,
+          mainCpuPercent: null,
+          activeServices: 2,
+          webviewProcesses: null,
+          webviewResidentBytes: null,
+          webviewVersion: "QA runtime",
+        };
+      }
       if (command === "get_validation_fixture_service_ids")
         return structuredClone(options.fixtureServiceIds ?? []);
       if (command === "get_status") return null;
@@ -260,7 +273,8 @@ async function fixture(options = {}) {
     },
   };
   runInNewContext(result.outputFiles[0].text, context);
-  await context.settingsUi.renderSettings();
+  if (options.page === "about") await context.settingsUi.renderAbout();
+  else await context.settingsUi.renderSettings();
   const flush = () => new Promise((resolve) => setImmediate(resolve));
   return {
     window,
@@ -313,6 +327,63 @@ function freshSettings(overrides = {}) {
     ...overrides,
   };
 }
+
+test("resource measurements need a click in General, Settings About and standalone About", async () => {
+  for (const page of ["settings", "about"]) {
+    const f = await fixture({ page });
+    const samples = () =>
+      f.calls.filter(({ command }) => command === "sample_resources").length;
+    const sections = page === "settings" ? ["general", "about"] : ["about"];
+    assert.equal(samples(), 0);
+    for (const section of sections) {
+      if (page === "settings")
+        f.document.querySelector(`[data-tab="${section}"]`).click();
+      const parent =
+        page === "settings"
+          ? f.document.querySelector(`[data-panel="${section}"]`)
+          : f.document.body;
+      const details = parent.querySelector(".resource-details");
+      const measure = details.querySelector("[data-refresh]");
+      const values = details.querySelector("dl");
+      const before = samples();
+      assert.ok(parent.querySelector("[data-report]"));
+      assert.equal(measure.textContent, "Measure resource usage");
+      details.open = true;
+      details.dispatchEvent(new f.window.Event("toggle"));
+      assert.equal(samples(), before);
+      const finish = f.defer("sample_resources");
+      measure.click();
+      measure.click();
+      assert.equal(samples(), before + 1);
+      if (page === "settings") {
+        f.document.querySelector('[data-tab="services"]').click();
+        assert.equal(details.open, false);
+        details.open = true;
+        measure.click();
+        assert.equal(samples(), before + 1, "hidden tab cannot start a sample");
+        details.open = false;
+        f.document.querySelector(`[data-tab="${section}"]`).click();
+      } else {
+        f.window.dispatchEvent(new f.window.Event("pagehide"));
+        assert.equal(details.open, false);
+      }
+      details.open = true;
+      details.dispatchEvent(new f.window.Event("toggle"));
+      finish();
+      await f.flush();
+      assert.equal(
+        values.textContent,
+        "",
+        "old IPC cannot populate the reopened view",
+      );
+      assert.equal(samples(), before + 1);
+      measure.click();
+      await f.flush();
+      assert.match(values.textContent, /1 MiB/);
+      assert.equal(samples(), before + 2);
+    }
+  }
+});
 
 test("Retro saves through the existing preferences without changing service identities", async () => {
   const f = await fixture();
@@ -623,6 +694,12 @@ test("fresh onboarding lists the actual registry with truthful support and no pr
   const f = await fixture({ settings: freshSettings() });
   const cards = [...f.document.querySelectorAll(".onboarding-provider")];
   assert.deepEqual(
+    cards
+      .filter((card) => !f.providers[card.dataset.provider].experimental)
+      .map((card) => card.dataset.provider),
+    ["synology-chatplus", "synology-chat"],
+  );
+  assert.deepEqual(
     cards.map((card) => card.dataset.provider),
     Object.keys(f.providers),
   );
@@ -916,6 +993,33 @@ test("the existing Settings Add request preserves drafts and refuses a second di
   assert.equal(f.document.querySelector(".service-dialog[open]"), dialog);
   assert.equal(
     f.calls.some((call) => call.command === "save_settings"),
+    false,
+  );
+});
+
+test("the report shortcut opens a local draft once on startup or when Settings is already open", async () => {
+  const f = await fixture({ search: "?section=report" });
+  const openReport = () => f.document.querySelector(".report-dialog[open]");
+  const draft = openReport();
+  assert.ok(draft);
+  draft.querySelector("#problem-description").value = "Example problem";
+  f.listeners.get("settings-section-requested")({ payload: "report" });
+  assert.equal(openReport(), draft);
+  assert.equal(f.document.querySelectorAll(".report-dialog").length, 1);
+  assert.equal(
+    draft.querySelector("#problem-description").value,
+    "Example problem",
+  );
+  draft.close();
+  f.listeners.get("settings-section-requested")({ payload: "report" });
+  assert.ok(openReport());
+  assert.notEqual(openReport(), draft);
+  assert.equal(
+    f.calls.some((call) => call.command === "sample_resources"),
+    false,
+  );
+  assert.equal(
+    f.calls.some((call) => call.command === "open_project_link"),
     false,
   );
 });

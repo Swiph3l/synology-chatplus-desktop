@@ -1,0 +1,151 @@
+{
+  "schemaVersion": 1,
+  "methodologyId": "chatplus-windows-process-tree-v1",
+  "datasetKind": "production",
+  "status": "not_run",
+  "measuredAt": null,
+  "application": {
+    "name": "ChatPlus Desktop",
+    "version": "0.5.0-beta.6"
+  },
+  "build": {
+    "id": null,
+    "appVersion": "0.5.0-beta.6",
+    "configuration": "release",
+    "executableSha256": null
+  },
+  "environment": null,
+  "attribution": {
+    "method": "parent_pid_and_creation_time",
+    "description": "Pinned root plus descendants verified by parent PID and creation time; no native measurements have been run."
+  },
+  "collection": null,
+  "scenarios": [
+    {
+      "id": "A",
+      "label": "No active services",
+      "status": "not_run",
+      "reason": "Native Windows measurement has not been run.",
+      "serviceCount": 0,
+      "state": null,
+      "repetitionsRequired": 5,
+      "repetitionsCompleted": 0,
+      "metrics": [],
+      "runs": [],
+      "sources": [],
+      "workload": null
+    },
+    {
+      "id": "B",
+      "label": "One Synology ChatPlus service",
+      "status": "not_run",
+      "reason": "Native Windows measurement has not been run.",
+      "serviceCount": 1,
+      "state": null,
+      "repetitionsRequired": 5,
+      "repetitionsCompleted": 0,
+      "metrics": [],
+      "runs": [],
+      "sources": [],
+      "workload": null
+    },
+    {
+      "id": "C",
+      "label": "One Discord service",
+      "status": "not_run",
+      "reason": "Native Windows measurement has not been run.",
+      "serviceCount": 1,
+      "state": null,
+      "repetitionsRequired": 5,
+      "repetitionsCompleted": 0,
+      "metrics": [],
+      "runs": [],
+      "sources": [],
+      "workload": null
+    },
+    {
+      "id": "D",
+      "label": "Three active services",
+      "status": "not_run",
+      "reason": "Native Windows measurement has not been run.",
+      "serviceCount": 3,
+      "state": null,
+      "repetitionsRequired": 5,
+      "repetitionsCompleted": 0,
+      "metrics": [],
+      "runs": [],
+      "sources": [],
+      "workload": null
+    },
+    {
+      "id": "E",
+      "label": "Five active services",
+      "status": "not_run",
+      "reason": "Native Windows measurement has not been run.",
+      "serviceCount": 5,
+      "state": null,
+      "repetitionsRequired": 5,
+      "repetitionsCompleted": 0,
+      "metrics": [],
+      "runs": [],
+      "sources": [],
+      "workload": null
+    },
+    {
+      "id": "F",
+      "label": "Minimized to tray",
+      "status": "not_run",
+      "reason": "Native Windows measurement has not been run.",
+      "serviceCount": null,
+      "state": null,
+      "repetitionsRequired": 5,
+      "repetitionsCompleted": 0,
+      "metrics": [],
+      "runs": [],
+      "sources": [],
+      "workload": null
+    },
+    {
+      "id": "G",
+      "label": "Thirty minutes idle",
+      "status": "not_run",
+      "reason": "Native Windows measurement has not been run.",
+      "serviceCount": null,
+      "state": null,
+      "repetitionsRequired": 5,
+      "repetitionsCompleted": 0,
+      "metrics": [],
+      "runs": [],
+      "sources": [],
+      "workload": null
+    },
+    {
+      "id": "H",
+      "label": "Intensive service switching",
+      "status": "not_run",
+      "reason": "Native Windows measurement has not been run.",
+      "serviceCount": null,
+      "state": null,
+      "repetitionsRequired": 5,
+      "repetitionsCompleted": 0,
+      "metrics": [],
+      "runs": [],
+      "sources": [],
+      "workload": null
+    },
+    {
+      "id": "I",
+      "label": "Long session (at least four hours)",
+      "status": "not_run",
+      "reason": "Native Windows measurement has not been run.",
+      "serviceCount": null,
+      "state": null,
+      "repetitionsRequired": 5,
+      "repetitionsCompleted": 0,
+      "metrics": [],
+      "runs": [],
+      "sources": [],
+      "workload": null
+    }
+  ]
+}

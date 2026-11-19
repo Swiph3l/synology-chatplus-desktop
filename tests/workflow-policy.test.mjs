@@ -152,6 +152,32 @@ test("signed packaging validates native hosts and applies each platform's strict
   assert.doesNotMatch(source, /continue-on-error:\s*true|--ignore\s+RUSTSEC-/);
 });
 
+test("drafts attest the retained dependency evidence and upload only staged public files", () => {
+  const source = workflows.release;
+  const evidence = actionSteps(source, "actions/upload-artifact").find((step) =>
+    step.includes("name: evidence-"),
+  );
+  assert.ok(evidence?.includes("security-output/"));
+  assert.ok(evidence.includes("--target.json"));
+  assert.ok(evidence.includes("if-no-files-found: error"));
+  const attestation = actionSteps(source, "actions/attest")[0];
+  assert.ok(attestation.includes("public-release/*"));
+  assert.ok(attestation.includes("release-evidence/**/security-output/*"));
+  assert.ok(
+    attestation.includes(
+      "release-evidence/**/release-artifacts/*--target.json",
+    ),
+  );
+  const stage = source.indexOf("run: node scripts/release-presentation.mjs");
+  const sums = source.indexOf("node scripts/checksums.mjs public-release");
+  const upload = source.indexOf("Get-ChildItem public-release -File");
+  const verify = source.indexOf(
+    "node scripts/release-presentation.mjs --verify-draft",
+  );
+  assert.ok(stage > 0 && stage < sums && sums < upload && upload < verify);
+  assert.ok(source.includes("'--notes-file','release-notes.md'"));
+});
+
 test("every new signed release starts as a prerelease draft and existing releases are not changed", () => {
   const step = steps(workflows.release).find((step) =>
     step.includes("name: Create draft only"),

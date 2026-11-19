@@ -473,7 +473,7 @@ test("unread refresh never steals focus from a provider while the shell retains 
     oldButton,
     "no focus() call is made by the inactive shell",
   );
-  assert.notEqual(f.button("first"), oldButton);
+  assert.equal(f.button("first"), oldButton);
   assert.ok(f.button("first").classList.contains("has-unread"));
 });
 
@@ -542,7 +542,7 @@ test("sidebar follows native multi-service snapshots and cannot resurrect dots f
   assert.equal(f.button("second").classList.contains("has-unread"), false);
 });
 
-test("rejected stale unread snapshots preserve rail nodes and focus until a newer state arrives", async () => {
+test("stale and current unread snapshots preserve the focused rail button", async () => {
   const f = await contextFixture();
   const emit = (revision, hasUnread) => {
     f.events.get("service-unread")({
@@ -563,7 +563,8 @@ test("rejected stale unread snapshots preserve rail nodes and focus until a newe
   assert.equal(f.document.activeElement, button);
   assert.equal(button.classList.contains("has-unread"), false);
   emit(4, true);
-  assert.notEqual(f.document.querySelector(".service-rail"), rail);
+  assert.equal(f.document.querySelector(".service-rail"), rail);
+  assert.equal(f.button("first"), button);
   assert.equal(f.button("first").classList.contains("has-unread"), true);
   assert.equal(f.document.activeElement, f.button("first"));
 });
@@ -661,7 +662,7 @@ test("saved order and per-instance colors drive boolean unread dots in the rail"
     f.button("second").querySelector(".rail-unread-count").textContent,
     "7",
   );
-  assert.equal(f.button("first").classList.contains("has-unread"), false);
+  assert.equal(f.button("first").classList.contains("has-unread"), true);
   assert.match(f.button("first").getAttribute("aria-label"), /120/);
   settings.services[0].notificationColor = "historical-invalid";
   delete settings.services[1].notificationColor;
@@ -674,6 +675,44 @@ test("saved order and per-instance colors drive boolean unread dots in the rail"
     f.button("second").style.getPropertyValue("--notification-color"),
     "var(--accent)",
   );
+});
+
+test("a muted selected service keeps one marker until native read confirmation", async () => {
+  const f = await contextFixture();
+  const settings = structuredClone(f.settings);
+  settings.services[0].notifications = false;
+  f.events.get("services-changed")({ payload: settings });
+  const button = f.button("first");
+  button.focus();
+  let revision = 0;
+  const emit = (hasUnread, totalUnreadCount) =>
+    f.events.get("service-unread")({
+      payload: {
+        revision: ++revision,
+        services: { first: { hasUnread, totalUnreadCount } },
+        aggregate: { hasUnread },
+      },
+    });
+  emit(true, null);
+  const marker = button.querySelector(".rail-unread-marker");
+  assert.ok(button.classList.contains("notifications-muted"));
+  assert.equal(button.getAttribute("aria-pressed"), "true");
+  assert.match(button.getAttribute("aria-label"), /notifications off/i);
+  for (const count of [0, -1, 2.5, null]) {
+    emit(true, count);
+    assert.equal(marker.textContent, "");
+    assert.equal(button.querySelector(".rail-unread-count"), null);
+  }
+  emit(true, 124);
+  assert.equal(button.querySelector(".rail-unread-count"), marker);
+  assert.equal(marker.textContent, "99+");
+  assert.match(button.getAttribute("aria-label"), /124/);
+  assert.equal(button.querySelectorAll(".rail-unread-marker").length, 1);
+  emit(false, null);
+  assert.equal(button.querySelector(".rail-unread-marker"), null);
+  assert.equal(button.getAttribute("aria-pressed"), "true");
+  assert.equal(f.document.activeElement, button);
+  assert.doesNotMatch(button.getAttribute("aria-label"), /unread/i);
 });
 
 async function reorderFixture({ previewOverflow = 0 } = {}) {
@@ -912,7 +951,7 @@ test("unread arriving during a quick press leaves the native click target alive 
   f.advance(0);
   await f.flush();
   assert.equal(f.activationCalls().length, 1);
-  assert.notEqual(f.button("first"), first);
+  assert.equal(f.button("first"), first);
   assert.ok(f.button("second").classList.contains("has-unread"));
 });
 

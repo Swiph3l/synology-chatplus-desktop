@@ -38,7 +38,7 @@ impl ProviderId {
             Self::SynologyChat => ProviderDefinition {
                 display_name: "Synology Chat",
                 icon: "SC",
-                experimental: true,
+                experimental: false,
                 unread: true,
                 notifications: true,
                 theme: false,
