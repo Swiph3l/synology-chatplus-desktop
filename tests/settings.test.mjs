@@ -179,12 +179,16 @@ async function fixture(options = {}) {
         await deferred.get(command)?.promise;
         return {
           version: "1.0.4",
+          os: "windows",
           uptimeSeconds: 1,
-          mainResidentBytes: 1048576,
+          mainResidentBytes: null,
+          mainPrivateResidentBytes: 1048576,
+          appWebviewPrivateResidentBytes: null,
+          serviceWebviewPrivateResidentBytes: null,
+          sharedWebviewPrivateResidentBytes: null,
           mainCpuPercent: null,
           activeServices: 2,
           webviewProcesses: null,
-          webviewResidentBytes: null,
           webviewVersion: "QA runtime",
         };
       }

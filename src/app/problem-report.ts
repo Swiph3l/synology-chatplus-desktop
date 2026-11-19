@@ -11,10 +11,13 @@ export interface ReportEnvironment {
 export interface ResourceSnapshot extends ReportEnvironment {
   uptimeSeconds: number;
   mainResidentBytes: number | null;
+  mainPrivateResidentBytes: number | null;
+  appWebviewPrivateResidentBytes: number | null;
+  serviceWebviewPrivateResidentBytes: number | null;
+  sharedWebviewPrivateResidentBytes: number | null;
   mainCpuPercent: number | null;
   activeServices: number;
   webviewProcesses: number | null;
-  webviewResidentBytes: number | null;
 }
 
 // Swiph3l: The editable fields are prose, not a log import. Drop entire suspect

@@ -2,6 +2,15 @@
 
 All notable changes will be documented here. Versions follow Semantic Versioning.
 
+## 1.0.5 - 2026-11-19
+
+### Fixed
+
+- On Windows, **Measure resource usage** shows private RAM for the Chat+ process,
+  interface WebViews and service WebViews. When the interface and a service
+  share a WebView2 profile, the panel reports that group once. The previous
+  total could count the same shared memory pages in several processes.
+
 ## 1.0.4 - 2026-11-19
 
 Chat+ has a new icon and two new tools in Settings. You can check resource use
