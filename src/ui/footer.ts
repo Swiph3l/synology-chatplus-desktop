@@ -140,15 +140,9 @@ export function createFooter(version: string) {
     button.dataset.railKey = `footer:${entry.key}`;
     button.append(icon(entry.path), document.createElement("span"));
     if (entry.enabled) {
-      button.addEventListener("click", () => {
-        if (entry.key === "about") openSection("about");
-        else {
-          void invoke("open_project_link", { link: "issues" }).catch(() => {
-            issue = t("footer.linkError");
-            refreshStatus();
-          });
-        }
-      });
+      button.addEventListener("click", () =>
+        openSection(entry.key === "about" ? "about" : "report"),
+      );
     }
     wrapper.append(button);
     actions.append(wrapper);

@@ -138,7 +138,7 @@ async function fixture({
   };
 }
 
-test("footer shows installed version, disabled upcoming actions and existing project/About destinations", async () => {
+test("footer opens the local reporting flow and About alongside the installed version", async () => {
   const f = await fixture();
   assert.equal(
     f.document.querySelector(".footer-version").textContent,
@@ -159,13 +159,15 @@ test("footer shows installed version, disabled upcoming actions and existing pro
   f.action("feedback").click();
   f.action("about").click();
   await f.flush();
-  assert.equal(
-    f.calls.find((call) => call.command === "open_project_link").args.link,
-    "issues",
+  assert.deepEqual(
+    f.calls
+      .filter((call) => call.command === "open_settings")
+      .map((call) => call.args.section),
+    ["report", "about"],
   );
   assert.equal(
-    f.calls.find((call) => call.command === "open_settings").args.section,
-    "about",
+    f.calls.some((call) => call.command === "open_project_link"),
+    false,
   );
   assert.equal(f.status().getAttribute("aria-live"), "polite");
   assert.equal(f.update().hidden, true);

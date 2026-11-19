@@ -2,119 +2,19 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   makeProblemReport,
   type ReportEnvironment,
-  type ResourceSnapshot,
 } from "../app/problem-report";
-import { currentLanguage, t, type TranslationKey } from "../i18n";
-
-function resourceRows(sample: ResourceSnapshot): [TranslationKey, string][] {
-  const number = new Intl.NumberFormat(currentLanguage(), {
-    maximumFractionDigits: 1,
-  });
-  const value = (n: number | null, scale = 1, suffix = "") =>
-    n === null ? t("common.unavailable") : number.format(n / scale) + suffix;
-  const duration = (value: number, unit: string) =>
-    new Intl.NumberFormat(currentLanguage(), {
-      style: "unit",
-      unit,
-      unitDisplay: "short",
-    }).format(value);
-  const seconds = sample.uptimeSeconds;
-  const uptime = [
-    ...(seconds >= 3600 ? [duration(Math.floor(seconds / 3600), "hour")] : []),
-    ...(seconds >= 60
-      ? [duration(Math.floor(seconds / 60) % 60, "minute")]
-      : []),
-    duration(seconds % 60, "second"),
-  ].join(" ");
-  return [
-    [
-      "resources.mainMemory",
-      value(sample.mainResidentBytes, 1024 ** 2, " MiB"),
-    ],
-    [
-      "resources.mainCpu",
-      sample.mainCpuPercent === null
-        ? t("common.unavailable")
-        : new Intl.NumberFormat(currentLanguage(), {
-            style: "percent",
-            maximumFractionDigits: 1,
-          }).format(sample.mainCpuPercent / 100),
-    ],
-    ["resources.services", value(sample.activeServices)],
-    ["resources.processes", value(sample.webviewProcesses)],
-    [
-      "resources.webviewMemory",
-      value(sample.webviewResidentBytes, 1024 ** 2, " MiB"),
-    ],
-    ["resources.uptime", uptime],
-    ["resources.version", sample.version],
-    ["about.webview", sample.webviewVersion || t("common.unavailable")],
-  ];
-}
+import { t } from "../i18n";
+import { mountResourceUsage } from "../ui/resource-usage";
 
 export function mountSupport(root: HTMLElement) {
-  root.innerHTML = `<details class="resource-details">
-    <summary>${t("resources.title")}</summary>
-    <p class="support-help">${t("resources.scope")}</p>
-    <dl class="resource-values"></dl>
-    <button type="button" class="secondary" data-refresh>${t("resources.refresh")}</button>
-    <span role="status" data-resource-status></span>
-  </details>
-  <button type="button" class="secondary report-entry" data-report aria-haspopup="dialog"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18v12H9l-6 4z"/><path d="M12 8v3m0 3h.01"/></svg>${t("report.title")}</button>`;
-  const details = root.querySelector("details")!;
-  const refresh = root.querySelector<HTMLButtonElement>("[data-refresh]")!;
-  const values = root.querySelector("dl")!;
-  const status = root.querySelector<HTMLElement>("[data-resource-status]")!;
-  let revision = 0;
-
-  const measure = async () => {
-    if (!details.open || refresh.disabled) return;
-    const requested = ++revision;
-    refresh.disabled = true;
-    values.setAttribute("aria-busy", "true");
-    status.textContent = "";
-    try {
-      const sample = await invoke<ResourceSnapshot>("sample_resources");
-      if (requested !== revision || !details.open) return;
-      values.replaceChildren();
-      for (const [key, value] of resourceRows(sample)) {
-        const term = document.createElement("dt");
-        term.textContent = t(key);
-        const definition = document.createElement("dd");
-        definition.textContent = value;
-        values.append(term, definition);
-      }
-    } catch {
-      if (requested === revision) {
-        values.replaceChildren();
-        status.textContent = t("about.infoError");
-      }
-    } finally {
-      if (requested === revision) {
-        refresh.disabled = false;
-        values.removeAttribute("aria-busy");
-      }
-    }
-  };
-  const closeResources = () => {
-    // Swiph3l: An IPC result may arrive after leaving Settings. No refresh timer
-    // or worker survives closing the disclosure, changing tab, or unloading.
-    revision++;
-    details.open = false;
-    refresh.disabled = false;
-    values.removeAttribute("aria-busy");
-    values.replaceChildren();
-    status.textContent = "";
-  };
-  details.addEventListener("toggle", () => {
-    if (details.open) void measure();
-    else closeResources();
-  });
-  refresh.addEventListener("click", () => void measure());
+  root.classList.add("settings-support");
+  root.innerHTML = `<div data-resources></div>
+    <button type="button" class="secondary report-entry" data-report aria-haspopup="dialog"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18v12H9l-6 4z"/><path d="M12 8v3m0 3h.01"/></svg>${t("report.title")}</button>`;
   const entry = root.querySelector<HTMLButtonElement>("[data-report]")!;
   entry.addEventListener("click", () => openProblemReport(entry));
-  window.addEventListener("pagehide", closeResources, { once: true });
-  return closeResources;
+  return mountResourceUsage(
+    root.querySelector<HTMLElement>("[data-resources]")!,
+  );
 }
 
 export function openProblemReport(entry: HTMLButtonElement) {
@@ -132,7 +32,9 @@ export function openProblemReport(entry: HTMLButtonElement) {
         <textarea id="problem-steps" rows="4" maxlength="4000"></textarea>
         <label class="toggle"><input type="checkbox" id="report-include">${t("report.include")}</label>
       </div>
-      <div data-preview hidden><label for="problem-preview">${t("report.preview")}</label>
+      <div data-preview hidden><div class="report-preview-heading">
+        <label for="problem-preview">${t("report.preview")}</label>
+        <button type="button" class="secondary" data-copy>${t("report.copy")}</button></div>
         <textarea readonly id="problem-preview" rows="12" spellcheck="false"></textarea>
       </div>
       <p role="status" aria-live="polite" data-status></p>
@@ -141,8 +43,8 @@ export function openProblemReport(entry: HTMLButtonElement) {
       <button type="button" class="secondary" data-close>${t("common.close")}</button>
       <button type="button" class="secondary" data-edit hidden>${t("services.edit")}</button>
       <button type="button" data-review disabled>${t("report.preview")}</button>
-      <button type="button" class="secondary" data-issues hidden>${t("report.issues")}</button>
-      <button type="button" data-export hidden>${t("report.export")}</button>
+      <button type="button" class="secondary" data-export hidden>${t("report.export")}</button>
+      <button type="button" data-issues hidden>${t("report.copyAndOpen")}</button>
     </div></div></div>`;
   document.body.append(dialog);
   const item = <T extends HTMLElement>(selector: string) =>
@@ -155,11 +57,28 @@ export function openProblemReport(entry: HTMLButtonElement) {
   const review = item<HTMLButtonElement>("[data-review]");
   const edit = item<HTMLButtonElement>("[data-edit]");
   const save = item<HTMLButtonElement>("[data-export]");
+  const copy = item<HTMLButtonElement>("[data-copy]");
   const issues = item<HTMLButtonElement>("[data-issues]");
   const status = item("[data-status]");
   let generation = 0;
+  let sharing = false;
+  let issueAction: "copy-and-open" | "open" | "opened" = "copy-and-open";
+  const updateShareActions = () => {
+    copy.disabled = sharing;
+    issues.disabled = sharing || issueAction === "opened";
+    issues.textContent = t(
+      issueAction === "copy-and-open"
+        ? "report.copyAndOpen"
+        : issueAction === "open"
+          ? "report.openForm"
+          : "report.opened",
+    );
+  };
   const invalidate = () => {
     generation++;
+    sharing = false;
+    issueAction = "copy-and-open";
+    updateShareActions();
     preview.value = "";
     review.disabled = !description.value.trim();
     status.textContent = "";
@@ -215,14 +134,60 @@ export function openProblemReport(entry: HTMLButtonElement) {
       save.disabled = false;
     }
   });
-  issues.addEventListener("click", () => {
-    if (!preview.value || issues.hidden) return;
-    // Swiph3l: Open the fixed project destination without adding a report body,
-    // title, attachment or query string to a public URL.
-    void invoke("open_project_link", { link: "issues" }).catch(() => {
-      status.textContent = t("about.browserError");
-    });
-  });
+  const share = async (openIssue: boolean) => {
+    if (
+      !dialog.open ||
+      !editor.hidden ||
+      !preview.value ||
+      sharing ||
+      (openIssue && issueAction === "opened")
+    )
+      return;
+    const requested = generation;
+    const current = () => dialog.open && requested === generation;
+    let opening = openIssue && issueAction === "open";
+    let copied = false;
+    sharing = true;
+    updateShareActions();
+    status.textContent = "";
+    try {
+      if (!opening) {
+        // Swiph3l: Copy the reviewed Markdown verbatim. The browser command
+        // receives only a fixed destination, even if the report contains URLs.
+        await invoke("copy_problem_report", { report: preview.value });
+        if (!current()) return;
+        copied = true;
+      }
+      if (!openIssue) {
+        status.textContent = t("report.copied");
+        return;
+      }
+      opening = true;
+      await invoke("open_project_link", { link: "bug-report" });
+      if (current()) {
+        issueAction = "opened";
+        status.textContent = t("report.paste");
+      }
+    } catch {
+      if (!current()) return;
+      if (issueAction !== "opened") issueAction = "open";
+      if (opening) {
+        status.textContent =
+          (copied ? t("report.copied") + " " : "") + t("about.browserError");
+      } else {
+        preview.focus();
+        preview.setSelectionRange(0, preview.value.length);
+        status.textContent = t("report.manualCopy");
+      }
+    } finally {
+      if (current()) {
+        sharing = false;
+        updateShareActions();
+      }
+    }
+  };
+  copy.addEventListener("click", () => void share(false));
+  issues.addEventListener("click", () => void share(true));
   item("[data-close]").addEventListener("click", () => dialog.close());
   dialog.addEventListener(
     "close",

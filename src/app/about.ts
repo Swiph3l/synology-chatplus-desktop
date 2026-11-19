@@ -1,6 +1,6 @@
 import type { Theme } from "./settings";
 export type ProjectLink =
-  "github" | "contributors" | "issues" | "star" | "support";
+  "github" | "contributors" | "issues" | "bug-report" | "star" | "support";
 export interface AboutInfo {
   project: {
     project_name: string;

@@ -4,10 +4,15 @@ use std::{
     path::Path,
 };
 
-pub fn save(directory: &Path, report: &str) -> io::Result<String> {
+pub fn validate(report: &str) -> io::Result<()> {
     if report.len() > 48 * 1024 || !report.starts_with("# Chat+ problem report\n\n") {
         return Err(io::Error::from(io::ErrorKind::InvalidInput));
     }
+    Ok(())
+}
+
+pub fn save(directory: &Path, report: &str) -> io::Result<String> {
+    validate(report)?;
     // Swiph3l: The renderer supplies only the reviewed Markdown. Native code
     // chooses the Downloads folder and reserves a new file, including on retry.
     let mut options = OpenOptions::new();

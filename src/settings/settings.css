@@ -996,6 +996,13 @@
   outline: 2px solid var(--focus);
   outline-offset: -1px;
 }
+.report-preview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
 .report-dialog .service-dialog-footer .actions {
   flex-wrap: wrap;
   justify-content: flex-end;
