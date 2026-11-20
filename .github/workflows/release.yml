@@ -125,8 +125,13 @@ jobs:
             release-artifacts/${{ matrix.target }}--target.json
           retention-days: 90
           if-no-files-found: error
-  draft:
+  appimage-compatibility:
     needs: build
+    uses: ./.github/workflows/appimage-compatibility.yml
+    with:
+      artifact-name: signed-linux-x86_64
+  draft:
+    needs: [build, appimage-compatibility]
     runs-on: ubuntu-latest
     permissions:
       contents: write

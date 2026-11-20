@@ -35,12 +35,44 @@ frontend assets and provider/theme bundles embedded by native builds. The releas
 asset check rejects development fixtures in production output. Prettier and
 rustfmt provide formatting checks; there is no separate application lint script.
 
-CI runs native checks on Windows x64, Ubuntu 24.04 x64, macOS Apple Silicon and macOS
+CI runs native checks on Windows x64, Ubuntu 22.04 x64, macOS Apple Silicon and macOS
 Intel, plus a separate frontend job on the other supported Node major. Linux
 headless native tests use `xvfb-run -a cargo test --locked --manifest-path
 src-tauri/Cargo.toml`. Security workflows cover npm, Rust advisories,
 licenses/sources, secrets and static analysis. Follow
 [DEPENDENCY_POLICY.md](DEPENDENCY_POLICY.md) when reviewing findings.
+
+## Reproduce the Linux AppImage startup check
+
+Use an x86_64 Linux machine with a graphical runtime, an ordinary desktop user
+and working FUSE. The [compatibility workflow](../.github/workflows/appimage-compatibility.yml)
+lists the X11, D-Bus, AppStream, OCR and ELF inspection packages. Build on
+Ubuntu 22.04 using the [development prerequisites](DEVELOPMENT.md), or supply
+the same canonical AppImage from a previous build to each test machine.
+
+```bash
+npm ci
+npm run tauri -- build --bundles appimage
+name=$(node scripts/release-targets.mjs --appimage-name)
+install -Dm755 src-tauri/target/release/bundle/appimage/*.AppImage "appimage-candidate/$name"
+image=$(realpath "appimage-candidate/$name")
+mkdir -p evidence
+python3 scripts/linux/audit-appimage.py "$image" evidence
+sudo unshare --net -- bash -eu -c '
+  ip link set lo up
+  exec runuser -u "$1" -- bash scripts/linux/smoke-appimage.sh "$2" evidence
+' smoke "$(id -un)" "$image"
+```
+
+The audit records the ELF version requirements, search paths and library
+resolution. It checks the desktop entry, AppStream metadata and icon files.
+The startup check launches the actual AppImage twice under Xvfb. It reads the
+rendered first-run picker, then starts a saved account offline, opens Settings
+and checks that the app and service profile survive. The evidence includes
+screenshots, window icon verification and the process's library maps.
+The same checks run on CI candidates and the signed release artifact before
+draft creation. For the Debian runtime on an Ubuntu host with Docker Buildx,
+run `bash scripts/linux/smoke-debian.sh "$image" evidence-debian`.
 
 ## Focused regression checks
 

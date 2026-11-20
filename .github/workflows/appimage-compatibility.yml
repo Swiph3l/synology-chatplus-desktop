@@ -1,0 +1,65 @@
+name: AppImage compatibility
+on:
+  workflow_call:
+    inputs:
+      artifact-name:
+        description: Artifact containing the canonical x86_64 AppImage
+        type: string
+        required: true
+permissions:
+  contents: read
+  actions: read
+jobs:
+  startup:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-13]
+    runs-on: ${{ matrix.os == 'debian-13' && 'ubuntu-22.04' || matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: appimage-input
+          digest-mismatch: error
+      - name: Install graphical smoke test tools
+        if: matrix.os != 'debian-13'
+        env:
+          FUSE_LIBRARY: ${{ matrix.os == 'ubuntu-22.04' && 'libfuse2' || 'libfuse2t64' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            appstream binutils desktop-file-utils dbus-x11 fuse3 "$FUSE_LIBRARY" fonts-dejavu-core \
+            libegl1 libegl-mesa0 libgl1 libgl1-mesa-dri libgles2 \
+            imagemagick iproute2 tesseract-ocr tesseract-ocr-eng xauth xdotool x11-utils xvfb
+      - name: Audit package and launch offline as the normal user
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          images=(appimage-input/ChatPlus-Desktop-*-x86_64.AppImage)
+          test "${#images[@]}" = 1
+          chmod +x "${images[0]}"
+          if [[ "$TEST_OS" == debian-13 ]]; then
+            bash scripts/linux/smoke-debian.sh "${images[0]}" evidence
+            exit 0
+          fi
+          python3 scripts/linux/audit-appimage.py "${images[0]}" evidence
+          sudo unshare --net -- bash -eu -c '
+            ip link set lo up
+            exec runuser -u "$1" -- bash scripts/linux/smoke-appimage.sh "$2" evidence
+          ' smoke "$USER" "${images[0]}"
+        env:
+          TEST_OS: ${{ matrix.os }}
+      - name: Retain ELF inventory, runtime logs and screenshots
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: appimage-evidence-${{ matrix.os }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30

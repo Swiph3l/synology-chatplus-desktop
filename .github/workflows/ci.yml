@@ -8,7 +8,6 @@ permissions:
   contents: read
 jobs:
   validate:
-    # Swiph3l: Release artifacts are tag-only; branch CI must stay lightweight.
     name: validate (${{ matrix.os }}, dev)
     runs-on: ${{ matrix.os }}
     strategy:
@@ -51,6 +50,33 @@ jobs:
       - name: Verify the optimized glib Variant iterator regression on Linux
         if: runner.os == 'Linux'
         run: xvfb-run -a cargo test --release --locked --manifest-path src-tauri/Cargo.toml --test glib_variant_iter
+      - name: Package the Linux compatibility candidate
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          npm run tauri build -- --bundles appimage
+          shopt -s nullglob
+          images=(src-tauri/target/release/bundle/appimage/*.AppImage)
+          test "${#images[@]}" -eq 1
+          name=$(node scripts/release-targets.mjs --appimage-name)
+          install -Dm755 "${images[0]}" "appimage-candidate/$name"
+      - name: Upload the unsigned Linux candidate for startup tests
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unsigned-linux-x86_64
+          path: appimage-candidate/*.AppImage
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+  appimage-compatibility:
+    needs: validate
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/appimage-compatibility.yml
+    with:
+      artifact-name: unsigned-linux-x86_64
   frontend-node24:
     # Swiph3l: Cover Node 24 separately from the native platform matrix.
     name: frontend (ubuntu-latest, Node 24)
