@@ -55,10 +55,12 @@ if (process.env.GITHUB_REF_TYPE === "tag") {
   sourceCommit = source.commit;
 }
 const {
-  updater: file,
+  updater: updaterName,
+  appImage,
   installer: installerName,
   standalone,
 } = packageNames(target, version);
+const file = appImage ?? updaterName;
 if (standalone) {
   // Swiph3l: Ship the actual application separately; the updater must still install the signed NSIS package.
   const application = path.join(buildRoot, "chatplus-desktop.exe");

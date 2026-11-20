@@ -21,8 +21,12 @@ function assetUrl(project, version, name) {
 export function publicNames(version) {
   const names = [manifestName(version), "SHA256SUMS.txt"];
   for (const target of Object.keys(releaseTargets)) {
-    const { installer, updater, standalone } = packageNames(target, version);
+    const { installer, updater, standalone, appImage } = packageNames(
+      target,
+      version,
+    );
     names.push(updater, updater + ".sig");
+    if (appImage) names.push(appImage, appImage + ".sig");
     if (installer) names.push(installer);
     if (standalone) names.push(standalone);
   }
@@ -40,7 +44,7 @@ export function releaseNotes(project, version, changelog) {
     "",
     `- **Windows (64-bit)** — ${link("Download Windows Setup", windows.updater)}. Run the installer.`,
     `- **macOS 14 or later** — ${link("Download for Apple Silicon", packageNames("darwin-aarch64", version).installer)} or ${link("download for Intel", packageNames("darwin-x86_64", version).installer)}. About This Mac shows your chip.`,
-    `- **Linux (64-bit)** — ${link("Download DEB", linux.installer)} for Debian/Ubuntu, or ${link("download AppImage", linux.updater)} for a compatible distribution. Make the AppImage executable before opening it.`,
+    `- **Linux (64-bit)** — ${link("Download DEB", linux.installer)} for Debian/Ubuntu, or ${link("download AppImage", linux.appImage)} for a compatible distribution. Make the AppImage executable before opening it.`,
     "",
     "Windows x64 is the established platform. macOS and Linux are candidate platforms. If Chat+ is already installed, use Settings → Updates to check for the signed update.",
     "",
@@ -62,7 +66,7 @@ export async function stageRelease(project, version, source, out) {
     Object.keys(releaseTargets).sort(),
   );
   for (const target of Object.keys(releaseTargets)) {
-    const { updater } = packageNames(target, version);
+    const { updater, appImage } = packageNames(target, version);
     const { url, signature } = metadata.platforms[target];
     assert.equal(
       url,
@@ -76,6 +80,16 @@ export async function stageRelease(project, version, source, out) {
       sidecar && signature === sidecar,
       `Signature mismatch for ${target}`,
     );
+    if (appImage) {
+      for (const suffix of ["", ".sig"]) {
+        const canonical = await readFile(path.join(source, appImage + suffix));
+        const legacy = await readFile(path.join(source, updater + suffix));
+        assert.ok(
+          canonical.equals(legacy),
+          "Linux updater alias differs from signed AppImage",
+        );
+      }
+    }
   }
   // Swiph3l: Only copy the named distribution files into a fresh directory. Keep build
   // provenance available to the manifest check without accidentally publishing it.

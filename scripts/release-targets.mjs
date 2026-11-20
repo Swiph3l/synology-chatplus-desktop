@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 export const releaseTargets = {
@@ -39,6 +40,10 @@ export function packageNames(target, version) {
   const windows = target === "windows-x86_64";
   return {
     updater: prefix + (windows ? "-setup" : "") + config.updaterExtension,
+    appImage:
+      target === "linux-x86_64"
+        ? `ChatPlus-Desktop-${version}-x86_64.AppImage`
+        : undefined,
     installer: config.installerExtension
       ? prefix + config.installerExtension
       : undefined,
@@ -50,6 +55,11 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
+  if (process.argv[2] === "--appimage-name") {
+    const { version } = JSON.parse(readFileSync("package.json", "utf8"));
+    console.log(packageNames("linux-x86_64", version).appImage);
+    process.exit(0);
+  }
   const target = releaseTargets[process.argv[2]];
   assert.ok(target, "Unsupported release target");
   const host = execFileSync("rustc", ["-vV"], { encoding: "utf8" });

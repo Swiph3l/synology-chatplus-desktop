@@ -13,7 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { releaseTargets } from "../scripts/release-targets.mjs";
+import { packageNames, releaseTargets } from "../scripts/release-targets.mjs";
 import {
   repositoryIdentity,
   validateSourceCommit,
@@ -320,9 +320,13 @@ for (const [target, config] of Object.entries(releaseTargets).filter(
     const result = collect();
     assert.equal(result.status, 0, result.stderr);
     const prefix = `${target}--ChatPlus-Desktop_${version}_${config.architecture}`;
+    const signedFile =
+      target === "linux-x86_64"
+        ? `ChatPlus-Desktop-${version}-x86_64.AppImage`
+        : prefix + config.updaterExtension;
     const output = path.join(root, "release-artifacts");
     assert.deepEqual(
-      await readFile(path.join(output, prefix + config.updaterExtension)),
+      await readFile(path.join(output, signedFile)),
       application,
     );
     assert.deepEqual(
@@ -332,7 +336,7 @@ for (const [target, config] of Object.entries(releaseTargets).filter(
     const provenance = JSON.parse(
       await readFile(path.join(output, `${target}--target.json`), "utf8"),
     );
-    assert.equal(provenance.file, prefix + config.updaterExtension);
+    assert.equal(provenance.file, signedFile);
     assert.equal(provenance.sourceCommit, repo.commit);
     await writeFile(artifact + ".sig", "");
     rejected(collect(), /Updater signature must be nonempty/);
@@ -379,8 +383,9 @@ test("Release metadata requires all four signed targets from the exact source co
     "untrusted comment: fixture\nfixture\ntrusted comment: fixture\nfixture",
   ).toString("base64");
   const manifests = [];
-  for (const [target, config] of Object.entries(releaseTargets)) {
-    const file = `${target}--fixture${config.updaterExtension}`;
+  for (const target of Object.keys(releaseTargets)) {
+    const names = packageNames(target, version);
+    const file = names.appImage ?? names.updater;
     await writeFile(path.join(output, file), application);
     await writeFile(path.join(output, file + ".sig"), encodedSignature);
     const manifest = path.join(output, `${target}--target.json`);
@@ -409,6 +414,30 @@ test("Release metadata requires all four signed targets from the exact source co
     await readFile(path.join(output, "latest-prerelease.json"), "utf8"),
   );
   assert.equal(metadata.notes, expectedNotes);
+  const legacyFile = `linux-x86_64--ChatPlus-Desktop_${version}_amd64.AppImage`;
+  assert.ok(metadata.platforms["linux-x86_64"].url.endsWith("/" + legacyFile));
+  assert.deepEqual(await readFile(path.join(output, legacyFile)), application);
+  assert.equal(
+    await readFile(path.join(output, legacyFile + ".sig"), "utf8"),
+    encodedSignature,
+  );
+  // A retry after an interrupted copy must restore both aliases from the signed inputs.
+  const canonicalSig = path.join(
+    output,
+    packageNames("linux-x86_64", version).appImage + ".sig",
+  );
+  await rm(canonicalSig);
+  await rm(path.join(output, legacyFile + ".sig"));
+  rejected(generate(), /ENOENT/);
+  await writeFile(canonicalSig, encodedSignature);
+  await writeFile(path.join(output, legacyFile), "interrupted payload");
+  result = generate();
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(await readFile(path.join(output, legacyFile)), application);
+  assert.equal(
+    await readFile(path.join(output, legacyFile + ".sig"), "utf8"),
+    encodedSignature,
+  );
   assert.deepEqual(
     Object.keys(metadata.platforms).sort(),
     Object.keys(releaseTargets).sort(),

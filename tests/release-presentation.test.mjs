@@ -23,6 +23,8 @@ const legacySuffixes = {
 };
 const changelog =
   "# Changelog\n\n## 1.0.4 - Prepared\n\n### Added\n\n- New feature.\n\n## 1.0.3 - Earlier\n\nOlder changes.\n";
+const canonical = `ChatPlus-Desktop-${version}-x86_64.AppImage`;
+const updater = `linux-x86_64--ChatPlus-Desktop_${version}_amd64.AppImage`;
 
 test("download choices match the public files and only describe the target release", () => {
   const notes = releaseNotes(project, version, changelog);
@@ -33,10 +35,12 @@ test("download choices match the public files and only describe the target relea
     notes.matchAll(/\]\((https:\/\/[^)]+)\)/g),
     (match) => match[1],
   );
-  const installers = publicNames(version).filter((name) =>
-    /(?:-setup\.exe|\.dmg|\.deb|\.AppImage)$/.test(name),
+  const installers = publicNames(version).filter(
+    (name) =>
+      /(?:-setup\.exe|\.dmg|\.deb|\.AppImage)$/.test(name) && name !== updater,
   );
   assert.equal(installers.length, 5);
+  assert.ok(links.includes(base + canonical));
   assert.deepEqual(links.sort(), installers.map((name) => base + name).sort());
   assert.throws(
     () => releaseNotes(project, "1.0.5", changelog),
@@ -50,8 +54,13 @@ test("stage the signed 1.0.3-compatible file set and verify the authenticated dr
   const out = path.join(source, "public-release");
   const file = (name) => path.join(source, name);
   const names = publicNames(version);
-  assert.equal(names.length, 14);
+  assert.equal(names.length, 16);
   for (const name of names) await writeFile(file(name), name);
+  for (const suffix of ["", ".sig"])
+    await writeFile(
+      file(canonical + suffix),
+      await readFile(file(updater + suffix)),
+    );
   await writeFile(file("windows-x86_64--rust.cdx.json"), "build evidence");
   await writeFile(file("windows-x86_64--target.json"), "build provenance");
   const platforms = {};
@@ -77,6 +86,9 @@ test("stage the signed 1.0.3-compatible file set and verify the authenticated dr
   await writeManifest(badSignature);
   await assert.rejects(stage, /Signature mismatch/);
   await writeManifest(manifest);
+  await writeFile(file(canonical), "different bytes");
+  await assert.rejects(stage, /alias differs/);
+  await writeFile(file(canonical), await readFile(file(updater)));
   const diskImage = names.find((name) => name.endsWith(".dmg"));
   await rm(file(diskImage));
   await assert.rejects(stage, /ENOENT/);

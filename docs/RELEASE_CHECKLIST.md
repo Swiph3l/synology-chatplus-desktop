@@ -49,6 +49,10 @@ these checks.
 - [ ] Build signed NSIS, AppImage and macOS update packages using the tag workflow. Keep package version,
       tag, source commit, manifest URL and signature aligned.
 - [ ] Verify the collected package with the production signature fixture.
+- [ ] Review the offline startup evidence for the signed Linux AppImage from
+      each compatibility runner. Match its SHA-256 to the canonical download
+      and its legacy Linux updater alias. Verify that both sidecars match the
+      Linux signature in the channel manifest.
 - [ ] Review all four provenance records and updater manifest targets; verify
       that `.dmg` and `.deb` manual downloads are not used as update payloads.
 - [ ] Inspect installer name, publisher, icon, license, architecture and contents.

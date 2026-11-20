@@ -106,7 +106,8 @@ tag against it. Collected target metadata carries version/source-commit provenan
 which the manifest job checks before generating updater metadata. The release job
 also schedules the existing production signature verifier against the collected
 setup before uploading it.
-Branch development stays lightweight and does not create release artifacts.
+Branch CI builds an unsigned Linux AppImage for compatibility tests. Production
+signing and release staging run in the tag workflow.
 
 After publishing and accepting a plain-version prerelease, a maintainer can clear
 its GitHub prerelease flag to promote the same signed artifacts to stable. Its
@@ -126,9 +127,12 @@ Collection rejects absent/empty or ambiguous package inputs; metadata uses actua
 bytes/signatures and checksums are generated after final names are established.
 macOS uses `darwin-aarch64--ChatPlus-Desktop_<version>_aarch64.app.tar.gz` and
 `darwin-x86_64--ChatPlus-Desktop_<version>_x64.app.tar.gz`, each with a `.sig` and
-a separately downloadable `.dmg`. Linux uses
-`linux-x86_64--ChatPlus-Desktop_<version>_amd64.AppImage` with a `.sig`, plus `.deb`.
-The disk image and Debian package are manual downloads, not updater payloads.
+a separately downloadable `.dmg`. The Linux download and catalog use
+`ChatPlus-Desktop-<version>-x86_64.AppImage`. Installed clients require the
+manifest URL to end in `linux-x86_64--ChatPlus-Desktop_<version>_amd64.AppImage`.
+The release publishes both names and their matching `.sig` files from the same
+signed build. Staging checks that both payloads and both signatures are
+byte-identical. The disk image and Debian package are manual downloads.
 
 The release notes link directly to Windows Setup, both macOS disk images, Linux
 DEB and AppImage. The separate Windows application remains available in Assets.

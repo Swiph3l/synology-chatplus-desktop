@@ -26,7 +26,8 @@ export function classifyAsset(name) {
   if (/^darwin-x86_64--.+\.dmg$/.test(name)) return "macOS Intel";
   if (/^darwin-(?:aarch64|x86_64)--.+\.app\.tar\.gz$/.test(name))
     return "macOS update";
-  if (/^linux-x86_64--.+\.AppImage$/.test(name)) return "Linux AppImage";
+  if (/^(?:linux-x86_64--.+|ChatPlus-Desktop-.+-x86_64)\.AppImage$/.test(name))
+    return "Linux AppImage";
   if (/^linux-x86_64--.+\.deb$/.test(name)) return "Linux DEB";
   return "Other";
 }
@@ -85,7 +86,9 @@ async function collect() {
         browser_download_url: url,
       } = asset;
       const architecture =
-        /^(?:windows|darwin|linux)-(x86_64|aarch64)--/.exec(name)?.[1] ?? "";
+        /^(?:windows|darwin|linux)-(x86_64|aarch64)--/.exec(name)?.[1] ??
+        /^ChatPlus-Desktop-.+-(x86_64)\.AppImage(?:\.sig)?$/.exec(name)?.[1] ??
+        "";
       assets.push({
         name,
         architecture,

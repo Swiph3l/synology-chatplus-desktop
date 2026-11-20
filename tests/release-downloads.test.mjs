@@ -13,6 +13,7 @@ test("download counts distinguish installers, standalone apps, update archives a
     ["darwin-aarch64--app.dmg", "macOS Apple Silicon"],
     ["darwin-aarch64--app.app.tar.gz", "macOS update"],
     ["linux-x86_64--app.AppImage", "Linux AppImage"],
+    ["ChatPlus-Desktop-1.0.6-x86_64.AppImage", "Linux AppImage"],
     ["linux-x86_64--app.deb", "Linux DEB"],
     ["linux-x86_64--app.AppImage.sig", "Signature"],
     ["latest.json", "Updater metadata"],
@@ -27,7 +28,7 @@ test("download counts distinguish installers, standalone apps, update archives a
   const totals = summary(
     cases.map(([name]) => ({ kind: classifyAsset(name), count: 2 })),
   );
-  assert.equal(totals.installers, 10);
+  assert.equal(totals.installers, 12);
   assert.equal(totals.other, 18);
   assert.equal(totals.downloads["Build evidence"], 4);
 });
