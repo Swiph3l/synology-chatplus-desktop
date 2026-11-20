@@ -26,6 +26,9 @@ function fixture({
   Object.defineProperty(document, "baseURI", {
     value: `${documentOrigin}/app/`,
   });
+  Object.defineProperty(document, "location", {
+    value: new URL(documentOrigin),
+  });
   // Linkedom does not implement ancestor capture ordering. Model only that
   // transport phase explicitly; real DOM nodes, listeners and URL parsing stay
   // in use, and every installation must request capture on the window.
@@ -219,6 +222,53 @@ test("Slack workspace and Discord signed attachment links keep their native prof
     assert.equal(f.click().allowed, true, href);
     assert.equal(f.providerCalls(), 1, href);
     assert.deepEqual(f.messages, [], href);
+  }
+});
+
+test("selecting a Mattermost GIF tile reaches the composer without an external-link prompt", () => {
+  const f = fixture({ provider: "mattermost", origin: "https://chat.test" });
+  const picker = f.document.createElement("div");
+  picker.className = "emoji-picker__items gif-picker__items";
+  f.document.body.append(picker);
+  f.anchor.className = "giphy-gif";
+  f.anchor.href = "https://giphy.com/gifs/example";
+  const image = f.document.createElement("img");
+  f.anchor.append(image);
+  picker.append(f.anchor);
+  const selections = [];
+  picker.addEventListener("click", (event) => {
+    event.preventDefault();
+    selections.push(event.target.closest("a").href);
+  });
+
+  f.click({}, image);
+  assert.deepEqual(selections, [f.anchor.href]);
+  assert.deepEqual(f.messages, []);
+});
+
+test("ordinary links keep confirmation outside the Mattermost GIF tile exception", () => {
+  const origin = "https://chat.test";
+  const gif = "https://giphy.com/gifs/example";
+  for (const [provider, documentOrigin, container, tileClass, href] of [
+    ["mattermost", origin, "post-message", "giphy-gif", gif],
+    ["mattermost", origin, "gif-picker__items", "credit", "https://giphy.com/"],
+    [
+      "mattermost",
+      origin,
+      "gif-picker__items",
+      "giphy-gif",
+      "https://other.test/gifs/example",
+    ],
+    ["mattermost", "https://login.test", "gif-picker__items", "giphy-gif", gif],
+    ["slack", origin, "gif-picker__items", "giphy-gif", gif],
+  ]) {
+    const f = fixture({ provider, origin, documentOrigin });
+    f.document.body.className = container;
+    f.anchor.className = tileClass;
+    f.anchor.href = href;
+    f.click();
+    assert.deepEqual(f.messages, [{ chatplusExternalLink: 1, href }]);
+    assert.equal(f.providerCalls(), 0);
   }
 });
 

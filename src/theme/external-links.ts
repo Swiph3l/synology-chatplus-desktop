@@ -35,6 +35,14 @@ function externalTarget(
   )
     return null;
   if (target.origin === policy.origin) return null;
+  // Mattermost's delegated click handler uses the GIPHY tile to insert the GIF in the composer.
+  if (
+    policy.provider === "mattermost" &&
+    document.location.origin === policy.origin &&
+    target.origin === "https://giphy.com" &&
+    anchor.matches(".gif-picker__items a.giphy-gif")
+  )
+    return null;
   // Swiph3l: Slack's public workspace navigation spans subdomains. Discord's
   // signed attachment URLs keep their related, authenticated download view.
   // Messenger's Google account verification must reach the provider handler:
