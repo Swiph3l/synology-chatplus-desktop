@@ -3,7 +3,20 @@
   "bundle": {
     "targets": ["appimage", "deb"],
     "linux": {
-      "deb": { "desktopTemplate": "chatplus.desktop" }
+      "deb": {
+        "desktopTemplate": "chatplus.desktop",
+        "files": {
+          "/usr/share/metainfo/io.github.swiph3l.chatplus-desktop.appdata.xml": "linux/io.github.swiph3l.chatplus-desktop.appdata.xml"
+        }
+      },
+      "appimage": {
+        "files": {
+          "/usr/lib/libgpg-error.so.0": "/usr/lib/x86_64-linux-gnu/libgpg-error.so.0",
+          "/usr/share/doc/libgpg-error0/copyright": "/usr/share/doc/libgpg-error0/copyright",
+          "/usr/share/common-licenses/LGPL-2.1": "/usr/share/common-licenses/LGPL-2.1",
+          "/usr/share/metainfo/io.github.swiph3l.chatplus-desktop.appdata.xml": "linux/io.github.swiph3l.chatplus-desktop.appdata.xml"
+        }
+      }
     }
   }
 }
