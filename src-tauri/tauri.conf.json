@@ -26,7 +26,7 @@
     ],
     "active": true,
     "targets": ["nsis"],
-    "shortDescription": "Independent client for Synology Chat and ChatPlus.",
+    "shortDescription": "Multi-account messaging for Synology ChatPlus and Synology Chat",
     "category": "SocialNetworking",
     "copyright": "Copyright (c) 2026 Swiph3l",
     "publisher": "Swiph3l",

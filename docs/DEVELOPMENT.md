@@ -22,16 +22,18 @@ on Apple Silicon for `aarch64-apple-darwin` or Intel for `x86_64-apple-darwin`;
 the release matrix creates separate packages. The macOS 14 minimum permits
 isolated persistent WebKit stores for added accounts.
 
-For Linux x64, the build/runtime baseline is Ubuntu 24.04 with WebKitGTK 4.1.
+Build the Linux x64 release in an up-to-date Ubuntu 22.04 (Jammy) environment.
+This supplies WebKitGTK 4.1 and glibc 2.35 for the executable and bundled libraries.
 Install the native dependencies used by CI:
 
 ```sh
 sudo apt-get update
-sudo apt-get install --no-install-recommends -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libayatana-appindicator3-dev librsvg2-dev patchelf libssl-dev xvfb
+sudo apt-get install --no-install-recommends -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libayatana-appindicator3-dev librsvg2-dev patchelf libssl-dev libfuse2 fuse3 xvfb
 ```
 
-Packaging/executing AppImages additionally needs compatible FUSE support; the
-Ubuntu 24.04 release environment uses `libfuse2t64`. The GTK3 graph uses a checked
+The AppImage packages the x86_64 Debian-family build host's
+`libgpg-error.so.0` and copyright file. Normal execution uses FUSE and a
+`fusermount` helper. The GTK3 graph uses a checked
 source backport of glib's iterator fix. Keep the vendored files unchanged; run
 the source/resolution guard and strict audit described in
 [DEPENDENCY_POLICY.md](DEPENDENCY_POLICY.md#linux-advisory-boundary), plus the

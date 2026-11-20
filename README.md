@@ -2,10 +2,12 @@
 
 <img src="src-tauri/icons/64x64.png" alt="Chat+ Desktop app icon" width="64" />
 
-Independent client for Synology Chat and ChatPlus.
-
-Chat+ Desktop brings self-hosted chat on your Synology NAS and services such as
-Discord into one open-source Tauri application.
+Chat+ Desktop is an unofficial messaging client for Synology ChatPlus and Synology
+Chat on Windows, macOS and Linux. Its Rust and Tauri desktop app keeps separate
+accounts signed in, delivers native notifications and offers Light, Dark and Retro
+themes. Discord, WhatsApp, Messenger, Mattermost and Slack integrations are
+experimental. Chat+ Desktop is licensed under GPL-3.0-only and is independent of
+Synology, Meta and Discord.
 [Project website](https://chatplus.bir.gg/).
 
 [![Latest stable release](https://img.shields.io/github/v/release/Swiph3l/synology-chatplus-desktop)](https://github.com/Swiph3l/synology-chatplus-desktop/releases/latest)
@@ -99,7 +101,9 @@ client with no Meta affiliation.
 
 Windows x64 remains the established target. Native build and release preparation
 covers macOS 14+ on Apple Silicon
-and Intel, and Linux x64 with an Ubuntu 24.04 baseline. These new platforms require
+and Intel, and Linux x64. The 1.0.6 Linux candidate is built on Ubuntu 22.04.
+The published 1.0.5 AppImage requires a newer glibc and exits on Ubuntu 22.04.
+These platforms require
 native acceptance before their support is promoted. Linux uses a verified source
 backport of the upstream glib iterator fix; its native debug/optimized regression
 and every target's security gate must pass before distribution. See
@@ -110,12 +114,12 @@ and every target's security gate must pass before distribution. See
 The [latest stable release](https://github.com/Swiph3l/synology-chatplus-desktop/releases/latest)
 lists direct installer downloads for each system.
 
-| System                        | Architecture          | Installer                 |
-| ----------------------------- | --------------------- | ------------------------- |
-| Windows                       | x64                   | Setup (.exe)              |
-| macOS 14+                     | Apple Silicon (arm64) | Disk image (.dmg)         |
-| macOS 14+                     | Intel (x64)           | Disk image (.dmg)         |
-| Linux (Ubuntu 24.04 baseline) | x64                   | AppImage or Debian (.deb) |
+| System    | Architecture          | Installer                 |
+| --------- | --------------------- | ------------------------- |
+| Windows   | x64                   | Setup (.exe)              |
+| macOS 14+ | Apple Silicon (arm64) | Disk image (.dmg)         |
+| macOS 14+ | Intel (x64)           | Disk image (.dmg)         |
+| Linux     | x64                   | AppImage or Debian (.deb) |
 
 Windows x64 is the established target. macOS and Linux remain candidate platforms;
 read the [platform requirements and limitations](docs/PLATFORMS.md) before installing.

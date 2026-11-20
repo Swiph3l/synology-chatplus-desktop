@@ -7,26 +7,46 @@ establish authenticated-provider or desktop behavior.
 
 ## Targets and installation
 
-| Target              | Baseline                             | Web engine    | Prepared packages                                | Status                                                               |
-| ------------------- | ------------------------------------ | ------------- | ------------------------------------------------ | -------------------------------------------------------------------- |
-| Windows x64         | Windows with Microsoft Edge WebView2 | WebView2      | NSIS setup `.exe`                                | Established target; run the Windows acceptance checklist for changes |
-| macOS Apple Silicon | macOS 14 or later, arm64             | WKWebView     | `.dmg`, `.app`; `.app.tar.gz` for signed updates | Candidate; native acceptance pending                                 |
-| macOS Intel         | macOS 14 or later, x86_64            | WKWebView     | `.dmg`, `.app`; `.app.tar.gz` for signed updates | Candidate; native acceptance pending                                 |
-| Linux x64           | Ubuntu 24.04 build/runtime baseline  | WebKitGTK 4.1 | `.AppImage`, `.deb`                              | Candidate; backport validation and native acceptance pending         |
+| Target              | Baseline                              | Web engine    | Prepared packages                                | Status                                                               |
+| ------------------- | ------------------------------------- | ------------- | ------------------------------------------------ | -------------------------------------------------------------------- |
+| Windows x64         | Windows with Microsoft Edge WebView2  | WebView2      | NSIS setup `.exe`                                | Established target; run the Windows acceptance checklist for changes |
+| macOS Apple Silicon | macOS 14 or later, arm64              | WKWebView     | `.dmg`, `.app`; `.app.tar.gz` for signed updates | Candidate; native acceptance pending                                 |
+| macOS Intel         | macOS 14 or later, x86_64             | WKWebView     | `.dmg`, `.app`; `.app.tar.gz` for signed updates | Candidate; native acceptance pending                                 |
+| Linux x64           | Ubuntu 22.04 build baseline for 1.0.6 | WebKitGTK 4.1 | `.AppImage`, `.deb`                              | Candidate; see AppImage startup coverage below                       |
 
 Use only packages actually published in [GitHub Releases](https://github.com/Swiph3l/synology-chatplus-desktop/releases).
 The prepared target list is not a list of available downloads. macOS packages are
 separate builds for Apple Silicon and Intel. macOS 14 is required for persistent
-per-service WebKit data stores. Other Linux distributions, older Ubuntu releases,
-Linux ARM and Windows ARM are outside the current candidate matrix.
+per-service WebKit data stores. Linux ARM and Windows ARM are outside the current
+candidate matrix.
 
 Windows setup can install WebView2. A published macOS disk image installs by
 dragging the app into Applications; updater signatures do not provide Apple
-Developer ID signing or notarization. On Linux, WebKitGTK 4.1 and desktop runtime
-libraries must be installed. AppImage execution also needs compatible FUSE support;
-the Ubuntu 24.04 packaging environment uses `libfuse2t64`. Linux tray presentation
+Developer ID signing or notarization. The Linux AppImage bundles GTK 3 and
+WebKitGTK 4.1. It uses the host's glibc, graphics stack and FUSE mount helper.
+On minimal Ubuntu installations, the desktop graphics stack must provide EGL
+(`libegl1`) and a graphics driver such as Mesa. The FUSE 2 library package is
+`libfuse2` on 22.04 and `libfuse2t64` on 24.04. The Debian package uses system dependencies.
+Linux tray presentation
 depends on the desktop's AppIndicator support and notifications need a notification
 service. Candidate packages must pass the checks below before distribution.
+
+### AppImage startup coverage
+
+The published 1.0.5 AppImage exits on Ubuntu 22.04 before it can display a
+window. Its executable references glibc 2.39 and multiple bundled libraries
+require 2.38. [AppImageHub's report](https://github.com/AppImage/appimage.github.io/pull/12233#issuecomment-7025213043)
+
+The unsigned 1.0.6 candidate was launched as an ordinary user in Ubuntu 22.04,
+24.04, 26.04 and Debian 13 x86_64 userspaces on WSL2. Each used a FUSE mount,
+Xvfb, a private D-Bus session and loopback-only networking. The first-run
+service picker rendered. With a saved service, the workspace displayed the
+connection error and Settings remained accessible. A separate Ubuntu 22.04
+virtual machine also rendered onboarding under the catalog's Firejail binary
+and offline launch command. These checks cover offline startup on X11.
+Wayland desktop integration, authenticated provider use and
+installation of a production-signed update have separate acceptance steps.
+See the [reproduction commands](TESTING.md#reproduce-the-linux-appimage-startup-check).
 
 ## Capability boundaries
 
@@ -98,7 +118,7 @@ signing follows [UPDATER.md](UPDATER.md) and the
 [release checklist](RELEASE_CHECKLIST.md).
 
 Native CI runs `validate (windows-latest, dev)`,
-`validate (ubuntu-24.04, dev)`, `validate (macos-15, dev)` and
+`validate (ubuntu-22.04, dev)`, `validate (macos-15, dev)` and
 `validate (macos-15-intel, dev)`. A separate frontend job exercises Node 24.
 Linux headless Rust tests run under Xvfb. Its CI job also runs the glib iterator
 regression with optimizations enabled. These jobs cover builds and automated
