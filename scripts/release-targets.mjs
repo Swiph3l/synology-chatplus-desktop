@@ -11,7 +11,7 @@ export const releaseTargets = {
   },
   "linux-x86_64": {
     rustTarget: "x86_64-unknown-linux-gnu",
-    ciName: "validate (ubuntu-24.04, dev)",
+    ciName: "validate (ubuntu-22.04, dev)",
     updaterExtension: ".AppImage",
     architecture: "amd64",
     installerExtension: ".deb",

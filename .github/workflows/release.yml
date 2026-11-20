@@ -19,7 +19,7 @@ jobs:
           - os: windows-latest
             target: windows-x86_64
             rust-target: x86_64-pc-windows-msvc
-          - os: ubuntu-24.04
+          - os: ubuntu-22.04
             target: linux-x86_64
             rust-target: x86_64-unknown-linux-gnu
           - os: macos-15
@@ -48,7 +48,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libayatana-appindicator3-dev librsvg2-dev patchelf libssl-dev libfuse2t64 xvfb
+          sudo apt-get install --no-install-recommends -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libayatana-appindicator3-dev librsvg2-dev patchelf libssl-dev libfuse2 xvfb
       - name: Validate tag, versions and production signing configuration
         run: node scripts/release-identity.mjs
         env:
