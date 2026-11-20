@@ -2,6 +2,20 @@
 
 All notable changes will be documented here. Versions follow Semantic Versioning.
 
+## 1.0.6 - 2026-11-20
+
+### Fixed
+
+- The Linux x86_64 AppImage now builds against Ubuntu 22.04's glibc 2.35.
+  Version 1.0.5 exited before opening its first window there. The AppImage also
+  includes a library needed on minimal Debian desktops.
+
+### Changed
+
+- The Linux download is named `ChatPlus-Desktop-1.0.6-x86_64.AppImage` and
+  includes AppStream metadata with the app description and a Linux screenshot.
+  Existing installations keep their signed updater download name.
+
 ## 1.0.5 - 2026-11-19
 
 ### Fixed
